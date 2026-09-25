@@ -207,7 +207,6 @@
   .station-link { cursor: pointer; outline: none; }
   .station-link:focus-visible .station, .station-link:hover .station { stroke: var(--line); }
   .label.clickable { cursor: pointer; }
-  .pop { position: absolute; z-index: 30; width: min(400px, calc(100% - 16px)); }
   .board {
     background: #0A0A0A; border-radius: 12px;
     padding: 10px 12px 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45), inset 0 1px 0 #2A2A2A;
@@ -242,7 +241,6 @@
   .board-note { font-family: var(--sans); font-size: 12px; line-height: 1.45; color: #8C8C8C; margin: 10px 2px 0; }
   .led-row.stop { grid-template-columns: 1fr auto; }
   .led-row.stop.passed { opacity: 0.35; }
-  @media (max-width: 600px) { .pop { position: fixed; left: 8px !important; right: 8px; top: auto !important; bottom: max(8px, env(safe-area-inset-bottom, 0px)); width: auto; } }
   /* ---------- Side panel + full-screen layout ---------- */
   .panel-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
   .panel-top .eyebrow { margin: 0; }
@@ -262,14 +260,44 @@
   @media (min-width: 861px) {
     html, body { height: 100%; overflow: hidden; }
     body { padding: 0; }
-    .wrap { max-width: none; margin: 0; height: 100vh; height: 100dvh; grid-template-columns: clamp(270px, 20vw, 360px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; align-items: stretch; }
+    .wrap { max-width: none; margin: 0; height: 100vh; height: 100dvh; grid-template-columns: clamp(285px, 19vw, 340px) minmax(0, 1fr) clamp(320px, 24vw, 460px); grid-template-rows: minmax(0, 1fr); gap: 0; align-items: stretch; }
     .panel { height: 100%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; padding: 28px 26px 32px 28px; border-right: 1px solid var(--rule); }
     .map-wrap { height: 100%; min-width: 0; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 16px 24px 16px 24px; }
     svg.map { width: 100%; height: 100%; max-height: none; }
-    body.panel-hidden .wrap { grid-template-columns: minmax(0, 1fr); }
+    body.panel-hidden .wrap { grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 460px); }
+    .rpanel { height: 100%; overflow: hidden; box-sizing: border-box; border-left: 1px solid var(--rule); }
     body.panel-hidden .panel { display: none; }
   }
   @media (max-width: 860px) { .panel-hide, .panel-show { display: none !important; } .map-wrap { order: -1; } }
+  /* ---------- Right panel: clock, facts, fixed departure board ---------- */
+  .rpanel { display: flex; flex-direction: column; gap: clamp(14px, 2.2vh, 26px); padding: clamp(20px, 3vh, 36px) clamp(18px, 1.6vw, 30px); min-width: 0; }
+  .clock-block { flex: none; }
+  .big-time { font-family: var(--sans); font-weight: 700; font-size: clamp(56px, min(6.2vw, 10vh), 120px); line-height: 0.95; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .big-time .secs { font-size: 0.38em; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-left: 0.12em; }
+  .big-date { font-family: var(--sans); font-size: clamp(16px, 1.3vw, 22px); color: var(--muted); margin-top: 8px; }
+  .facts { flex: 1 1 0; min-height: 150px; display: flex; flex-direction: column; border-top: 1px solid var(--rule); padding-top: clamp(12px, 2vh, 20px); }
+  .facts-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .facts-head .section-label { margin: 0; }
+  .facts-count { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .fact-tag { margin: 10px 0 4px; font-size: 12.5px; font-weight: 600; color: var(--line); letter-spacing: 0.02em; }
+  .fact-text { margin: 0; flex: 1 1 auto; overflow: hidden; font-family: var(--sans); font-size: clamp(17px, min(1.35vw, 2.6vh), 26px); line-height: 1.38; text-wrap: pretty; transition: opacity 0.4s ease; }
+  .fact-text.fading, .fact-tag.fading { opacity: 0; }
+  .facts-nav { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .facts-btn { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+  .facts-btn:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+  .facts-dots { flex: 1; height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+  .facts-dots span { display: block; height: 100%; width: 0; background: var(--line); border-radius: 2px; }
+  .rpanel .board { flex: 1.25 1 0; min-height: 220px; display: flex; flex-direction: column; overflow: hidden; }
+  .rpanel .board-sections { flex: 1 1 auto; overflow: hidden; align-content: start; }
+  .board-close[hidden] { display: none; }
+  .led-prompt { display: grid; place-items: center; text-align: center; min-height: 5.2em; line-height: 1.35; }
+  .station-link.selected .station { stroke: var(--line); stroke-width: 6; }
+  .train.selected .train-body { stroke: var(--ink); stroke-width: 3; }
+  @media (max-width: 860px) {
+    .rpanel { order: 0; padding-block: 8px 24px; }
+    .facts { flex: none; }
+    .rpanel .board { flex: none; }
+  }
   .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   :root { --pill-bg: #E4E7E3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #2A323A; } }
@@ -282,7 +310,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v1.4</p>
+        <p class="eyebrow">Live prototype · v1.5</p>
         <button class="panel-hide" id="panel-hide" type="button" aria-label="Hide side panel" title="Hide side panel">
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M11 4 L6 9 L11 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -375,28 +403,41 @@
 
   <main class="map-wrap" id="map-wrap">
     <svg class="map" id="map" viewBox="0 0 1300 1400" role="img" aria-label="Live schematic map of the Victoria line showing each train"></svg>
-    <div class="hud" aria-live="off">
-      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-        <circle cx="11" cy="11" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
-        <path d="M11 5.5 V11 L14.5 13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-      </svg>
-      <span class="day" id="hud-day">–</span><span id="hud-time">–:–</span>
-    </div>
     <div class="tip" id="tip" hidden></div>
     <button class="panel-show" id="panel-show" type="button" aria-label="Show side panel" title="Show side panel" hidden>
       <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4 L12 9 L7 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
-    <div class="pop" id="pop" role="dialog" aria-labelledby="pop-title" hidden>
-      <div class="board">
-        <div class="board-head">
-          <h2 id="pop-title">Station</h2>
-          <button class="board-close" id="pop-close" type="button" aria-label="Close">×</button>
-        </div>
-        <div class="board-sections" id="pop-sections"></div>
-        <p class="board-note" id="pop-note" hidden></p>
-      </div>
-    </div>
   </main>
+
+  <aside class="rpanel" aria-label="Clock, facts and departures">
+    <div class="clock-block">
+      <div class="big-time" id="big-time">--:--</div>
+      <div class="big-date" id="big-date">&nbsp;</div>
+    </div>
+
+    <section class="facts" aria-label="Victoria line facts">
+      <div class="facts-head">
+        <p class="section-label">Did you know?</p>
+        <span class="facts-count" id="fact-count"></span>
+      </div>
+      <p class="fact-tag" id="fact-tag"></p>
+      <p class="fact-text" id="fact-text" aria-live="polite"></p>
+      <div class="facts-nav">
+        <button type="button" class="facts-btn" id="fact-prev" aria-label="Previous fact">‹</button>
+        <div class="facts-dots" id="fact-dots" aria-hidden="true"></div>
+        <button type="button" class="facts-btn" id="fact-next" aria-label="Next fact">›</button>
+      </div>
+    </section>
+
+    <section class="board" id="pop" aria-labelledby="pop-title">
+      <div class="board-head">
+        <h2 id="pop-title">Departures</h2>
+        <button class="board-close" id="pop-close" type="button" aria-label="Clear selection" hidden>×</button>
+      </div>
+      <div class="board-sections" id="pop-sections"></div>
+      <p class="board-note" id="pop-note" hidden></p>
+    </section>
+  </aside>
 </div>
 <div class="dimmer" id="dimmer" aria-hidden="true"></div>
 
@@ -498,8 +539,10 @@
   el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
   const stationLayer = el("g", {}, content);
   const labelLayer = el("g", {}, content);
+  const stationNodes = [];
   S.forEach((s, i) => {
     const g = el("g", { class: "station-link", tabindex: "0", role: "button", "aria-label": `${s.name}: show departures` }, stationLayer);
+    stationNodes[i] = g;
     el("circle", { class: "station-hit", cx: s.x, cy: s.y, r: 24 }, g);
     el("circle", { class: "station", cx: s.x, cy: s.y, r: 11 }, g);
     g.addEventListener("click", () => openBoard(i));
@@ -721,8 +764,12 @@
 
   function fitView() {
     const bb = content.getBBox();
-    const pad = 44;
-    svg.setAttribute("viewBox", `${(bb.x - pad).toFixed(0)} ${(bb.y - pad).toFixed(0)} ${(bb.width + pad * 2).toFixed(0)} ${(bb.height + pad * 2 + 30).toFixed(0)}`);
+    // include the train lanes, which can sit outside the labels (e.g. below Brixton)
+    const xs = S.map(s => s.x), ys = S.map(s => s.y), m = LANE_OUTER + 6;
+    const x1 = Math.min(bb.x, Math.min(...xs) - m), y1 = Math.min(bb.y, Math.min(...ys) - m);
+    const x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m), y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
+    const pad = 56; // same clearance top and bottom
+    svg.setAttribute("viewBox", `${(x1 - pad).toFixed(0)} ${(y1 - pad).toFixed(0)} ${(x2 - x1 + pad * 2).toFixed(0)} ${(y2 - y1 + pad * 2).toFixed(0)}`);
   }
 
 
@@ -1063,10 +1110,7 @@
     emptyMsg.textContent = "No trains running right now";
     emptyMsg.setAttribute("visibility", empty ? "visible" : "hidden");
 
-    const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-    const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
-    document.getElementById("hud-day").textContent = (parts.weekday || "").toUpperCase();
-    document.getElementById("hud-time").textContent = `${parts.hour}:${parts.minute}`;
+    updateClock();
   }
 
   async function poll() {
@@ -1151,12 +1195,13 @@
 
   if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { DEBUG, trains, S, LANES, poseAtL, cum, segLen, TRAIN_SCALE };
 
-  /* ---------- Pop-up boards (stations and trains) ---------- */
+  /* ---------- Departure board (fixed in the right panel) ---------- */
   const pop = document.getElementById("pop");
   const popTitle = document.getElementById("pop-title");
   const popSections = document.getElementById("pop-sections");
   const popNote = document.getElementById("pop-note");
-  let popRender = null, popTimer = null, popAnchor = null, popLastFocus = null;
+  const popClose = document.getElementById("pop-close");
+  let popRender = null, popTimer = null, selected = null;
   const clockFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
   function whenText(sec) {
@@ -1183,66 +1228,41 @@
     const c = document.createElement("div"); c.className = "led-clock"; c.textContent = clockFmt.format(new Date());
     led.appendChild(c);
   }
-
-  // svg coordinates -> position inside the map area
-  function toWrap(x, y) {
-    const m = svg.getScreenCTM(); if (!m) return { x: 0, y: 0 };
-    const p = svg.createSVGPoint(); p.x = x; p.y = y;
-    const q = p.matrixTransform(m), w = wrap.getBoundingClientRect();
-    return { x: q.x - w.left, y: q.y - w.top };
+  function setSelected(node) {
+    if (selected) selected.classList.remove("selected");
+    selected = node || null;
+    if (selected) selected.classList.add("selected");
   }
-  // Put the pop-up beside its anchor, on whichever side stays on screen and avoids covering the station name
-  function placePop() {
-    if (pop.hidden || !popAnchor || window.innerWidth <= 600) { pop.style.left = ""; pop.style.top = ""; return; }
-    const a = toWrap(popAnchor.x, popAnchor.y);
-    const W = wrap.clientWidth, H = wrap.clientHeight, bw = pop.offsetWidth, bh = pop.offsetHeight, gap = 44, pad = 8;
-    let avoid = null;
-    if (popAnchor.rect) {
-      const p1 = toWrap(popAnchor.rect.x, popAnchor.rect.y), p2 = toWrap(popAnchor.rect.x2, popAnchor.rect.y2);
-      avoid = { x: p1.x - 6, y: p1.y - 6, x2: p2.x + 6, y2: p2.y + 6 };
-    }
-    const clampL = l => Math.min(W - bw - pad, Math.max(pad, l)), clampT = v => Math.min(H - bh - pad, Math.max(pad, v));
-    const cands = [
-      { l: a.x + gap, t: a.y - bh / 2 }, { l: a.x - gap - bw, t: a.y - bh / 2 },
-      { l: a.x - bw / 2, t: a.y + gap }, { l: a.x - bw / 2, t: a.y - gap - bh }
-    ].map(c => ({ l: clampL(c.l), t: clampT(c.t) }));
-    const overlap = (r, q) => Math.max(0, Math.min(r.x2, q.x2) - Math.max(r.x, q.x)) * Math.max(0, Math.min(r.y2, q.y2) - Math.max(r.y, q.y));
-    let best = cands[0], bestScore = Infinity;
-    cands.forEach((c, i) => {
-      const r = { x: c.l, y: c.t, x2: c.l + bw, y2: c.t + bh };
-      let score = overlap(r, { x: a.x - 26, y: a.y - 26, x2: a.x + 26, y2: a.y + 26 }) * 50;   // never cover the station or train
-      if (avoid) score += overlap(r, avoid) * 10;                                               // keep the name visible
-      score += i * 0.5;                                                                         // mild preference order
-      if (score < bestScore) { bestScore = score; best = c; }
-    });
-    pop.style.left = best.l + "px"; pop.style.top = best.t + "px";
+  function showPrompt() {
+    popTitle.textContent = "Departures";
+    popSections.innerHTML = "";
+    const p = document.createElement("div"); p.className = "led-prompt"; p.textContent = "Tap a station or a train";
+    const led = screen("", [p]);
+    addClock(led);
+    popNote.hidden = true;
+    popClose.hidden = true;
   }
-  function openPop(title, anchor, render) {
+  function openPop(title, node, render) {
     popTitle.textContent = title;
-    popAnchor = anchor; popRender = render;
-    if (pop.hidden) popLastFocus = document.activeElement;
-    pop.hidden = false;
-    render(); placePop();
+    popRender = render;
+    popClose.hidden = false;
+    setSelected(node);
+    render();
     clearInterval(popTimer);
-    popTimer = setInterval(() => { if (popRender) popRender(); }, 1000);
+    popTimer = setInterval(() => (popRender || showPrompt)(), 1000);
   }
   function closePop() {
-    if (pop.hidden) return;
-    pop.hidden = true; popRender = null; clearInterval(popTimer);
-    if (popLastFocus && popLastFocus.focus && document.activeElement && pop.contains(document.activeElement)) popLastFocus.focus();
+    popRender = null; setSelected(null);
+    showPrompt();
   }
-  document.getElementById("pop-close").addEventListener("click", closePop);
+  popClose.addEventListener("click", closePop);
   document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
-  document.addEventListener("pointerdown", e => {
-    if (pop.hidden || pop.contains(e.target)) return;
-    if (e.target.closest && e.target.closest(".station-link, .label.clickable, .train")) return; // those open their own board
-    closePop();
-  });
-  window.addEventListener("resize", placePop);
+  showPrompt();
+  popTimer = setInterval(showPrompt, 1000);
 
   // Station departures: next three each way
   function openBoard(k) {
-    openPop(S[k].name, { x: S[k].x, y: S[k].y, rect: S[k].labelRect }, () => {
+    openPop(S[k].name, stationNodes[k], () => {
       const now = performance.now();
       const preds = (boardData.get(k) || []).map(p => ({ ...p, left: p.tts - (now - p.fetchedAt) / 1000 })).filter(p => p.left > -20);
       const isTerminus = k === 0 || k === LAST;
@@ -1269,7 +1289,7 @@
 
   // Train: its upcoming stops with predicted times
   function openTrain(t) {
-    openPop(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`, { x: t.x, y: t.y }, () => {
+    openPop(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`, t.node, () => {
       const now = performance.now(), s = sgn(t.dir);
       popTitle.textContent = `${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`;
       popSections.innerHTML = "";
@@ -1281,9 +1301,55 @@
       addClock(led);
       popNote.textContent = `Train ${t.v}` + (t.loc ? ` · TfL reports: ${t.loc}` : "");
       popNote.hidden = false;
-      if (t.missed >= 2 || !trains.has(t.v)) { popRender = null; }
+      if (t.missed >= 2 || !trains.has(t.v)) { popRender = null; setSelected(null); }
     });
   }
+
+  /* ---------- Clock ---------- */
+  const bigTime = document.getElementById("big-time"), bigDate = document.getElementById("big-date");
+  const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const dateFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  function updateClock() {
+    const now = new Date();
+    const p = Object.fromEntries(timeFmt.formatToParts(now).map(x => [x.type, x.value]));
+    bigTime.innerHTML = `${p.hour}:${p.minute}<span class="secs">${p.second}</span>`;
+    bigDate.textContent = dateFmt.format(now);
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  /* ---------- Facts carousel ---------- */
+  const FACTS = [{"tag": "History", "text": "The Victoria line was first proposed in the County of London Plan, published in 1943."}, {"tag": "Station art · Brixton", "text": "Brixton's platform tiles show a ‘ton of bricks’, a visual pun on the station's name, designed by Hans Unger."}, {"tag": "History", "text": "During planning the line was known simply as ‘Route C’."}, {"tag": "History", "text": "Names considered included the Walvic, Viking, Mayfair and West End lines before ‘Victoria line’ was chosen, after the station."}, {"tag": "Station art · Warren Street", "text": "Warren Street's tiles show a maze, a pun on ‘warren’. The design is by Crosby, Fletcher and Forbes."}, {"tag": "Construction", "text": "Test tunnels were dug between Tottenham and Manor House from January 1960, before the full line was approved."}, {"tag": "Construction", "text": "The government approved the line's £56 million budget on 20 August 1962, and construction started that September."}, {"tag": "Station art · Seven Sisters", "text": "Seven Sisters' tiles show seven trees, recalling the trees that gave the area its name. The design is by Hans Unger."}, {"tag": "Opening", "text": "The first section, from Walthamstow Central to Highbury & Islington, opened on 1 September 1968 without any ceremony."}, {"tag": "Opening", "text": "Queen Elizabeth II formally opened the line on 7 March 1969, becoming the first reigning monarch to ride on the Underground."}, {"tag": "Station art · Victoria", "text": "Victoria's tiles show a silhouette of Queen Victoria, after whom the station and the line are named. The design is by Edward Bawden."}, {"tag": "Opening", "text": "The extension to Brixton was opened by Princess Alexandra on 23 July 1971."}, {"tag": "Opening", "text": "Pimlico was the last station to open, on 14 September 1972, over a year after the Brixton extension."}, {"tag": "Station art · Pimlico", "text": "Pimlico's abstract tiles by Peter Sedgley nod to the nearby Tate Gallery, now Tate Britain."}, {"tag": "The line", "text": "The Victoria line is 21 km (13 miles) long and serves 16 stations."}, {"tag": "The line", "text": "It is one of only two Underground lines that run entirely underground. The other is the Waterloo & City line."}, {"tag": "Station art · Blackhorse Road", "text": "Blackhorse Road's tiles show exactly what the name says: a black horse, designed by Hans Unger."}, {"tag": "The line", "text": "The only part of the Victoria line above ground is Northumberland Park depot, on Tottenham Marshes."}, {"tag": "Technology", "text": "When it opened in 1968 the Victoria line was the world's first full-scale automatic railway."}, {"tag": "Technology", "text": "Its automatic trains beat Philadelphia's Lindenwold line, which opened with automatic operation in January 1969."}, {"tag": "Station art · Tottenham Hale", "text": "Tottenham Hale's tiles by Edward Bawden show the ferry that once carried passengers across the River Lea."}, {"tag": "Engineering", "text": "Many stations sit on a hump: trains climb to slow down as they arrive and roll downhill as they leave, saving about 5% of energy and running 9% faster."}, {"tag": "Trains", "text": "Trains on the Victoria line run at up to 80 km/h (50 mph)."}, {"tag": "Trains", "text": "The line opened with a fleet of 39½ eight-car trains of 1967 Stock."}, {"tag": "Station art · Finsbury Park", "text": "Finsbury Park's tiles by Tom Eckersley show crossed duelling pistols, recalling the park's history as a duelling spot."}, {"tag": "Trains", "text": "The last 1967 Stock train ran on 30 June 2011, after more than 40 years of service."}, {"tag": "Trains", "text": "Today's 47 eight-car trains are 2009 Stock, built by Bombardier."}, {"tag": "Trains", "text": "The 2009 Stock trains are slightly wider and longer than the originals, so they can't run on any other deep-level tube line."}, {"tag": "Station art · Highbury & Islington", "text": "Highbury & Islington's tiles by Edward Bawden show a castle that once stood nearby."}, {"tag": "Service", "text": "Since May 2017, trains at peak times run every 100 seconds: 36 trains an hour."}, {"tag": "Service", "text": "The upgrade to new trains and signalling increased the line's capacity by 21%, roughly 10,000 extra passengers an hour."}, {"tag": "Service", "text": "In 2019 the line carried 302 million passenger journeys, making it the second-busiest on the Underground."}, {"tag": "Station art · King's Cross", "text": "King's Cross St. Pancras' tiles by Tom Eckersley form a cross made of crowns."}, {"tag": "Service", "text": "Measured by journeys per mile, the Victoria line is by far the most intensively used line on the Underground."}, {"tag": "Stations", "text": "Pimlico is the only station on the line with no interchange to another line or railway."}, {"tag": "Stations", "text": "You can change across the platform to the Bakerloo line at Oxford Circus, the Northern line at Euston and the Piccadilly line at Finsbury Park."}, {"tag": "Station art · Euston", "text": "Euston's tiles by Tom Eckersley recall the lost Euston Arch that once stood at the old mainline station."}, {"tag": "Service", "text": "The Night Tube began on the Victoria line in August 2016, with trains every 10 minutes on Friday and Saturday nights."}, {"tag": "Incidents", "text": "In January 2014, contractors flooded a signalling room at Victoria with quick-setting concrete. Engineers used sugar to stop it setting, and services resumed the next day."}, {"tag": "Engineering", "text": "In 2010 water from the lost River Tyburn was pumped through heat exchangers at Victoria station to help cool it, at 200 litres a second."}, {"tag": "Station art · Green Park", "text": "Green Park's tiles by Hans Unger are an abstract pattern of trees from the park above. They were replaced in 1979 when the Jubilee line arrived."}, {"tag": "History", "text": "When the line opened, a journey from Walthamstow to Victoria took around 24 minutes."}, {"tag": "Stations", "text": "The stations were originally tiled in blue and grey, each with its own motif in the seat recesses to help passengers recognise where they were."}, {"tag": "Station art · Oxford Circus", "text": "Oxford Circus' tiles by Hans Unger are an abstract picture of the circus and its interchanging Underground lines."}, {"tag": "What might have been", "text": "Extensions to Streatham, Dulwich and Crystal Palace were considered, but none were ever built."}, {"tag": "Technology", "text": "The line's signalling was replaced in the 2010s, which London Underground called the world's first upgrade from one automatic train system to another."}, {"tag": "Station art · Stockwell", "text": "Stockwell's tiles by Abram Games show a swan, after The Swan, a famous pub and music venue nearby."}, {"tag": "Service", "text": "Not every train runs the full length: some turn back at Seven Sisters instead of continuing to Walthamstow Central."}, {"tag": "Station art · Walthamstow Central", "text": "Walthamstow Central's tiles by Julia Black adapt a William Morris design, a nod to the nearby William Morris Gallery."}, {"tag": "Station art · Vauxhall", "text": "Vauxhall's tiles by George Smith illustrate the Vauxhall Pleasure Gardens that once stood nearby."}];
+  const factText = document.getElementById("fact-text"), factTag = document.getElementById("fact-tag");
+  const factCount = document.getElementById("fact-count"), factBar = document.createElement("span");
+  document.getElementById("fact-dots").appendChild(factBar);
+  const FACT_MS = 18000;
+  let factIdx = Math.floor(Math.random() * FACTS.length), factStart = performance.now(), factPaused = false;
+  function showFact(i, animate) {
+    factIdx = (i + FACTS.length) % FACTS.length;
+    const apply = () => {
+      factTag.textContent = FACTS[factIdx].tag;
+      factText.textContent = FACTS[factIdx].text;
+      factCount.textContent = `${factIdx + 1} / ${FACTS.length}`;
+      factText.classList.remove("fading"); factTag.classList.remove("fading");
+    };
+    factStart = performance.now();
+    if (animate && !reduceMotionPref) { factText.classList.add("fading"); factTag.classList.add("fading"); setTimeout(apply, 400); }
+    else apply();
+  }
+  document.getElementById("fact-prev").addEventListener("click", () => showFact(factIdx - 1, true));
+  document.getElementById("fact-next").addEventListener("click", () => showFact(factIdx + 1, true));
+  const factsEl = document.querySelector(".facts");
+  factsEl.addEventListener("mouseenter", () => { factPaused = true; });
+  factsEl.addEventListener("mouseleave", () => { factPaused = false; factStart = performance.now() - (parseFloat(factBar.style.width) || 0) / 100 * FACT_MS; });
+  (function tickFacts(now) {
+    if (factPaused) factStart += 16; // hold while hovered
+    const k = Math.min(1, (performance.now() - factStart) / FACT_MS);
+    factBar.style.width = (k * 100).toFixed(1) + "%";
+    if (k >= 1) showFact(factIdx + 1, true);
+    requestAnimationFrame(tickFacts);
+  })();
+  showFact(factIdx, false);
 
   /* ---------- Side panel show / hide (remembered per screen) ---------- */
   const panelShow = document.getElementById("panel-show");
@@ -1291,7 +1357,6 @@
     document.body.classList.toggle("panel-hidden", hidden);
     panelShow.hidden = !hidden;
     try { localStorage.setItem("panel-hidden", hidden ? "1" : "0"); } catch (e) {}
-    requestAnimationFrame(placePop);
   }
   document.getElementById("panel-hide").addEventListener("click", () => { setPanel(true); panelShow.focus(); });
   panelShow.addEventListener("click", () => { setPanel(false); document.getElementById("panel-hide").focus(); });
@@ -1331,7 +1396,7 @@
   applyDisplay();
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "1.4";
+  const VERSION = "1.5";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
