@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700;900&display=swap">
 <style>
   :root {
     --bg: #F1F2EF;
@@ -200,6 +201,50 @@
   .ix:focus-visible .ix-dot, .ix:focus-visible .ix-ring { stroke: var(--line); stroke-width: 3; }
   .ix-text { font-family: var(--sans); font-size: 16px; font-weight: 600; letter-spacing: 0.01em; pointer-events: none; }
   .ix-rail-text { font-family: var(--sans); font-size: 17px; font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+  [hidden] { display: none !important; }
+  /* ---------- Departure board ---------- */
+  .station-hit { fill: transparent; cursor: pointer; }
+  .station-link { cursor: pointer; outline: none; }
+  .station-link:focus-visible .station, .station-link:hover .station { stroke: var(--line); }
+  .label.clickable { cursor: pointer; }
+  .board-overlay {
+    position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+    padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+    background: rgba(10, 12, 14, 0.55); backdrop-filter: blur(2px);
+  }
+  .board {
+    width: min(760px, 100%); background: #0A0A0A; border-radius: 14px;
+    padding: 14px 18px 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.5), inset 0 1px 0 #2A2A2A;
+    border: 6px solid #000;
+  }
+  .board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 4px 12px; }
+  .board-head h2 { margin: 0; font-family: var(--sans); font-weight: 600; font-size: 18px; color: #E8E8E8; letter-spacing: 0.01em; display: flex; align-items: center; gap: 10px; }
+  .board-head h2::before { content: ""; width: 6px; height: 20px; border-radius: 3px; background: var(--line); }
+  .board-close {
+    font: inherit; font-size: 22px; line-height: 1; width: 34px; height: 34px; border-radius: 8px;
+    border: 1px solid #333; background: #161616; color: #DDD; cursor: pointer;
+  }
+  .board-close:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+  .board-sections { display: grid; gap: 14px; }
+  .plat-label { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #9A9A9A; margin: 0 4px 6px; }
+  .led {
+    --amber: #FFA41C;
+    position: relative; border-radius: 4px; padding: 14px 18px 12px;
+    background-color: #141509;
+    background-image: radial-gradient(circle at center, rgba(255,164,28,0.07) 0 1px, transparent 1.4px);
+    background-size: 4px 4px;
+    box-shadow: inset 0 0 0 2px #050505, inset 0 0 30px rgba(0,0,0,0.6);
+    font-family: "Doto", "DotGothic16", ui-monospace, monospace; font-weight: 900; color: var(--amber);
+    text-shadow: 0 0 6px rgba(255,164,28,0.45);
+    font-size: clamp(18px, 3.6vw, 30px); line-height: 1.25; letter-spacing: 0.02em;
+  }
+  .led-row { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 0.5em; align-items: baseline; white-space: nowrap; }
+  .led-row .dest { overflow: hidden; text-overflow: clip; }
+  .led-row .when { text-align: right; font-variant-numeric: tabular-nums; }
+  .led-empty { opacity: 0.9; }
+  .led-clock { text-align: center; margin-top: 0.35em; font-variant-numeric: tabular-nums; }
+  .board-note { font-family: var(--sans); font-size: 12.5px; color: #8C8C8C; margin: 12px 4px 0; }
+  @media (max-width: 520px) { .board { padding: 10px 10px 14px; border-width: 4px; } .led { padding: 10px 12px; } }
   .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   :root { --pill-bg: #E4E7E3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #2A323A; } }
@@ -211,7 +256,7 @@
 <div class="wrap">
   <aside class="panel">
     <div>
-      <p class="eyebrow">Live prototype · v1.2</p>
+      <p class="eyebrow">Live prototype · v1.3</p>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
       <p class="intro">Every train on the line, placed from TfL's live arrival predictions and moved smoothly between updates.</p>
     </div>
@@ -301,8 +346,19 @@
       <span class="day" id="hud-day">–</span><span id="hud-time">–:–</span>
     </div>
     <div class="tip" id="tip" hidden></div>
+
   </main>
 </div>
+  <div class="board-overlay" id="board-overlay" hidden>
+    <div class="board" role="dialog" aria-modal="true" aria-labelledby="board-title">
+      <div class="board-head">
+        <h2 id="board-title">Station</h2>
+        <button class="board-close" id="board-close" type="button" aria-label="Close departures">×</button>
+      </div>
+      <div class="board-sections" id="board-sections"></div>
+      <p class="board-note" id="board-note" hidden></p>
+    </div>
+  </div>
 
 <script>
 (function () {
@@ -402,7 +458,13 @@
   el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
   const stationLayer = el("g", {}, content);
   const labelLayer = el("g", {}, content);
-  S.forEach(s => el("circle", { class: "station", cx: s.x, cy: s.y, r: 11 }, stationLayer));
+  S.forEach((s, i) => {
+    const g = el("g", { class: "station-link", tabindex: "0", role: "button", "aria-label": `${s.name}: show departures` }, stationLayer);
+    el("circle", { class: "station-hit", cx: s.x, cy: s.y, r: 24 }, g);
+    el("circle", { class: "station", cx: s.x, cy: s.y, r: 11 }, g);
+    g.addEventListener("click", () => openBoard(i));
+    g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openBoard(i); } });
+  });
   const emptyMsg = el("text", { class: "empty-msg", "text-anchor": "middle", x: 520, y: 900 });
   emptyMsg.setAttribute("visibility", "hidden");
 
@@ -580,7 +642,8 @@
         }
       }
       placed.push(best);
-      const text = el("text", { class: "label", "text-anchor": best.align }, labelLayer);
+      const text = el("text", { class: "label clickable", "text-anchor": best.align }, labelLayer);
+      text.addEventListener("click", () => openBoard(S.indexOf(s)));
       best.lines.forEach((ln, i) => {
         el("tspan", { x: best.ax, y: best.by + ASC + i * LH }, text).textContent = ln;
       });
@@ -703,9 +766,25 @@
   }
   const poseAt = (D, dir) => poseAtL(toL(D, dir), dir);
 
+  const boardData = new Map(); // station index -> predictions at that station
   function ingest(data) {
     const now = performance.now();
     const groups = new Map();
+    boardData.clear();
+    data.forEach(p => {
+      const idx = byNaptan[p.naptanId];
+      if (idx === undefined) return;
+      const dir = directionOf(p, idx);
+      if (!dir) return;
+      const list = boardData.get(idx) || boardData.set(idx, []).get(idx);
+      const key = (p.vehicleId || "").trim() || p.id;
+      const existing = list.find(x => x.key === key && x.dir === dir);
+      if (existing && existing.tts <= p.timeToStation) return;
+      if (existing) list.splice(list.indexOf(existing), 1);
+      list.push({ key, dir, tts: p.timeToStation, fetchedAt: now,
+        dest: byNaptan[p.destinationNaptanId], destName: (p.destinationName || "").replace(/ Underground Station$/, ""),
+        platform: (p.platformName || "").replace(/^(North|South)bound\s*-\s*/i, "") });
+    });
     data.forEach(p => {
       const v = (p.vehicleId || "").trim();
       const idx = byNaptan[p.naptanId];
@@ -1007,6 +1086,83 @@
   document.addEventListener("scroll", hideTip, { passive: true });
 
   if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { DEBUG, trains, S, LANES, poseAtL, cum, segLen, TRAIN_SCALE };
+
+  /* ---------- Departure board ---------- */
+  const overlay = document.getElementById("board-overlay");
+  const sections = document.getElementById("board-sections");
+  const boardNote = document.getElementById("board-note");
+  let boardStation = null, boardTimer = null, lastFocus = null;
+
+  function whenText(sec) {
+    if (sec < 30) return "due";
+    const m = Math.max(1, Math.round(sec / 60));
+    return m === 1 ? "1 min" : `${m} mins`;
+  }
+  function renderBoard() {
+    if (boardStation === null) return;
+    const k = boardStation, now = performance.now();
+    const preds = (boardData.get(k) || []).map(p => ({ ...p, left: p.tts - (now - p.fetchedAt) / 1000 }))
+      .filter(p => p.left > -20);
+    const isTerminus = k === 0 || k === LAST;
+    const dirs = k === 0 ? ["S"] : k === LAST ? ["N"] : ["N", "S"];
+    sections.innerHTML = "";
+    dirs.forEach(dir => {
+      // at a terminus the feed only lists trains arriving to turn round; they form the next departures
+      const pool = isTerminus ? preds : preds.filter(p => p.dir === dir);
+      const rows = pool.sort((a, b) => a.left - b.left).slice(0, 3);
+      const wrap = document.createElement("div");
+      const plat = rows.find(r => r.platform) ? rows.find(r => r.platform).platform : "";
+      const label = document.createElement("p");
+      label.className = "plat-label";
+      label.textContent = (dir === "N" ? "Northbound" : "Southbound") + (plat && !isTerminus ? ` · ${plat}` : "");
+      const led = document.createElement("div");
+      led.className = "led";
+      if (!rows.length) {
+        const r = document.createElement("div");
+        r.className = "led-row led-empty";
+        r.innerHTML = "<span></span><span class='dest'></span><span class='when'></span>";
+        r.children[1].textContent = everLoaded ? "No trains listed" : "Loading…";
+        led.appendChild(r);
+      }
+      rows.forEach((p, i) => {
+        const r = document.createElement("div");
+        r.className = "led-row";
+        const n = document.createElement("span"); n.textContent = String(i + 1);
+        const d = document.createElement("span"); d.className = "dest";
+        d.textContent = isTerminus ? S[dir === "N" ? 0 : LAST].name : (p.dest !== undefined ? S[p.dest].name : p.destName || "Check front of train");
+        const w = document.createElement("span"); w.className = "when"; w.textContent = whenText(p.left);
+        r.append(n, d, w);
+        led.appendChild(r);
+      });
+      const clock = document.createElement("div");
+      clock.className = "led-clock";
+      clock.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
+      led.appendChild(clock);
+      wrap.append(label, led);
+      sections.appendChild(wrap);
+    });
+    if (isTerminus) {
+      boardNote.textContent = "Terminus: times are for trains arriving here, which then turn round for the next departures.";
+      boardNote.hidden = false;
+    } else boardNote.hidden = true;
+  }
+  function openBoard(k) {
+    boardStation = k;
+    document.getElementById("board-title").textContent = S[k].name;
+    lastFocus = document.activeElement;
+    overlay.hidden = false;
+    renderBoard();
+    clearInterval(boardTimer);
+    boardTimer = setInterval(renderBoard, 1000);
+    document.getElementById("board-close").focus();
+  }
+  function closeBoard() {
+    overlay.hidden = true; boardStation = null; clearInterval(boardTimer);
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  document.getElementById("board-close").addEventListener("click", closeBoard);
+  overlay.addEventListener("click", e => { if (e.target === overlay) closeBoard(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !overlay.hidden) closeBoard(); });
 
   /* ---------- Start ---------- */
   requestAnimationFrame(frame);
