@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Victoria Line Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F1F2EF;
+    --ink: #23272B;
+    --muted: #697177;
+    --rule: #DADDD8;
+    --line: #20A4E0;
+    --train: #0B6FA4;
+    --train-nose: #FFFFFF;
+    --river: #D8E4EA;
+    --river-ink: #97AEBC;
+    --station-fill: #FFFFFF;
+    --tip-bg: #23272B;
+    --tip-ink: #F1F2EF;
+    --dot-edge: transparent;
+    --ring-fill: #FFFFFF;
+    --rail: #D52B1E;
+    --sans: "Outfit", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #1B2026;
+      --ink: #E6EAED;
+      --muted: #8C969E;
+      --rule: #2E363E;
+      --line: #38B6EE;
+      --train: #A6E0FA;
+      --train-nose: #1B2026;
+      --river: #232F3B;
+      --river-ink: #4E6576;
+      --station-fill: #1B2026;
+      --tip-bg: #E6EAED;
+      --tip-ink: #1B2026;
+      --dot-edge: #8C969E;
+      --ring-fill: #1B2026;
+      --rail: #E0473B;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1B2026;
+    --ink: #E6EAED;
+    --muted: #8C969E;
+    --rule: #2E363E;
+    --line: #38B6EE;
+    --train: #A6E0FA;
+    --train-nose: #1B2026;
+    --river: #232F3B;
+    --river-ink: #4E6576;
+    --station-fill: #1B2026;
+    --tip-bg: #E6EAED;
+    --tip-ink: #1B2026;
+    --dot-edge: #8C969E;
+    --ring-fill: #1B2026;
+    --rail: #E0473B;
+  }
+
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    padding-inline: 24px;
+    padding-block: 24px;
+    box-sizing: border-box;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 290px 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+
+  /* Panel */
+  .panel { display: flex; flex-direction: column; gap: 28px; padding-top: 12px; }
+  .eyebrow {
+    font-size: 12px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 44px; line-height: 1; font-weight: 700; letter-spacing: -0.02em;
+    margin: 0; text-wrap: balance; display: flex; align-items: center; gap: 14px;
+  }
+  h1 .swatch { width: 14px; height: 44px; border-radius: 7px; background: var(--line); flex: none; }
+  .intro { margin: 14px 0 0; color: var(--muted); max-width: 34ch; }
+
+  .stats { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 18px 16px; }
+  .stats div { display: flex; flex-direction: column; gap: 2px; }
+  .stats dt { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .stats dd { margin: 0; font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+
+  .section-label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .legend li { display: flex; align-items: center; gap: 12px; }
+  .legend svg { flex: none; }
+  .legend small { color: var(--muted); font-size: 13px; }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1.5px solid var(--ink); border-radius: 10px; overflow: hidden; position: relative; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label { text-align: center; padding: 8px 6px; font-size: 13.5px; font-weight: 500; cursor: pointer; user-select: none; }
+  .seg input:checked + label { background: var(--ink); color: var(--bg); }
+  .seg input:focus-visible + label { outline: 2px solid var(--line); outline-offset: -4px; }
+
+  .note {
+    border-top: 1px solid var(--rule); padding-top: 18px;
+    font-size: 13.5px; color: var(--muted); max-width: 36ch;
+  }
+  .note strong { color: var(--ink); font-weight: 600; }
+
+  /* Map */
+  .map-wrap { position: relative; }
+  .hud {
+    position: absolute; bottom: 8px; right: 8px;
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--sans); font-weight: 600; font-size: 18px; letter-spacing: 0.06em;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud .day { color: var(--muted); font-weight: 500; }
+  svg.map { display: block; width: 100%; height: auto; max-height: calc(100vh - 48px); overflow: hidden; }
+
+  .river { fill: none; stroke: var(--river); stroke-width: 46; stroke-linejoin: round; stroke-linecap: butt; }
+  .river-label { fill: var(--river-ink); font-family: var(--sans); font-size: 15px; font-weight: 500; letter-spacing: 0.3em; text-transform: uppercase; }
+  .track { fill: none; stroke: var(--line); stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; }
+  .station { fill: var(--station-fill); stroke: var(--ink); stroke-width: 5; }
+  .label { fill: var(--ink); font-family: var(--sans); font-size: 20px; font-weight: 500; }
+  .train-body { fill: var(--train); stroke: var(--train); stroke-width: 2; stroke-linejoin: round; }
+  .train-num { fill: var(--train-nose); font-family: var(--mono); font-size: 10.5px; font-weight: 500; }
+  .train { cursor: pointer; outline: none; }
+  .train:hover .train-body, .train:focus-visible .train-body { stroke: var(--ink); stroke-width: 3; }
+  .ix-dot { stroke: var(--dot-edge); stroke-width: 1.5; }
+  .ix-ring { fill: var(--ring-fill); stroke-width: 3.5; }
+  .ix-rail { fill: var(--rail); }
+  .ix-rail-glyph { fill: none; stroke: #FFFFFF; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  .tip {
+    position: absolute; pointer-events: none; z-index: 5;
+    background: var(--tip-bg); color: var(--tip-ink);
+    padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4;
+    transform: translate(-50%, calc(-100% - 14px)); white-space: nowrap;
+  }
+  .tip .id { font-family: var(--mono); font-size: 12px; opacity: 0.75; }
+
+  @media (max-width: 860px) {
+    .wrap { grid-template-columns: 1fr; gap: 16px; }
+    .panel { gap: 22px; }
+    h1 { font-size: 36px; }
+    h1 .swatch { height: 36px; }
+    svg.map { max-height: none; }
+    .hud { font-size: 15px; }
+  }
+  @media (max-width: 480px) {
+    body { padding-inline: 16px; }
+  }
+</style>
+<style>
+  .status { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .status .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 4px 12px 4px 10px; border-radius: 999px; font-weight: 600; font-size: 13px;
+    background: var(--pill-bg); color: var(--ink);
+  }
+  .status .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--pill-dot); }
+  .status .pill[data-level="good"] { --pill-dot: #1E9E5A; }
+  .status .pill[data-level="minor"] { --pill-dot: #E0A100; }
+  .status .pill[data-level="severe"] { --pill-dot: #D52B1E; }
+  .status .pill[data-level="unknown"] { --pill-dot: var(--muted); }
+  .status-reason { font-size: 13px; color: var(--muted); margin: 8px 0 0; max-width: 36ch; }
+  .updated { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; margin: 8px 0 0; }
+  .updated[data-error] { color: var(--rail); }
+  details.settings { border-top: 1px solid var(--rule); padding-top: 16px; font-size: 14px; }
+  details.settings summary { cursor: pointer; font-weight: 500; }
+  .key-row { display: flex; gap: 8px; margin-top: 12px; }
+  .key-row input {
+    flex: 1; min-width: 0; font: inherit; font-family: var(--mono); font-size: 13px;
+    padding: 8px 10px; border-radius: 8px; border: 1.5px solid var(--rule); background: var(--station-fill); color: var(--ink);
+  }
+  .key-row button {
+    font: inherit; font-weight: 600; font-size: 13.5px; padding: 8px 14px; border-radius: 8px;
+    border: 0; background: var(--ink); color: var(--bg); cursor: pointer;
+  }
+  .key-row input:focus-visible, .key-row button:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+  .settings small { display: block; color: var(--muted); margin-top: 8px; font-size: 12.5px; }
+  .attrib { font-size: 12px; color: var(--muted); }
+  .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
+  :root { --pill-bg: #E4E7E3; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #2A323A; } }
+  :root[data-theme="dark"] { --pill-bg: #2A323A; }
+  @media (prefers-reduced-motion: reduce) { .train { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="panel">
+    <div>
+      <p class="eyebrow">Live prototype · v1.0</p>
+      <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
+      <p class="intro">Every train on the line, placed from TfL's live arrival predictions and moved smoothly between updates.</p>
+    </div>
+
+    <div>
+      <div class="status"><span class="pill" id="status-pill" data-level="unknown">Checking line status</span></div>
+      <p class="status-reason" id="status-reason" hidden></p>
+      <p class="updated" id="updated">Connecting to TfL…</p>
+    </div>
+
+    <dl class="stats">
+      <div><dt>Trains</dt><dd id="stat-trains">–</dd></div>
+      <div><dt>Stations</dt><dd>16</dd></div>
+      <div><dt>Northbound</dt><dd id="stat-nb">–</dd></div>
+      <div><dt>Southbound</dt><dd id="stat-sb">–</dd></div>
+    </dl>
+
+    <div>
+      <p class="section-label">Carriage label</p>
+      <div class="seg" role="radiogroup" aria-label="Carriage label">
+        <input type="radio" name="lbl" id="lbl-num" value="num"><label for="lbl-num">Vehicle number</label>
+        <input type="radio" name="lbl" id="lbl-dest" value="dest" checked><label for="lbl-dest">Destination</label>
+      </div>
+    </div>
+
+    <div>
+      <p class="section-label">Key</p>
+      <ul class="legend">
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <path class="train-body legend-train" transform="scale(0.62)"/>
+          </svg>
+          <span>Train</span>
+        </li>
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <circle class="station" cx="0" cy="0" r="6" style="stroke-width:3"/>
+          </svg>
+          <span>Station</span>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <p class="section-label">Interchanges</p>
+      <ul class="legend">
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <circle class="ix-dot" cx="-4" cy="0" r="6" fill="#003688"/><circle class="ix-dot" cx="6" cy="0" r="6" fill="#A0A5A9"/>
+          </svg>
+          <span>Tube line <small>in that line's colour</small></span>
+        </li>
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <circle class="ix-ring" cx="-4" cy="0" r="5" stroke="#EE7C0E"/><circle class="ix-ring" cx="8" cy="0" r="5" stroke="#6950A1"/>
+          </svg>
+          <span>Overground <small>or</small> Elizabeth line</span>
+        </li>
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <g class="rail-icon"></g>
+          </svg>
+          <span>National Rail</span>
+        </li>
+      </ul>
+    </div>
+
+    <details class="settings" id="settings">
+      <summary>TfL API key</summary>
+      <form class="key-row" id="key-form">
+        <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your app key" aria-label="TfL API key">
+        <button type="submit" id="key-save">Save</button>
+      </form>
+      <small id="key-note">Optional. The map works without a key, but TfL allows more requests with one. The key is saved only in this browser, never in the code.</small>
+    </details>
+
+    <p class="attrib">Powered by TfL Open Data.</p>
+  </aside>
+
+  <main class="map-wrap" id="map-wrap">
+    <svg class="map" id="map" viewBox="0 0 1300 1400" role="img" aria-label="Live schematic map of the Victoria line showing each train"></svg>
+    <div class="hud" aria-live="off">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <circle cx="11" cy="11" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M11 5.5 V11 L14.5 13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="day" id="hud-day">–</span><span id="hud-time">–:–</span>
+    </div>
+    <div class="tip" id="tip" hidden></div>
+  </main>
+</div>
+
+<script>
+(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const API = "https://api.tfl.gov.uk";
+  const POLL_MS = 30000;
+  const STATUS_MS = 120000;
+
+  /* ---------- Design constants (from the approved static prototype) ---------- */
+  const CORNER = 6;
+  const TRAIN_SCALE = 1.3;
+  const TRAIN_LEN = 35 * TRAIN_SCALE;
+  const TRAIN_HALF_H = 8 * TRAIN_SCALE;
+  const LANE = 22;
+  const LANE_OUTER = LANE + TRAIN_HALF_H;
+  const CLEAR = LANE_OUTER + 6;
+  const LABEL_GAP = 48;
+  const MARGIN = TRAIN_LEN / 2 + 4;
+  const SPAN = TRAIN_LEN + 5;
+
+  function trainPath(r) {
+    const x = -18 + r;
+    return `M${x},-7 H10 L17,0 L10,7 H${x} A${r} ${r} 0 0 1 -18,${7 - r} V${-7 + r} A${r} ${r} 0 0 1 ${x},-7 Z`;
+  }
+  const CARRIAGE = trainPath(CORNER);
+  document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
+
+  /* ---------- Stations ---------- */
+  const S = [
+    { id: "WWL", naptan: "940GZZLUWWL", code: "WAL", name: "Walthamstow Central", x: 930, y: 140, pref: "top", lines: ["Walthamstow", "Central"] },
+    { id: "BLR", naptan: "940GZZLUBLR", code: "BLR", name: "Blackhorse Road",     x: 810, y: 140, pref: "top", lines: ["Blackhorse", "Road"] },
+    { id: "TMH", naptan: "940GZZLUTMH", code: "TOT", name: "Tottenham Hale",      x: 690, y: 140, pref: "top", lines: ["Tottenham", "Hale"] },
+    { id: "SVS", naptan: "940GZZLUSVS", code: "SVS", name: "Seven Sisters",       x: 570, y: 140, pref: "top", lines: ["Seven", "Sisters"] },
+    { id: "FPK", naptan: "940GZZLUFPK", code: "FPK", name: "Finsbury Park",       x: 480, y: 230, pref: "right" },
+    { id: "HAI", naptan: "940GZZLUHAI", code: "HBY", name: "Highbury & Islington",x: 480, y: 340, pref: "right", lines: ["Highbury &", "Islington"] },
+    { id: "KSX", naptan: "940GZZLUKSX", code: "KGX", name: "King's Cross St. Pancras", x: 400, y: 420, pref: "bottom", lines: ["King's Cross", "St. Pancras"] },
+    { id: "EUS", naptan: "940GZZLUEUS", code: "EUS", name: "Euston",              x: 310, y: 420, pref: "top" },
+    { id: "WRR", naptan: "940GZZLUWRR", code: "WST", name: "Warren Street",       x: 250, y: 480, pref: "left" },
+    { id: "OXC", naptan: "940GZZLUOXC", code: "OXC", name: "Oxford Circus",       x: 250, y: 580, pref: "right" },
+    { id: "GPK", naptan: "940GZZLUGPK", code: "GPK", name: "Green Park",          x: 190, y: 640, pref: "left" },
+    { id: "VIC", naptan: "940GZZLUVIC", code: "VIC", name: "Victoria",            x: 190, y: 740, pref: "left" },
+    { id: "PCO", naptan: "940GZZLUPCO", code: "PIM", name: "Pimlico",             x: 260, y: 810, pref: "right" },
+    { id: "VXL", naptan: "940GZZLUVXL", code: "VXH", name: "Vauxhall",            x: 330, y: 880, pref: "right" },
+    { id: "SKW", naptan: "940GZZLUSKW", code: "SKW", name: "Stockwell",           x: 330, y: 980, pref: "left" },
+    { id: "BXN", naptan: "940GZZLUBXN", code: "BRX", name: "Brixton",             x: 400, y: 1050, pref: "right" }
+  ];
+  const SPACING = 1.25;
+  S.forEach(s => { s.x *= SPACING; s.y *= SPACING; });
+  const LAST = S.length - 1;
+  const byNaptan = Object.fromEntries(S.map((s, i) => [s.naptan, i]));
+
+  // Track geometry: cumulative distance from Walthamstow Central
+  const segLen = S.slice(1).map((s, i) => Math.hypot(s.x - S[i].x, s.y - S[i].y));
+  const cum = [0];
+  segLen.forEach((l, i) => cum.push(cum[i] + l));
+
+  // Typical running time (seconds) for each segment i -> i+1. Refined from live data as it arrives.
+  const RUN = [120, 120, 120, 180, 120, 180, 90, 90, 90, 90, 120, 90, 90, 120, 120];
+
+  const L = {
+    bakerloo: ["Bakerloo", "#B36305"], central: ["Central", "#E32017"], circle: ["Circle", "#FFD300"],
+    district: ["District", "#00782A"], hammersmith: ["Hammersmith & City", "#F3A9BB"],
+    jubilee: ["Jubilee", "#A0A5A9"], metropolitan: ["Metropolitan", "#9B0056"],
+    northern: ["Northern", "#000000"], piccadilly: ["Piccadilly", "#003688"],
+    overground: ["London Overground", "#EE7C0E", "ring"], elizabeth: ["Elizabeth line", "#6950A1", "ring"],
+    rail: ["National Rail", null, "rail"]
+  };
+  const IX = {
+    WWL: ["overground"], BLR: ["overground"], TMH: ["rail"], SVS: ["overground"],
+    FPK: ["piccadilly", "rail"], HAI: ["overground", "rail"],
+    KSX: ["circle", "hammersmith", "metropolitan", "northern", "piccadilly", "rail"],
+    EUS: ["northern", "overground", "rail"], WRR: ["northern"],
+    OXC: ["bakerloo", "central"], GPK: ["piccadilly", "jubilee"],
+    VIC: ["circle", "district", "rail"], VXL: ["rail"], SKW: ["northern"]
+  };
+
+  /* ---------- SVG scaffolding ---------- */
+  const svg = document.getElementById("map");
+  const el = (tag, attrs, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    (parent || svg).appendChild(n);
+    return n;
+  };
+  const riverG = el("g", { transform: `scale(${SPACING})` });
+  el("path", { class: "river", d: "M -200 1010 L 150 1010 L 400 760 L 560 760 L 710 610 L 1300 610" }, riverG);
+  el("text", { class: "river-label", x: 480, y: 765, "text-anchor": "middle" }, riverG).textContent = "Thames";
+
+  const trackD = "M " + S.map(s => s.x + " " + s.y).join(" L ");
+  el("path", { class: "track", d: trackD });             // track under the trains
+  const trainLayer = el("g", {});
+  const content = el("g", {});                           // stations and labels, drawn above trains
+  el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
+  const stationLayer = el("g", {}, content);
+  const labelLayer = el("g", {}, content);
+  S.forEach(s => el("circle", { class: "station", cx: s.x, cy: s.y, r: 11 }, stationLayer));
+  const emptyMsg = el("text", { class: "empty-msg", "text-anchor": "middle", x: 520, y: 900 });
+  emptyMsg.setAttribute("visibility", "hidden");
+
+  /* ---------- Labels and interchange markers, placed clear of the train lanes ---------- */
+  function railIcon(parent, cx, cy) {
+    const g = el("g", { transform: `translate(${cx} ${cy})` }, parent);
+    el("rect", { class: "ix-rail", x: -7.5, y: -7.5, width: 15, height: 15, rx: 3 }, g);
+    el("path", { class: "ix-rail-glyph", d: "M-4.5,-2.5 H4.5 M2,-5 L4.5,-2.5 L2,0 M4.5,2.5 H-4.5 M-2,0 L-4.5,2.5 L-2,5" }, g);
+    el("title", {}, g).textContent = "National Rail";
+  }
+  document.querySelectorAll(".legend .rail-icon").forEach(g => railIcon(g, 0, 0));
+
+  function marker(parent, key, cx, cy) {
+    const [name, col, kind] = L[key];
+    if (kind === "rail") return railIcon(parent, cx, cy);
+    const c = kind === "ring"
+      ? el("circle", { class: "ix-ring", cx, cy, r: 5, stroke: col }, parent)
+      : el("circle", { class: "ix-dot", cx, cy, r: 6.5, fill: col }, parent);
+    el("title", {}, c).textContent = name;
+  }
+
+  // geometry
+  const segs = S.slice(1).map((s, i) => [S[i], s]);
+  const ptSeg = (px, py, a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    let k = ((px - a.x) * dx + (py - a.y) * dy) / (dx * dx + dy * dy);
+    k = Math.max(0, Math.min(1, k));
+    return Math.hypot(px - (a.x + k * dx), py - (a.y + k * dy));
+  };
+  const ptRect = (px, py, r) => Math.hypot(Math.max(r.x - px, 0, px - r.x2), Math.max(r.y - py, 0, py - r.y2));
+  const cross = (p, q, r, s) => {
+    const d = (q.x - p.x) * (s.y - r.y) - (q.y - p.y) * (s.x - r.x);
+    if (d === 0) return false;
+    const u = ((r.x - p.x) * (s.y - r.y) - (r.y - p.y) * (s.x - r.x)) / d;
+    const v = ((r.x - p.x) * (q.y - p.y) - (r.y - p.y) * (q.x - p.x)) / d;
+    return u >= 0 && u <= 1 && v >= 0 && v <= 1;
+  };
+  function segRectDist(a, b, r) {
+    if (ptRect(a.x, a.y, r) === 0 || ptRect(b.x, b.y, r) === 0) return 0;
+    const c = [{ x: r.x, y: r.y }, { x: r.x2, y: r.y }, { x: r.x2, y: r.y2 }, { x: r.x, y: r.y2 }];
+    for (let i = 0; i < 4; i++) if (cross(a, b, c[i], c[(i + 1) % 4])) return 0;
+    return Math.min(ptRect(a.x, a.y, r), ptRect(b.x, b.y, r), ...c.map(p => ptSeg(p.x, p.y, a, b)));
+  }
+  const overlap = (p, q, pad) => !(p.x2 + pad < q.x || q.x2 + pad < p.x || p.y2 + pad < q.y || q.y2 + pad < p.y);
+
+  // text measurement
+  const meas = el("text", { class: "label", x: -9999, y: -9999, visibility: "hidden" });
+  const width = str => { meas.textContent = str; return meas.getComputedTextLength(); };
+
+  const LH = 23, ASC = 15, FS = 20, MK = 16, MK_GAP = 11;
+  const DIRS = ["right", "left", "top", "bottom", "ne", "nw", "se", "sw"];
+
+  // Build geometry for one candidate placement (no drawing)
+  function candidate(s, dir, D) {
+    const lines = s.lines || [s.name];
+    const ws = lines.map(width);
+    const W = Math.max(...ws), H = LH * (lines.length - 1) + FS;
+    const items = IX[s.id] || [];
+    const m = items.length, mW = m ? m * MK - 3 : 0;
+    const k = D * 0.72;
+    let align, ax, by; // align: start | end | middle, ax = anchor x
+    switch (dir) {
+      case "right": align = "start";  ax = s.x + D; by = s.y - H / 2; break;
+      case "left":  align = "end";    ax = s.x - D; by = s.y - H / 2; break;
+      case "top":   align = "middle"; ax = s.x;     by = s.y - D - H; break;
+      case "bottom":align = "middle"; ax = s.x;     by = s.y + D; break;
+      case "ne":    align = "start";  ax = s.x + k; by = s.y - k - H; break;
+      case "se":    align = "start";  ax = s.x + k; by = s.y + k; break;
+      case "nw":    align = "end";    ax = s.x - k; by = s.y - k - H; break;
+      case "sw":    align = "end";    ax = s.x - k; by = s.y + k; break;
+    }
+    const tx0 = align === "start" ? ax : align === "end" ? ax - W : ax - W / 2;
+    const rect = { x: tx0, y: by, x2: tx0 + W, y2: by + H };
+    // markers
+    const mks = [];
+    if (m) {
+      const midFirst = by + FS / 2;
+      if (align === "start") {
+        const x0 = ax + ws[0] + MK_GAP + 6.5;
+        items.forEach((key, i) => mks.push([key, x0 + i * MK, midFirst]));
+      } else if (align === "end") {
+        const x0 = ax - ws[0] - MK_GAP - 6.5 - (m - 1) * MK;
+        items.forEach((key, i) => mks.push([key, x0 + i * MK, midFirst]));
+      } else {
+        const my = dir === "top" ? by - 13 : by + H + 13;
+        const x0 = ax - (m - 1) * MK / 2;
+        items.forEach((key, i) => mks.push([key, x0 + i * MK, my]));
+      }
+      mks.forEach(([, cx, cy]) => {
+        rect.x = Math.min(rect.x, cx - 7.5); rect.x2 = Math.max(rect.x2, cx + 7.5);
+        rect.y = Math.min(rect.y, cy - 7.5); rect.y2 = Math.max(rect.y2, cy + 7.5);
+      });
+    }
+    return { s, dir, lines, align, ax, by, rect, mks };
+  }
+
+  function cost(c, placed) {
+    let bad = 0;
+    segs.forEach(([a, b]) => {
+      const d = segRectDist(a, b, c.rect);
+      if (d < CLEAR) bad += (CLEAR - d) * 10;
+    });
+    placed.forEach(p => { if (overlap(c.rect, p.rect, 8)) bad += 500; });
+    return bad;
+  }
+
+  function layout() {
+    while (labelLayer.firstChild) labelLayer.firstChild.remove();
+    const placed = [];
+    S.forEach(s => {
+      const order = [s.pref, ...DIRS.filter(d => d !== s.pref)];
+      let best = null, bestCost = Infinity;
+      outer:
+      for (const D of [LABEL_GAP, LABEL_GAP + 12]) {
+        for (const dir of order) {
+          const c = candidate(s, dir, D);
+          const k = cost(c, placed);
+          if (k === 0) { best = c; bestCost = 0; break outer; }
+          if (k < bestCost) { best = c; bestCost = k; }
+        }
+      }
+      placed.push(best);
+      const text = el("text", { class: "label", "text-anchor": best.align }, labelLayer);
+      best.lines.forEach((ln, i) => {
+        el("tspan", { x: best.ax, y: best.by + ASC + i * LH }, text).textContent = ln;
+      });
+      best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy));
+    });
+    fitView();
+  }
+
+  function fitView() {
+    const bb = content.getBBox();
+    const pad = 44;
+    svg.setAttribute("viewBox", `${(bb.x - pad).toFixed(0)} ${(bb.y - pad).toFixed(0)} ${(bb.width + pad * 2).toFixed(0)} ${(bb.height + pad * 2 + 30).toFixed(0)}`);
+  }
+
+
+  layout();
+  if (document.fonts) {
+    document.fonts.load('500 20px "Outfit"').then(layout).catch(() => {});
+    document.fonts.addEventListener && document.fonts.addEventListener("loadingdone", layout);
+    document.fonts.ready.then(layout);
+  }
+
+  /* ---------- Live state ---------- */
+  const trains = new Map();   // vehicleId -> train state
+  let lastFetch = 0, lastOk = 0, fetchError = null, everLoaded = false;
+
+  function apiUrl(path) {
+    let key = "";
+    try { key = localStorage.getItem("tfl-app-key") || ""; } catch (e) {}
+    return API + path + (key ? (path.includes("?") ? "&" : "?") + "app_key=" + encodeURIComponent(key) : "");
+  }
+
+  // Direction of a prediction: "S" towards Brixton (index increasing), "N" towards Walthamstow
+  function directionOf(p, nextIdx) {
+    const destIdx = byNaptan[p.destinationNaptanId];
+    if (destIdx !== undefined && destIdx !== nextIdx) return destIdx > nextIdx ? "S" : "N";
+    if (destIdx === LAST) return "S";
+    if (destIdx === 0) return "N";
+    const plat = (p.platformName || "").toLowerCase();
+    if (plat.startsWith("southbound")) return "S";
+    if (plat.startsWith("northbound")) return "N";
+    return null;
+  }
+
+  function learnRunTimes(preds) {
+    // For one vehicle, consecutive stations in its own direction give running time + dwell.
+    for (let i = 1; i < preds.length; i++) {
+      const a = preds[i - 1], b = preds[i];
+      if (a.dir !== b.dir || Math.abs(a.idx - b.idx) !== 1) continue;
+      const dt = b.tts - a.tts;
+      if (dt < 40 || dt > 400) continue;
+      const seg = Math.min(a.idx, b.idx);
+      RUN[seg] = RUN[seg] * 0.9 + dt * 0.1;
+    }
+  }
+
+  function ingest(data) {
+    const now = performance.now();
+    const groups = new Map();
+    data.forEach(p => {
+      const v = (p.vehicleId || "").trim();
+      const idx = byNaptan[p.naptanId];
+      if (!v || v === "000" || idx === undefined) return;
+      const dir = directionOf(p, idx);
+      if (!dir) return;
+      (groups.get(v) || groups.set(v, []).get(v)).push({
+        idx, dir, tts: p.timeToStation, loc: p.currentLocation || "", dest: byNaptan[p.destinationNaptanId]
+      });
+    });
+
+    const seen = new Set();
+    groups.forEach((preds, v) => {
+      preds.sort((a, b) => a.tts - b.tts);
+      learnRunTimes(preds);
+      const next = preds[0];
+      seen.add(v);
+      let t = trains.get(v);
+      if (!t) {
+        t = { v, opacity: 0, x: null, y: null, ang: 0, node: null, D: null };
+        trains.set(v, t);
+      }
+      if (t.dir && t.dir !== next.dir) t.D = null; // reversed at a terminus
+      Object.assign(t, {
+        dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc,
+        dest: next.dest !== undefined ? next.dest : (next.dir === "S" ? LAST : 0),
+        fetchedAt: now, missed: 0
+      });
+    });
+    trains.forEach((t, v) => { if (!seen.has(v)) t.missed = (t.missed || 0) + 1; });
+  }
+
+  // Where along the track (distance from Walthamstow) is this train right now?
+  function trackDistance(t, now) {
+    const e = t.tts - (now - t.fetchedAt) / 1000;
+    const step = t.dir === "S" ? 1 : -1;
+    const prev = t.next - step;
+    const nextName = S[t.next].name.toLowerCase();
+    const loc = t.loc.toLowerCase();
+    if (prev < 0 || prev > LAST) return { D: cum[t.next], stopped: true };           // waiting at origin terminus
+    if (e <= 15 || (loc.startsWith("at ") && loc.includes(nextName.split(" ")[0]))) {
+      return { D: cum[t.next], stopped: true };
+    }
+    const prevName = S[prev].name.toLowerCase();
+    const seg = Math.min(prev, t.next);
+    const run = RUN[seg];
+    if (loc.startsWith("at ") && loc.includes(prevName.split(" ")[0]) && e > run * 0.8) {
+      return { D: cum[prev], stopped: true };
+    }
+    const p = Math.max(0, Math.min(1, 1 - e / run));
+    return { D: cum[prev] + (cum[t.next] - cum[prev]) * p, stopped: false };
+  }
+
+  // Map a track distance + direction to a segment and a position within its train lane
+  function toLane(D, dir) {
+    let i = 0;
+    while (i < segLen.length - 1 && D > cum[i + 1]) i++;
+    // exactly at a station: sit on the segment ahead (tail at the platform)
+    for (let k = 0; k <= LAST; k++) {
+      if (Math.abs(D - cum[k]) < 0.5) {
+        i = dir === "S" ? Math.min(k, segLen.length - 1) : Math.max(k - 1, 0);
+        break;
+      }
+    }
+    const local = Math.max(0, Math.min(segLen[i], D - cum[i]));
+    const len = segLen[i];
+    const along = MARGIN + (local / len) * (len - 2 * MARGIN);
+    return { seg: i, along };
+  }
+
+  function lanePoint(seg, along, dir) {
+    const A = S[seg], B = S[seg + 1];
+    let ux = (B.x - A.x) / segLen[seg], uy = (B.y - A.y) / segLen[seg];
+    const bx = A.x + ux * along, by = A.y + uy * along;
+    if (dir === "N") { ux = -ux; uy = -uy; }
+    const nx = uy, ny = -ux; // keep left
+    return { x: bx + nx * LANE, y: by + ny * LANE, ang: Math.atan2(uy, ux) * 180 / Math.PI };
+  }
+
+  /* ---------- Drawing ---------- */
+  let mode = "dest";
+  try { if (localStorage.getItem("carriage-label-choice") === "num") mode = "num"; } catch (e) {}
+  const labelFor = t => mode === "dest" ? S[t.dest].code : t.v;
+
+  function ensureNode(t) {
+    if (t.node) return;
+    const g = el("g", { class: "train", tabindex: "0", role: "img" }, trainLayer);
+    el("path", { class: "train-body", d: CARRIAGE }, g);
+    t.text = el("text", { class: "train-num", x: 0, y: 0, "text-anchor": "middle", "dominant-baseline": "central" }, g);
+    g.addEventListener("mouseenter", () => showTip(t));
+    g.addEventListener("mouseleave", hideTip);
+    g.addEventListener("focus", () => showTip(t));
+    g.addEventListener("blur", hideTip);
+    g.addEventListener("click", () => showTip(t));
+    t.node = g;
+  }
+
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let lastFrame = performance.now();
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
+    const ease = reduceMotion ? 1 : 1 - Math.pow(0.02, dt); // ~ glide over a second or so
+
+    // 1. target track positions, never sliding backwards on small corrections
+    const live = [];
+    trains.forEach(t => {
+      if (t.fetchedAt === undefined) return;
+      let { D } = trackDistance(t, now);
+      if (t.D !== null && t.D !== undefined) {
+        const back = t.dir === "S" ? t.D - D : D - t.D;
+        if (back > 0 && back < 160) D = t.D;
+      }
+      t.D = D;
+      const lp = toLane(D, t.dir);
+      t.seg = lp.seg; t.along = lp.along;
+      live.push(t);
+    });
+
+    // 2. keep a carriage-length gap between trains sharing a lane
+    const lanes = {};
+    live.forEach(t => { (lanes[t.seg + t.dir] = lanes[t.seg + t.dir] || []).push(t); });
+    Object.values(lanes).forEach(list => {
+      if (list.length < 2) return;
+      const len = segLen[list[0].seg];
+      list.sort((a, b) => a.along - b.along);
+      for (let i = 1; i < list.length; i++) list[i].along = Math.max(list[i].along, list[i - 1].along + SPAN);
+      const max = len - MARGIN;
+      if (list[list.length - 1].along > max) {
+        list[list.length - 1].along = max;
+        for (let i = list.length - 2; i >= 0; i--) list[i].along = Math.min(list[i].along, list[i + 1].along - SPAN);
+      }
+      list.forEach(t => { t.along = Math.max(MARGIN, t.along); });
+    });
+
+    // 3. glide on screen and draw
+    const gone = [];
+    trains.forEach(t => {
+      if (t.seg === undefined) return;
+      const target = lanePoint(t.seg, t.along, t.dir);
+      ensureNode(t);
+      if (t.x === null) { t.x = target.x; t.y = target.y; t.ang = target.ang; }
+      const jump = Math.hypot(target.x - t.x, target.y - t.y) > 260;
+      const k = jump ? 1 : ease;
+      t.x += (target.x - t.x) * k;
+      t.y += (target.y - t.y) * k;
+      let da = ((target.ang - t.ang + 540) % 360) - 180;
+      t.ang += da * k;
+      const wantOpacity = t.missed >= 2 ? 0 : 1;
+      t.opacity += (wantOpacity - t.opacity) * (reduceMotion ? 1 : Math.min(1, dt * 3));
+      if (t.missed >= 2 && t.opacity < 0.02) { gone.push(t); return; }
+
+      const a = ((t.ang % 360) + 360) % 360;
+      const flip = a > 90 && a < 270;
+      t.node.setAttribute("transform", `translate(${t.x.toFixed(1)} ${t.y.toFixed(1)}) rotate(${t.ang.toFixed(1)}) scale(${TRAIN_SCALE})`);
+      t.node.setAttribute("opacity", t.opacity.toFixed(2));
+      t.text.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)");
+      const label = labelFor(t);
+      if (t.text.textContent !== label) t.text.textContent = label;
+      t.node.setAttribute("aria-label", `Train ${t.v}, ${t.dir === "N" ? "northbound" : "southbound"} to ${S[t.dest].name}, ${t.loc || "location not reported"}`);
+    });
+    gone.forEach(t => { t.node && t.node.remove(); trains.delete(t.v); });
+
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- Panel ---------- */
+  function updatePanel() {
+    let n = 0, nb = 0, sb = 0;
+    trains.forEach(t => { if (t.missed < 2) { n++; t.dir === "N" ? nb++ : sb++; } });
+    document.getElementById("stat-trains").textContent = everLoaded ? n : "–";
+    document.getElementById("stat-nb").textContent = everLoaded ? nb : "–";
+    document.getElementById("stat-sb").textContent = everLoaded ? sb : "–";
+
+    const up = document.getElementById("updated");
+    if (fetchError) {
+      up.dataset.error = "";
+      up.textContent = fetchError;
+    } else if (lastOk) {
+      delete up.dataset.error;
+      const s = Math.round((Date.now() - lastOk) / 1000);
+      up.textContent = s < 5 ? "Updated just now" : `Updated ${s} seconds ago`;
+    }
+    const empty = everLoaded && n === 0;
+    emptyMsg.textContent = "No trains running right now";
+    emptyMsg.setAttribute("visibility", empty ? "visible" : "hidden");
+
+    const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+    document.getElementById("hud-day").textContent = (parts.weekday || "").toUpperCase();
+    document.getElementById("hud-time").textContent = `${parts.hour}:${parts.minute}`;
+  }
+
+  async function poll() {
+    lastFetch = Date.now();
+    try {
+      const res = await fetch(apiUrl("/Line/victoria/Arrivals"), { cache: "no-store" });
+      if (res.status === 429) throw new Error("TfL is limiting requests. Add an API key below, or wait a minute.");
+      if (res.status === 401 || res.status === 403) throw new Error("TfL rejected the API key. Check it under TfL API key.");
+      if (!res.ok) throw new Error(`TfL returned an error (${res.status}). Retrying in 30 seconds.`);
+      const data = await res.json();
+      ingest(Array.isArray(data) ? data : []);
+      everLoaded = true; lastOk = Date.now(); fetchError = null;
+    } catch (err) {
+      fetchError = err && err.message && !/fetch|network/i.test(err.message)
+        ? err.message
+        : "Can't reach TfL right now. Trains keep moving on the last data; retrying in 30 seconds.";
+    }
+    updatePanel();
+  }
+
+  async function pollStatus() {
+    const pill = document.getElementById("status-pill");
+    const reason = document.getElementById("status-reason");
+    try {
+      const res = await fetch(apiUrl("/Line/victoria/Status"), { cache: "no-store" });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const st = (data[0] && data[0].lineStatuses && data[0].lineStatuses[0]) || {};
+      const sev = st.statusSeverity;
+      pill.textContent = st.statusSeverityDescription || "Status unavailable";
+      pill.dataset.level = sev === 10 ? "good" : (sev >= 7 ? "minor" : (sev === undefined ? "unknown" : "severe"));
+      if (st.reason && sev !== 10) { reason.textContent = st.reason.trim(); reason.hidden = false; }
+      else reason.hidden = true;
+    } catch (e) {
+      pill.textContent = "Status unavailable"; pill.dataset.level = "unknown"; reason.hidden = true;
+    }
+  }
+
+  /* ---------- Controls ---------- */
+  document.getElementById(mode === "dest" ? "lbl-dest" : "lbl-num").checked = true;
+  document.querySelectorAll('input[name="lbl"]').forEach(inp =>
+    inp.addEventListener("change", () => {
+      mode = inp.value;
+      try { localStorage.setItem("carriage-label-choice", mode); } catch (e) {}
+    }));
+
+  const keyInput = document.getElementById("key-input");
+  const keyNote = document.getElementById("key-note");
+  try { if (localStorage.getItem("tfl-app-key")) { keyInput.value = localStorage.getItem("tfl-app-key"); } } catch (e) {}
+  document.getElementById("key-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const v = keyInput.value.trim();
+    try {
+      if (v) localStorage.setItem("tfl-app-key", v); else localStorage.removeItem("tfl-app-key");
+      keyNote.textContent = v ? "Key saved in this browser. Refreshing data now." : "Key removed. The map will use TfL's anonymous limit.";
+    } catch (err) {
+      keyNote.textContent = "This browser blocked saving the key, so it will be used for this visit only.";
+    }
+    poll(); pollStatus();
+  });
+
+  /* ---------- Tooltip ---------- */
+  const tip = document.getElementById("tip");
+  const wrap = document.getElementById("map-wrap");
+  let tipFor = null;
+  function showTip(t) {
+    tipFor = t;
+    const eta = Math.max(0, Math.round(t.tts - (performance.now() - t.fetchedAt) / 1000));
+    const nextTxt = eta <= 15 ? `At or arriving at ${S[t.next].name}` : `Next: ${S[t.next].name} in ${eta >= 60 ? Math.round(eta / 60) + " min" : eta + " s"}`;
+    tip.innerHTML = "";
+    const l1 = document.createElement("div");
+    l1.innerHTML = `<strong>${t.dir === "N" ? "Northbound" : "Southbound"}</strong> to `;
+    l1.appendChild(document.createTextNode(`${S[t.dest].name} (${S[t.dest].code})`));
+    const l2 = document.createElement("div"); l2.textContent = nextTxt;
+    const l3 = document.createElement("div"); l3.textContent = t.loc ? `TfL: ${t.loc}` : "";
+    const l4 = document.createElement("div"); l4.className = "id"; l4.textContent = `Vehicle ${t.v}`;
+    tip.append(l1, l2, l3, l4);
+    const r = t.node.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+    tip.style.left = (r.left + r.width / 2 - w.left) + "px";
+    tip.style.top = (r.top - w.top) + "px";
+    tip.hidden = false;
+  }
+  function hideTip() { tip.hidden = true; tipFor = null; }
+  document.addEventListener("scroll", hideTip, { passive: true });
+
+  /* ---------- Start ---------- */
+  requestAnimationFrame(frame);
+  poll(); pollStatus();
+  setInterval(poll, POLL_MS);
+  setInterval(pollStatus, STATUS_MS);
+  setInterval(updatePanel, 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && Date.now() - lastFetch > POLL_MS) poll();
+  });
+})();
+</script>
+</body>
+</html>
