@@ -207,7 +207,7 @@
 <div class="wrap">
   <aside class="panel">
     <div>
-      <p class="eyebrow">Live prototype · v1.0</p>
+      <p class="eyebrow">Live prototype · v1.1</p>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
       <p class="intro">Every train on the line, placed from TfL's live arrival predictions and moved smoothly between updates.</p>
     </div>
@@ -574,6 +574,13 @@
     }
   }
 
+  const sgn = dir => dir === "S" ? 1 : -1;
+  const ZONE = 22;  // distance either side of a station where a train swings across it
+  // Where a train stands while stopped at station k: nose at the platform, before the station
+  const stopD = (k, dir) => Math.max(0, Math.min(cum[LAST], cum[k] - sgn(dir) * ZONE));
+  const segOf = D => { let i = 0; while (i < segLen.length - 1 && D > cum[i + 1]) i++; return i; };
+  const nominalSpeed = seg => segLen[seg] / Math.max(45, RUN[seg] - 20); // px per second between stations
+
   function ingest(data) {
     const now = performance.now();
     const groups = new Map();
@@ -593,58 +600,115 @@
       preds.sort((a, b) => a.tts - b.tts);
       learnRunTimes(preds);
       const next = preds[0];
+      const s = sgn(next.dir);
       seen.add(v);
+
+      // This train's own timetable: its remaining stops in order, each with an arrival time
+      const best = new Map();
+      preds.forEach(p => {
+        if (p.dir !== next.dir || s * (p.idx - next.idx) < 0) return;
+        if (!best.has(p.idx) || best.get(p.idx).tts > p.tts) best.set(p.idx, p);
+      });
+      const stops = [...best.values()].sort((a, b) => s * (a.idx - b.idx));
+      let lastAt = 0;
+      stops.forEach(p => { p.at = Math.max(now + p.tts * 1000, lastAt + 15000 * (lastAt ? 1 : 0)); lastAt = p.at; });
+
       let t = trains.get(v);
       if (!t) {
         t = { v, opacity: 0, x: null, y: null, ang: 0, node: null, D: null };
         trains.set(v, t);
       }
-      if (t.dir && t.dir !== next.dir) t.D = null; // reversed at a terminus
+      const flipped = t.dir && t.dir !== next.dir;
       Object.assign(t, {
-        dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc,
+        dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc, stops,
         dest: next.dest !== undefined ? next.dest : (next.dir === "S" ? LAST : 0),
         fetchedAt: now, missed: 0
       });
+      const model = modelD(t, now);
+      if (t.D === null || flipped) {
+        t.D = model;
+      } else if (s * (model - t.D) > Math.max(220, segLen[segOf(t.D)] * 1.2)) {
+        t.D = model; // far behind the data (e.g. missed updates): catch up
+      }
     });
     trains.forEach((t, v) => { if (!seen.has(v)) t.missed = (t.missed || 0) + 1; });
   }
 
-  // Where along the track (distance from Walthamstow) is this train right now?
-  function trackDistance(t, now) {
+  // Best estimate of where the data puts a train, used to place new trains and correct big drift
+  function modelD(t, now) {
+    const s = sgn(t.dir);
     const e = t.tts - (now - t.fetchedAt) / 1000;
-    const step = t.dir === "S" ? 1 : -1;
-    const prev = t.next - step;
-    const nextName = S[t.next].name.toLowerCase();
+    const prev = t.next - s;
     const loc = t.loc.toLowerCase();
-    if (prev < 0 || prev > LAST) return { D: cum[t.next], stopped: true };           // waiting at origin terminus
-    if (e <= 15 || (loc.startsWith("at ") && loc.includes(nextName.split(" ")[0]))) {
-      return { D: cum[t.next], stopped: true };
-    }
-    const prevName = S[prev].name.toLowerCase();
-    const seg = Math.min(prev, t.next);
-    const run = RUN[seg];
-    if (loc.startsWith("at ") && loc.includes(prevName.split(" ")[0]) && e > run * 0.8) {
-      return { D: cum[prev], stopped: true };
-    }
-    const p = Math.max(0, Math.min(1, 1 - e / run));
-    return { D: cum[prev] + (cum[t.next] - cum[prev]) * p, stopped: false };
+    const first = name => name.toLowerCase().split(" ")[0];
+    if (prev < 0 || prev > LAST) return stopD(t.next, t.dir);
+    if (e <= 20 || (loc.startsWith("at ") && loc.includes(first(S[t.next].name)))) return stopD(t.next, t.dir);
+    const run = RUN[Math.min(prev, t.next)];
+    if (e >= run) return stopD(prev, t.dir);
+    const p = 1 - e / run;
+    return stopD(prev, t.dir) + (stopD(t.next, t.dir) - stopD(prev, t.dir)) * p;
   }
 
-  // Map a track distance + direction to a segment and a position within its train lane
-  function toLane(D, dir) {
-    let i = 0;
-    while (i < segLen.length - 1 && D > cum[i + 1]) i++;
-    // exactly at a station: sit on the segment ahead (tail at the platform)
-    for (let k = 0; k <= LAST; k++) {
-      if (Math.abs(D - cum[k]) < 0.5) {
-        i = dir === "S" ? Math.min(k, segLen.length - 1) : Math.max(k - 1, 0);
-        break;
+  // Advance one train along the track for this frame
+  const GAP_D = SPAN * 1.25;
+  function advance(t, now, dt, all) {
+    const s = sgn(t.dir);
+    const D = t.D;
+    // next timetabled stop ahead of the train's current position
+    let target = t.stops.find(st => s * (stopD(st.idx, t.dir) - D) > 0.5);
+    let targetD, arriveAt = null;
+    if (target) { targetD = stopD(target.idx, t.dir); arriveAt = target.at; }
+    else {
+      // no prediction ahead: run on to the next station and wait there
+      let k = t.dir === "S" ? 0 : LAST;
+      while (k >= 0 && k <= LAST && s * (stopD(k, t.dir) - D) <= 0.5) k += s;
+      if (k < 0 || k > LAST) { t.moving = false; return; }
+      targetD = stopD(k, t.dir);
+    }
+    const remaining = Math.abs(targetD - D);
+    const vNom = nominalSpeed(segOf(D + s * 1));
+    const atStation = S.some((_, k) => Math.abs(D - stopD(k, t.dir)) < 0.5);
+    const timeLeft = arriveAt === null ? null : (arriveAt - now) / 1000;
+
+    // dwell at a platform until it is time to leave and arrive on schedule
+    if (atStation && timeLeft !== null && timeLeft > (remaining / vNom) * 1.1) { t.moving = false; return; }
+
+    let speed = (timeLeft !== null && timeLeft > 0.5) ? remaining / timeLeft : vNom;
+    speed = Math.max(0.3 * vNom, Math.min(2.5 * vNom, speed));
+    let step = Math.min(remaining, speed * dt);
+
+    // keep a safe gap behind the train ahead in the same direction
+    let limit = Infinity;
+    all.forEach(o => {
+      if (o === t || o.dir !== t.dir || o.D === null || o.missed >= 2) return;
+      const ahead = s * (o.D - D);
+      if (ahead > 0) limit = Math.min(limit, ahead - GAP_D);
+    });
+    step = Math.max(0, Math.min(step, limit));
+
+    t.D = D + s * step;
+    if (Math.abs(t.D - targetD) < 0.5) t.D = targetD;
+    t.moving = step > 0;
+  }
+
+  // Screen position for a track distance: runs in the train lane, swinging smoothly across stations
+  function laneAt(D, dir, forcedSeg) {
+    const i = forcedSeg !== undefined ? forcedSeg : segOf(D);
+    const len = segLen[i];
+    const local = Math.max(0, Math.min(len, D - cum[i]));
+    return lanePoint(i, MARGIN + (local / len) * (len - 2 * MARGIN), dir);
+  }
+  function screenAt(D, dir) {
+    for (let k = 1; k < LAST; k++) {
+      if (Math.abs(D - cum[k]) < ZONE) {
+        const a = laneAt(cum[k] - ZONE, dir, k - 1), b = laneAt(cum[k] + ZONE, dir, k);
+        let u = (D - (cum[k] - ZONE)) / (2 * ZONE);
+        u = u * u * (3 - 2 * u);
+        const da = ((b.ang - a.ang + 540) % 360) - 180;
+        return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, ang: a.ang + da * u };
       }
     }
-    const local = Math.max(0, Math.min(segLen[i], D - cum[i]));
-    const len = segLen[i];
-    const along = MARGIN + (local / len) * (len - 2 * MARGIN);
-    return { seg: i, along };
+    return laneAt(D, dir);
   }
 
   function lanePoint(seg, along, dir) {
@@ -678,54 +742,28 @@
   let lastFrame = performance.now();
 
   function frame(now) {
-    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    const dt = Math.min(0.25, (now - lastFrame) / 1000);
     lastFrame = now;
-    const ease = reduceMotion ? 1 : 1 - Math.pow(0.02, dt); // ~ glide over a second or so
+    const ease = reduceMotion ? 1 : 1 - Math.pow(0.02, dt);
 
-    // 1. target track positions, never sliding backwards on small corrections
-    const live = [];
-    trains.forEach(t => {
-      if (t.fetchedAt === undefined) return;
-      let { D } = trackDistance(t, now);
-      if (t.D !== null && t.D !== undefined) {
-        const back = t.dir === "S" ? t.D - D : D - t.D;
-        if (back > 0 && back < 160) D = t.D;
-      }
-      t.D = D;
-      const lp = toLane(D, t.dir);
-      t.seg = lp.seg; t.along = lp.along;
-      live.push(t);
-    });
+    const all = [...trains.values()].filter(t => t.fetchedAt !== undefined && t.D !== null);
+    // move trains front to back so followers see where their leader has moved to
+    all.sort((a, b) => sgn(b.dir) * b.D - sgn(a.dir) * a.D);
+    all.forEach(t => advance(t, now, dt, all));
 
-    // 2. keep a carriage-length gap between trains sharing a lane
-    const lanes = {};
-    live.forEach(t => { (lanes[t.seg + t.dir] = lanes[t.seg + t.dir] || []).push(t); });
-    Object.values(lanes).forEach(list => {
-      if (list.length < 2) return;
-      const len = segLen[list[0].seg];
-      list.sort((a, b) => a.along - b.along);
-      for (let i = 1; i < list.length; i++) list[i].along = Math.max(list[i].along, list[i - 1].along + SPAN);
-      const max = len - MARGIN;
-      if (list[list.length - 1].along > max) {
-        list[list.length - 1].along = max;
-        for (let i = list.length - 2; i >= 0; i--) list[i].along = Math.min(list[i].along, list[i + 1].along - SPAN);
-      }
-      list.forEach(t => { t.along = Math.max(MARGIN, t.along); });
-    });
-
-    // 3. glide on screen and draw
     const gone = [];
-    trains.forEach(t => {
-      if (t.seg === undefined) return;
-      const target = lanePoint(t.seg, t.along, t.dir);
+    all.forEach(t => {
+      const target = screenAt(t.D, t.dir);
       ensureNode(t);
       if (t.x === null) { t.x = target.x; t.y = target.y; t.ang = target.ang; }
-      const jump = Math.hypot(target.x - t.x, target.y - t.y) > 260;
-      const k = jump ? 1 : ease;
+      // follow the track exactly; only ease when correcting a jump or changing direction
+      const off = Math.hypot(target.x - t.x, target.y - t.y);
+      const k = off < 3 ? 1 : ease;
       t.x += (target.x - t.x) * k;
       t.y += (target.y - t.y) * k;
-      let da = ((target.ang - t.ang + 540) % 360) - 180;
-      t.ang += da * k;
+      const da = ((target.ang - t.ang + 540) % 360) - 180;
+      t.ang += da * (Math.abs(da) < 2 ? 1 : Math.max(k, ease));
+
       const wantOpacity = t.missed >= 2 ? 0 : 1;
       t.opacity += (wantOpacity - t.opacity) * (reduceMotion ? 1 : Math.min(1, dt * 3));
       if (t.missed >= 2 && t.opacity < 0.02) { gone.push(t); return; }
@@ -854,6 +892,8 @@
   function hideTip() { tip.hidden = true; tipFor = null; }
   document.addEventListener("scroll", hideTip, { passive: true });
 
+  if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { trains, stopD, S };
+
   /* ---------- Start ---------- */
   requestAnimationFrame(frame);
   poll(); pollStatus();
@@ -861,7 +901,11 @@
   setInterval(pollStatus, STATUS_MS);
   setInterval(updatePanel, 1000);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && Date.now() - lastFetch > POLL_MS) poll();
+    if (document.hidden) return;
+    const now = performance.now();
+    trains.forEach(t => { if (t.fetchedAt !== undefined) t.D = modelD(t, now); });
+    lastFrame = now;
+    if (Date.now() - lastFetch > POLL_MS) poll();
   });
 })();
 </script>
