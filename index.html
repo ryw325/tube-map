@@ -207,44 +207,69 @@
   .station-link { cursor: pointer; outline: none; }
   .station-link:focus-visible .station, .station-link:hover .station { stroke: var(--line); }
   .label.clickable { cursor: pointer; }
-  .board-overlay {
-    position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
-    padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
-    background: rgba(10, 12, 14, 0.55); backdrop-filter: blur(2px);
-  }
+  .pop { position: absolute; z-index: 30; width: min(400px, calc(100% - 16px)); }
   .board {
-    width: min(760px, 100%); background: #0A0A0A; border-radius: 14px;
-    padding: 14px 18px 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.5), inset 0 1px 0 #2A2A2A;
-    border: 6px solid #000;
+    background: #0A0A0A; border-radius: 12px;
+    padding: 10px 12px 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45), inset 0 1px 0 #2A2A2A;
+    border: 5px solid #000;
   }
-  .board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 4px 12px; }
-  .board-head h2 { margin: 0; font-family: var(--sans); font-weight: 600; font-size: 18px; color: #E8E8E8; letter-spacing: 0.01em; display: flex; align-items: center; gap: 10px; }
+  .board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 2px 10px; }
+  .board-head h2 { margin: 0; font-family: var(--sans); font-weight: 600; font-size: 16px; color: #E8E8E8; letter-spacing: 0.01em; display: flex; align-items: center; gap: 10px; }
   .board-head h2::before { content: ""; width: 6px; height: 20px; border-radius: 3px; background: var(--line); }
   .board-close {
-    font: inherit; font-size: 22px; line-height: 1; width: 34px; height: 34px; border-radius: 8px;
+    font: inherit; font-size: 20px; line-height: 1; width: 30px; height: 30px; border-radius: 8px;
     border: 1px solid #333; background: #161616; color: #DDD; cursor: pointer;
   }
   .board-close:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
-  .board-sections { display: grid; gap: 14px; }
-  .plat-label { font-family: var(--sans); font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #9A9A9A; margin: 0 4px 6px; }
+  .board-sections { display: grid; gap: 10px; }
+  .plat-label { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #9A9A9A; margin: 0 2px 5px; }
   .led {
     --amber: #FFA41C;
-    position: relative; border-radius: 4px; padding: 14px 18px 12px;
+    position: relative; border-radius: 4px; padding: 9px 12px 8px;
     background-color: #141509;
     background-image: radial-gradient(circle at center, rgba(255,164,28,0.07) 0 1px, transparent 1.4px);
     background-size: 4px 4px;
     box-shadow: inset 0 0 0 2px #050505, inset 0 0 30px rgba(0,0,0,0.6);
     font-family: "Doto", "DotGothic16", ui-monospace, monospace; font-weight: 900; color: var(--amber);
     text-shadow: 0 0 6px rgba(255,164,28,0.45);
-    font-size: clamp(18px, 3.6vw, 30px); line-height: 1.25; letter-spacing: 0.02em;
+    font-size: 17px; line-height: 1.3; letter-spacing: 0.02em;
   }
-  .led-row { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 0.5em; align-items: baseline; white-space: nowrap; }
+  .led-row { display: grid; grid-template-columns: 1.2em 1fr auto; gap: 0.5em; align-items: baseline; white-space: nowrap; }
   .led-row .dest { overflow: hidden; text-overflow: clip; }
   .led-row .when { text-align: right; font-variant-numeric: tabular-nums; }
   .led-empty { opacity: 0.9; }
   .led-clock { text-align: center; margin-top: 0.35em; font-variant-numeric: tabular-nums; }
-  .board-note { font-family: var(--sans); font-size: 12.5px; color: #8C8C8C; margin: 12px 4px 0; }
-  @media (max-width: 520px) { .board { padding: 10px 10px 14px; border-width: 4px; } .led { padding: 10px 12px; } }
+  .board-note { font-family: var(--sans); font-size: 12px; line-height: 1.45; color: #8C8C8C; margin: 10px 2px 0; }
+  .led-row.stop { grid-template-columns: 1fr auto; }
+  .led-row.stop.passed { opacity: 0.35; }
+  @media (max-width: 600px) { .pop { position: fixed; left: 8px !important; right: 8px; top: auto !important; bottom: max(8px, env(safe-area-inset-bottom, 0px)); width: auto; } }
+  /* ---------- Side panel + full-screen layout ---------- */
+  .panel-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .panel-top .eyebrow { margin: 0; }
+  .panel-hide, .panel-show {
+    display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--rule); background: var(--bg); color: var(--ink);
+  }
+  .panel-hide:focus-visible, .panel-show:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+  .panel-show { position: absolute; top: 16px; left: 16px; z-index: 5; }
+  .controls { display: flex; flex-direction: column; gap: 8px; }
+  .controls .section-label { margin: 0 0 2px; }
+  .ctl { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; }
+  .ctl output { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; margin: 0 0 6px; accent-color: var(--line); }
+  input[type="range"]:focus-visible { outline: 2px solid var(--line); outline-offset: 3px; }
+  .dimmer { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 60; }
+  @media (min-width: 861px) {
+    html, body { height: 100%; overflow: hidden; }
+    body { padding: 0; }
+    .wrap { max-width: none; margin: 0; height: 100vh; height: 100dvh; grid-template-columns: clamp(270px, 20vw, 360px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; align-items: stretch; }
+    .panel { height: 100%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; padding: 28px 26px 32px 28px; border-right: 1px solid var(--rule); }
+    .map-wrap { height: 100%; min-width: 0; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 16px 24px 16px 24px; }
+    svg.map { width: 100%; height: 100%; max-height: none; }
+    body.panel-hidden .wrap { grid-template-columns: minmax(0, 1fr); }
+    body.panel-hidden .panel { display: none; }
+  }
+  @media (max-width: 860px) { .panel-hide, .panel-show { display: none !important; } .map-wrap { order: -1; } }
   .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   :root { --pill-bg: #E4E7E3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #2A323A; } }
@@ -256,9 +281,13 @@
 <div class="wrap">
   <aside class="panel">
     <div>
-      <p class="eyebrow">Live prototype · v1.3</p>
+      <div class="panel-top">
+        <p class="eyebrow">Live prototype · v1.4</p>
+        <button class="panel-hide" id="panel-hide" type="button" aria-label="Hide side panel" title="Hide side panel">
+          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M11 4 L6 9 L11 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
-      <p class="intro">Every train on the line, placed from TfL's live arrival predictions and moved smoothly between updates.</p>
     </div>
 
     <div>
@@ -277,9 +306,17 @@
     <div>
       <p class="section-label">Carriage label</p>
       <div class="seg" role="radiogroup" aria-label="Carriage label">
-        <input type="radio" name="lbl" id="lbl-num" value="num"><label for="lbl-num">Vehicle number</label>
         <input type="radio" name="lbl" id="lbl-dest" value="dest" checked><label for="lbl-dest">Destination</label>
+        <input type="radio" name="lbl" id="lbl-num" value="num"><label for="lbl-num">Vehicle number</label>
       </div>
+    </div>
+
+    <div class="controls">
+      <p class="section-label">Display</p>
+      <label class="ctl" for="warmth"><span>Background warmth</span><output id="warmth-out">Neutral</output></label>
+      <input type="range" id="warmth" min="0" max="100" step="1" value="50">
+      <label class="ctl" for="brightness"><span>Brightness</span><output id="brightness-out">100%</output></label>
+      <input type="range" id="brightness" min="20" max="100" step="1" value="100">
     </div>
 
     <div>
@@ -311,7 +348,7 @@
         </li>
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <circle class="ix-ring" cx="-4" cy="0" r="5" stroke="#972861"/><circle class="ix-ring" cx="8" cy="0" r="5" stroke="#6950A1"/>
+            <circle class="ix-ring" cx="-6" cy="0" r="5" stroke="#972861"/><circle class="ix-ring" cx="6" cy="0" r="5" stroke="#6950A1"/>
           </svg>
           <span>Overground <small>or</small> Elizabeth line <small>in that line's colour</small></span>
         </li>
@@ -333,7 +370,7 @@
       <small id="key-note">Optional. The map works without a key, but TfL allows more requests with one. The key is saved only in this browser, never in the code.</small>
     </details>
 
-    <p class="attrib">Hover or tap an interchange marker to see the line’s name.<br>Powered by TfL Open Data.</p>
+    <p class="attrib">Tap a station for departures, a train for its upcoming stops, or an interchange marker for the line’s name.<br>Powered by TfL Open Data.</p>
   </aside>
 
   <main class="map-wrap" id="map-wrap">
@@ -346,19 +383,22 @@
       <span class="day" id="hud-day">–</span><span id="hud-time">–:–</span>
     </div>
     <div class="tip" id="tip" hidden></div>
-
+    <button class="panel-show" id="panel-show" type="button" aria-label="Show side panel" title="Show side panel" hidden>
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4 L12 9 L7 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="pop" id="pop" role="dialog" aria-labelledby="pop-title" hidden>
+      <div class="board">
+        <div class="board-head">
+          <h2 id="pop-title">Station</h2>
+          <button class="board-close" id="pop-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="board-sections" id="pop-sections"></div>
+        <p class="board-note" id="pop-note" hidden></p>
+      </div>
+    </div>
   </main>
 </div>
-  <div class="board-overlay" id="board-overlay" hidden>
-    <div class="board" role="dialog" aria-modal="true" aria-labelledby="board-title">
-      <div class="board-head">
-        <h2 id="board-title">Station</h2>
-        <button class="board-close" id="board-close" type="button" aria-label="Close departures">×</button>
-      </div>
-      <div class="board-sections" id="board-sections"></div>
-      <p class="board-note" id="board-note" hidden></p>
-    </div>
-  </div>
+<div class="dimmer" id="dimmer" aria-hidden="true"></div>
 
 <script>
 (function () {
@@ -492,17 +532,41 @@
   }
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  function marker(parent, key, cx, cy, align, vert) {
+  // Markers in one row make room for each other: an expanded marker pushes its neighbours aside
+  function layoutRow(row) {
+    row.items.forEach((it, i) => {
+      let shift = 0;
+      row.items.forEach((o, j) => {
+        if (j === i || !o.extra) return;
+        if (o.grow === "right" && i > j) shift += o.extra;
+        else if (o.grow === "left" && i < j) shift -= o.extra;
+        else if (o.grow === "centre") shift += i < j ? -o.extra / 2 : o.extra / 2;
+      });
+      it.g.setAttribute("transform", `translate(${(it.x + shift).toFixed(2)} ${it.y})`);
+    });
+  }
+
+  function marker(parent, key, cx, cy, align, vert, row) {
     const [name, col, kind] = L[key];
     const grow = align === "end" ? "left" : align === "start" ? "right" : "centre";
     const g = el("g", { class: "ix", tabindex: "0", role: "img", "aria-label": kind === "rail" ? "National Rail" : `${name} line`, transform: `translate(${cx} ${cy})` }, parent);
+    const item = { g, x: cx, y: cy, extra: 0, k: 0, grow: kind === "rail" && grow === "centre" ? "right" : grow };
+    row.items.push(item);
     if (kind === "rail") {
       railIcon(g, 0, 0);
+      const left = item.grow === "left";
       const label = el("text", { class: "ix-rail-text", y: 0, "dominant-baseline": "central",
-        x: grow === "left" ? -14 : 14, "text-anchor": grow === "left" ? "end" : "start", opacity: 0 }, g);
+        x: left ? -14 : 14, "text-anchor": left ? "end" : "start", opacity: 0 }, g);
       label.textContent = "National Rail";
-      const show = on => { if (on) parent.appendChild(g); tween(+label.getAttribute("opacity"), on ? 1 : 0, 160, v => label.setAttribute("opacity", v.toFixed(2))); };
-      hoverable(g, show);
+      hoverable(g, on => {
+        if (on) parent.appendChild(g);
+        tween(item.k, on ? 1 : 0, 170, v => {
+          item.k = v;
+          label.setAttribute("opacity", v.toFixed(2));
+          item.extra = (label.getComputedTextLength() + 10) * v;
+          layoutRow(row);
+        });
+      });
       return g;
     }
     const ring = kind === "ring";
@@ -514,21 +578,22 @@
     const text = el("text", { class: "ix-text", x: 0, y: 0.5, "text-anchor": "middle", "dominant-baseline": "central", opacity: 0,
       fill: ring ? "var(--ink)" : (LIGHT.has(col) ? "#14213D" : "#FFFFFF") }, g);
     text.textContent = name;
-    let expanded = 0;
     const draw = k => {
-      expanded = k;
+      item.k = k;
       const full = text.getComputedTextLength() + 24;
       const w = d0 + (full - d0) * k, h = d0 + (PILL_H - d0) * k;
       const x = grow === "right" ? -d0 / 2 : grow === "left" ? d0 / 2 - w : -w / 2;
       const y = vert === "up" ? d0 / 2 - h : vert === "down" ? -d0 / 2 : -h / 2;
       shape.setAttribute("x", x.toFixed(2)); shape.setAttribute("width", w.toFixed(2));
       shape.setAttribute("y", y.toFixed(2)); shape.setAttribute("height", h.toFixed(2));
-      text.setAttribute("y", (y + h / 2 + 0.5).toFixed(2));
       shape.setAttribute("rx", (h / 2).toFixed(2));
       text.setAttribute("x", (x + w / 2).toFixed(2));
+      text.setAttribute("y", (y + h / 2 + 0.5).toFixed(2));
       text.setAttribute("opacity", Math.max(0, (k - 0.55) / 0.45).toFixed(2));
+      item.extra = w - d0;
+      layoutRow(row);
     };
-    hoverable(g, on => { if (on) parent.appendChild(g); tween(expanded, on ? 1 : 0, 180, draw); });
+    hoverable(g, on => { if (on) parent.appendChild(g); tween(item.k, on ? 1 : 0, 180, draw); });
     return g;
   }
   function hoverable(g, fn) {
@@ -642,12 +707,14 @@
         }
       }
       placed.push(best);
+      s.labelRect = best.rect;
       const text = el("text", { class: "label clickable", "text-anchor": best.align }, labelLayer);
       text.addEventListener("click", () => openBoard(S.indexOf(s)));
       best.lines.forEach((ln, i) => {
         el("tspan", { x: best.ax, y: best.by + ASC + i * LH }, text).textContent = ln;
       });
-      best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid"));
+      const row = { items: [] };
+      best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row));
     });
     fitView();
   }
@@ -913,7 +980,6 @@
 
   /* ---------- Drawing ---------- */
   let mode = "dest";
-  try { if (localStorage.getItem("carriage-label-choice") === "num") mode = "num"; } catch (e) {}
   const labelFor = t => mode === "dest" ? S[t.dest].code : t.v;
 
   function ensureNode(t) {
@@ -925,7 +991,8 @@
     g.addEventListener("mouseleave", hideTip);
     g.addEventListener("focus", () => showTip(t));
     g.addEventListener("blur", hideTip);
-    g.addEventListener("click", () => showTip(t));
+    g.addEventListener("click", e => { e.stopPropagation(); hideTip(); openTrain(t); });
+    g.addEventListener("keydown", e => { if (e.key === "Enter") { hideTip(); openTrain(t); } });
     t.node = g;
   }
 
@@ -1041,10 +1108,7 @@
   /* ---------- Controls ---------- */
   document.getElementById(mode === "dest" ? "lbl-dest" : "lbl-num").checked = true;
   document.querySelectorAll('input[name="lbl"]').forEach(inp =>
-    inp.addEventListener("change", () => {
-      mode = inp.value;
-      try { localStorage.setItem("carriage-label-choice", mode); } catch (e) {}
-    }));
+    inp.addEventListener("change", () => { mode = inp.value; }));
 
   const keyInput = document.getElementById("key-input");
   const keyNote = document.getElementById("key-note");
@@ -1087,82 +1151,197 @@
 
   if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { DEBUG, trains, S, LANES, poseAtL, cum, segLen, TRAIN_SCALE };
 
-  /* ---------- Departure board ---------- */
-  const overlay = document.getElementById("board-overlay");
-  const sections = document.getElementById("board-sections");
-  const boardNote = document.getElementById("board-note");
-  let boardStation = null, boardTimer = null, lastFocus = null;
+  /* ---------- Pop-up boards (stations and trains) ---------- */
+  const pop = document.getElementById("pop");
+  const popTitle = document.getElementById("pop-title");
+  const popSections = document.getElementById("pop-sections");
+  const popNote = document.getElementById("pop-note");
+  let popRender = null, popTimer = null, popAnchor = null, popLastFocus = null;
+  const clockFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
   function whenText(sec) {
     if (sec < 30) return "due";
     const m = Math.max(1, Math.round(sec / 60));
     return m === 1 ? "1 min" : `${m} mins`;
   }
-  function renderBoard() {
-    if (boardStation === null) return;
-    const k = boardStation, now = performance.now();
-    const preds = (boardData.get(k) || []).map(p => ({ ...p, left: p.tts - (now - p.fetchedAt) / 1000 }))
-      .filter(p => p.left > -20);
-    const isTerminus = k === 0 || k === LAST;
-    const dirs = k === 0 ? ["S"] : k === LAST ? ["N"] : ["N", "S"];
-    sections.innerHTML = "";
-    dirs.forEach(dir => {
-      // at a terminus the feed only lists trains arriving to turn round; they form the next departures
-      const pool = isTerminus ? preds : preds.filter(p => p.dir === dir);
-      const rows = pool.sort((a, b) => a.left - b.left).slice(0, 3);
-      const wrap = document.createElement("div");
-      const plat = rows.find(r => r.platform) ? rows.find(r => r.platform).platform : "";
-      const label = document.createElement("p");
-      label.className = "plat-label";
-      label.textContent = (dir === "N" ? "Northbound" : "Southbound") + (plat && !isTerminus ? ` · ${plat}` : "");
-      const led = document.createElement("div");
-      led.className = "led";
-      if (!rows.length) {
-        const r = document.createElement("div");
-        r.className = "led-row led-empty";
-        r.innerHTML = "<span></span><span class='dest'></span><span class='when'></span>";
-        r.children[1].textContent = everLoaded ? "No trains listed" : "Loading…";
-        led.appendChild(r);
-      }
-      rows.forEach((p, i) => {
-        const r = document.createElement("div");
-        r.className = "led-row";
-        const n = document.createElement("span"); n.textContent = String(i + 1);
-        const d = document.createElement("span"); d.className = "dest";
-        d.textContent = isTerminus ? S[dir === "N" ? 0 : LAST].name : (p.dest !== undefined ? S[p.dest].name : p.destName || "Check front of train");
-        const w = document.createElement("span"); w.className = "when"; w.textContent = whenText(p.left);
-        r.append(n, d, w);
-        led.appendChild(r);
-      });
-      const clock = document.createElement("div");
-      clock.className = "led-clock";
-      clock.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
-      led.appendChild(clock);
-      wrap.append(label, led);
-      sections.appendChild(wrap);
+  function ledRow(cells, cls) {
+    const r = document.createElement("div");
+    r.className = "led-row" + (cls ? " " + cls : "");
+    cells.forEach(([text, c]) => { const s = document.createElement("span"); if (c) s.className = c; s.textContent = text; r.appendChild(s); });
+    return r;
+  }
+  function screen(labelText, rows) {
+    const wrapEl = document.createElement("div");
+    if (labelText) { const l = document.createElement("p"); l.className = "plat-label"; l.textContent = labelText; wrapEl.appendChild(l); }
+    const led = document.createElement("div"); led.className = "led";
+    rows.forEach(r => led.appendChild(r));
+    wrapEl.appendChild(led);
+    popSections.appendChild(wrapEl);
+    return led;
+  }
+  function addClock(led) {
+    const c = document.createElement("div"); c.className = "led-clock"; c.textContent = clockFmt.format(new Date());
+    led.appendChild(c);
+  }
+
+  // svg coordinates -> position inside the map area
+  function toWrap(x, y) {
+    const m = svg.getScreenCTM(); if (!m) return { x: 0, y: 0 };
+    const p = svg.createSVGPoint(); p.x = x; p.y = y;
+    const q = p.matrixTransform(m), w = wrap.getBoundingClientRect();
+    return { x: q.x - w.left, y: q.y - w.top };
+  }
+  // Put the pop-up beside its anchor, on whichever side stays on screen and avoids covering the station name
+  function placePop() {
+    if (pop.hidden || !popAnchor || window.innerWidth <= 600) { pop.style.left = ""; pop.style.top = ""; return; }
+    const a = toWrap(popAnchor.x, popAnchor.y);
+    const W = wrap.clientWidth, H = wrap.clientHeight, bw = pop.offsetWidth, bh = pop.offsetHeight, gap = 44, pad = 8;
+    let avoid = null;
+    if (popAnchor.rect) {
+      const p1 = toWrap(popAnchor.rect.x, popAnchor.rect.y), p2 = toWrap(popAnchor.rect.x2, popAnchor.rect.y2);
+      avoid = { x: p1.x - 6, y: p1.y - 6, x2: p2.x + 6, y2: p2.y + 6 };
+    }
+    const clampL = l => Math.min(W - bw - pad, Math.max(pad, l)), clampT = v => Math.min(H - bh - pad, Math.max(pad, v));
+    const cands = [
+      { l: a.x + gap, t: a.y - bh / 2 }, { l: a.x - gap - bw, t: a.y - bh / 2 },
+      { l: a.x - bw / 2, t: a.y + gap }, { l: a.x - bw / 2, t: a.y - gap - bh }
+    ].map(c => ({ l: clampL(c.l), t: clampT(c.t) }));
+    const overlap = (r, q) => Math.max(0, Math.min(r.x2, q.x2) - Math.max(r.x, q.x)) * Math.max(0, Math.min(r.y2, q.y2) - Math.max(r.y, q.y));
+    let best = cands[0], bestScore = Infinity;
+    cands.forEach((c, i) => {
+      const r = { x: c.l, y: c.t, x2: c.l + bw, y2: c.t + bh };
+      let score = overlap(r, { x: a.x - 26, y: a.y - 26, x2: a.x + 26, y2: a.y + 26 }) * 50;   // never cover the station or train
+      if (avoid) score += overlap(r, avoid) * 10;                                               // keep the name visible
+      score += i * 0.5;                                                                         // mild preference order
+      if (score < bestScore) { bestScore = score; best = c; }
     });
-    if (isTerminus) {
-      boardNote.textContent = "Terminus: times are for trains arriving here, which then turn round for the next departures.";
-      boardNote.hidden = false;
-    } else boardNote.hidden = true;
+    pop.style.left = best.l + "px"; pop.style.top = best.t + "px";
   }
+  function openPop(title, anchor, render) {
+    popTitle.textContent = title;
+    popAnchor = anchor; popRender = render;
+    if (pop.hidden) popLastFocus = document.activeElement;
+    pop.hidden = false;
+    render(); placePop();
+    clearInterval(popTimer);
+    popTimer = setInterval(() => { if (popRender) popRender(); }, 1000);
+  }
+  function closePop() {
+    if (pop.hidden) return;
+    pop.hidden = true; popRender = null; clearInterval(popTimer);
+    if (popLastFocus && popLastFocus.focus && document.activeElement && pop.contains(document.activeElement)) popLastFocus.focus();
+  }
+  document.getElementById("pop-close").addEventListener("click", closePop);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
+  document.addEventListener("pointerdown", e => {
+    if (pop.hidden || pop.contains(e.target)) return;
+    if (e.target.closest && e.target.closest(".station-link, .label.clickable, .train")) return; // those open their own board
+    closePop();
+  });
+  window.addEventListener("resize", placePop);
+
+  // Station departures: next three each way
   function openBoard(k) {
-    boardStation = k;
-    document.getElementById("board-title").textContent = S[k].name;
-    lastFocus = document.activeElement;
-    overlay.hidden = false;
-    renderBoard();
-    clearInterval(boardTimer);
-    boardTimer = setInterval(renderBoard, 1000);
-    document.getElementById("board-close").focus();
+    openPop(S[k].name, { x: S[k].x, y: S[k].y, rect: S[k].labelRect }, () => {
+      const now = performance.now();
+      const preds = (boardData.get(k) || []).map(p => ({ ...p, left: p.tts - (now - p.fetchedAt) / 1000 })).filter(p => p.left > -20);
+      const isTerminus = k === 0 || k === LAST;
+      const dirs = k === 0 ? ["S"] : k === LAST ? ["N"] : ["N", "S"];
+      popSections.innerHTML = "";
+      let last = null;
+      dirs.forEach(dir => {
+        const pool = isTerminus ? preds : preds.filter(p => p.dir === dir);
+        const rows = pool.sort((a, b) => a.left - b.left).slice(0, 3);
+        const plat = (rows.find(r => r.platform) || {}).platform || "";
+        const label = (dir === "N" ? "Northbound" : "Southbound") + (plat && !isTerminus ? ` · ${plat}` : "");
+        const cells = rows.length ? rows.map((p, i) => ledRow([
+          [String(i + 1)],
+          [isTerminus ? S[dir === "N" ? 0 : LAST].name : (p.dest !== undefined ? S[p.dest].name : p.destName || "Check front of train"), "dest"],
+          [whenText(p.left), "when"]
+        ])) : [ledRow([[""], [everLoaded ? "No trains listed" : "Loading…", "dest"], ["", "when"]], "led-empty")];
+        last = screen(label, cells);
+      });
+      addClock(last);
+      popNote.textContent = isTerminus ? "Terminus: times are for trains arriving here, which then turn round for the next departures." : "";
+      popNote.hidden = !isTerminus;
+    });
   }
-  function closeBoard() {
-    overlay.hidden = true; boardStation = null; clearInterval(boardTimer);
-    if (lastFocus && lastFocus.focus) lastFocus.focus();
+
+  // Train: its upcoming stops with predicted times
+  function openTrain(t) {
+    openPop(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`, { x: t.x, y: t.y }, () => {
+      const now = performance.now(), s = sgn(t.dir);
+      popTitle.textContent = `${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`;
+      popSections.innerHTML = "";
+      const stops = (t.stops || []).filter(st => s * (cum[st.idx] - t.D) > -0.5);
+      const rows = stops.length
+        ? stops.slice(0, 9).map(st => ledRow([[S[st.idx].name, "dest"], [whenText((st.at - now) / 1000), "when"]], "stop"))
+        : [ledRow([[t.missed >= 2 ? "Out of service" : "No stops predicted", "dest"], ["", "when"]], "stop led-empty")];
+      const led = screen("Calling at", rows);
+      addClock(led);
+      popNote.textContent = `Train ${t.v}` + (t.loc ? ` · TfL reports: ${t.loc}` : "");
+      popNote.hidden = false;
+      if (t.missed >= 2 || !trains.has(t.v)) { popRender = null; }
+    });
   }
-  document.getElementById("board-close").addEventListener("click", closeBoard);
-  overlay.addEventListener("click", e => { if (e.target === overlay) closeBoard(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && !overlay.hidden) closeBoard(); });
+
+  /* ---------- Side panel show / hide (remembered per screen) ---------- */
+  const panelShow = document.getElementById("panel-show");
+  function setPanel(hidden) {
+    document.body.classList.toggle("panel-hidden", hidden);
+    panelShow.hidden = !hidden;
+    try { localStorage.setItem("panel-hidden", hidden ? "1" : "0"); } catch (e) {}
+    requestAnimationFrame(placePop);
+  }
+  document.getElementById("panel-hide").addEventListener("click", () => { setPanel(true); panelShow.focus(); });
+  panelShow.addEventListener("click", () => { setPanel(false); document.getElementById("panel-hide").focus(); });
+  try { if (localStorage.getItem("panel-hidden") === "1") setPanel(true); } catch (e) {}
+
+  /* ---------- Display: background warmth and brightness (remembered per screen) ---------- */
+  const warmth = document.getElementById("warmth"), bright = document.getElementById("brightness");
+  const dimmer = document.getElementById("dimmer");
+  const TONES = {
+    light: { cool: [234, 240, 244], neutral: [241, 242, 239], warm: [247, 238, 222] },
+    dark:  { cool: [22, 29, 38],   neutral: [27, 32, 38],   warm: [36, 31, 25] }
+  };
+  const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  const isDark = () => {
+    const th = document.documentElement.getAttribute("data-theme");
+    return th ? th === "dark" : !!(darkQuery && darkQuery.matches);
+  };
+  const mixC = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+  function applyDisplay() {
+    const w = +warmth.value / 100, b = +bright.value / 100;
+    const tone = TONES[isDark() ? "dark" : "light"];
+    const c = w < 0.5 ? mixC(tone.cool, tone.neutral, w / 0.5) : mixC(tone.neutral, tone.warm, (w - 0.5) / 0.5);
+    const rgb = `rgb(${c.join(",")})`;
+    const root = document.documentElement.style;
+    root.setProperty("--bg", rgb);
+    if (isDark()) { root.setProperty("--station-fill", rgb); root.setProperty("--ring-fill", rgb); }
+    else { root.removeProperty("--station-fill"); root.removeProperty("--ring-fill"); }
+    dimmer.style.opacity = ((1 - b) * 0.9).toFixed(3);
+    document.getElementById("warmth-out").textContent = w < 0.4 ? "Cool" : w > 0.6 ? "Warm" : "Neutral";
+    document.getElementById("brightness-out").textContent = Math.round(b * 100) + "%";
+    try { localStorage.setItem("display", JSON.stringify({ w: warmth.value, b: bright.value })); } catch (e) {}
+  }
+  try { const d = JSON.parse(localStorage.getItem("display") || "null"); if (d) { warmth.value = d.w; bright.value = d.b; } } catch (e) {}
+  warmth.addEventListener("input", applyDisplay);
+  bright.addEventListener("input", applyDisplay);
+  if (darkQuery && darkQuery.addEventListener) darkQuery.addEventListener("change", applyDisplay);
+  applyDisplay();
+
+  /* ---------- Stay up to date: reload when a newer version is published ---------- */
+  const VERSION = "1.4";
+  async function checkForUpdate() {
+    if (location.protocol === "file:") return;
+    try {
+      const res = await fetch(location.pathname + "?v=" + Date.now(), { cache: "no-store" });
+      const html = await res.text();
+      const m = html.match(/const VERSION = "([^"]+)"/);
+      if (m && m[1] !== VERSION) location.reload();
+    } catch (e) {}
+  }
+  setInterval(checkForUpdate, 5 * 60 * 1000);
 
   /* ---------- Start ---------- */
   requestAnimationFrame(frame);
