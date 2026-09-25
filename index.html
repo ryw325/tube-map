@@ -196,6 +196,10 @@
   .key-row input:focus-visible, .key-row button:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
   .settings small { display: block; color: var(--muted); margin-top: 8px; font-size: 12.5px; }
   .attrib { font-size: 12px; color: var(--muted); }
+  .ix { cursor: default; outline: none; }
+  .ix:focus-visible .ix-dot, .ix:focus-visible .ix-ring { stroke: var(--line); stroke-width: 3; }
+  .ix-text { font-family: var(--sans); font-size: 16px; font-weight: 600; letter-spacing: 0.01em; pointer-events: none; }
+  .ix-rail-text { font-family: var(--sans); font-size: 17px; font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
   .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   :root { --pill-bg: #E4E7E3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #2A323A; } }
@@ -207,7 +211,7 @@
 <div class="wrap">
   <aside class="panel">
     <div>
-      <p class="eyebrow">Live prototype · v1.1</p>
+      <p class="eyebrow">Live prototype · v1.2</p>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
       <p class="intro">Every train on the line, placed from TfL's live arrival predictions and moved smoothly between updates.</p>
     </div>
@@ -262,9 +266,9 @@
         </li>
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <circle class="ix-ring" cx="-4" cy="0" r="5" stroke="#EE7C0E"/><circle class="ix-ring" cx="8" cy="0" r="5" stroke="#6950A1"/>
+            <circle class="ix-ring" cx="-4" cy="0" r="5" stroke="#972861"/><circle class="ix-ring" cx="8" cy="0" r="5" stroke="#6950A1"/>
           </svg>
-          <span>Overground <small>or</small> Elizabeth line</span>
+          <span>Overground <small>or</small> Elizabeth line <small>in that line's colour</small></span>
         </li>
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
@@ -284,7 +288,7 @@
       <small id="key-note">Optional. The map works without a key, but TfL allows more requests with one. The key is saved only in this browser, never in the code.</small>
     </details>
 
-    <p class="attrib">Powered by TfL Open Data.</p>
+    <p class="attrib">Hover or tap an interchange marker to see the line’s name.<br>Powered by TfL Open Data.</p>
   </aside>
 
   <main class="map-wrap" id="map-wrap">
@@ -312,12 +316,13 @@
   const TRAIN_SCALE = 1.3;
   const TRAIN_LEN = 35 * TRAIN_SCALE;
   const TRAIN_HALF_H = 8 * TRAIN_SCALE;
-  const LANE = 22;
+  const LANE = 29;            // train centre from the track centre: clears station circles when passing
+  const INNER_R = 60;         // radius of the lane on the inside of a bend, so trains never clip the track
   const LANE_OUTER = LANE + TRAIN_HALF_H;
   const CLEAR = LANE_OUTER + 6;
   const LABEL_GAP = 48;
-  const MARGIN = TRAIN_LEN / 2 + 4;
-  const SPAN = TRAIN_LEN + 5;
+  const GAP_L = TRAIN_LEN + 8; // minimum nose-to-tail spacing between trains in the same lane
+  const DWELL_MS = 15000;      // every train waits this long at a platform
 
   function trainPath(r) {
     const x = -18 + r;
@@ -363,14 +368,17 @@
     district: ["District", "#00782A"], hammersmith: ["Hammersmith & City", "#F3A9BB"],
     jubilee: ["Jubilee", "#A0A5A9"], metropolitan: ["Metropolitan", "#9B0056"],
     northern: ["Northern", "#000000"], piccadilly: ["Piccadilly", "#003688"],
-    overground: ["London Overground", "#EE7C0E", "ring"], elizabeth: ["Elizabeth line", "#6950A1", "ring"],
+    weaver: ["Weaver", "#972861", "ring"], suffragette: ["Suffragette", "#39B97A", "ring"],
+    mildmay: ["Mildmay", "#437EC1", "ring"], windrush: ["Windrush", "#EF4D5E", "ring"],
+    lioness: ["Lioness", "#F1B41C", "ring"], liberty: ["Liberty", "#676767", "ring"],
+    elizabeth: ["Elizabeth", "#6950A1", "ring"],
     rail: ["National Rail", null, "rail"]
   };
   const IX = {
-    WWL: ["overground"], BLR: ["overground"], TMH: ["rail"], SVS: ["overground"],
-    FPK: ["piccadilly", "rail"], HAI: ["overground", "rail"],
+    WWL: ["weaver"], BLR: ["suffragette"], TMH: ["rail"], SVS: ["weaver"],
+    FPK: ["piccadilly", "rail"], HAI: ["mildmay", "windrush", "rail"],
     KSX: ["circle", "hammersmith", "metropolitan", "northern", "piccadilly", "rail"],
-    EUS: ["northern", "overground", "rail"], WRR: ["northern"],
+    EUS: ["northern", "lioness", "rail"], WRR: ["northern"],
     OXC: ["bakerloo", "central"], GPK: ["piccadilly", "jubilee"],
     VIC: ["circle", "district", "rail"], VXL: ["rail"], SKW: ["northern"]
   };
@@ -403,17 +411,72 @@
     const g = el("g", { transform: `translate(${cx} ${cy})` }, parent);
     el("rect", { class: "ix-rail", x: -7.5, y: -7.5, width: 15, height: 15, rx: 3 }, g);
     el("path", { class: "ix-rail-glyph", d: "M-4.5,-2.5 H4.5 M2,-5 L4.5,-2.5 L2,0 M4.5,2.5 H-4.5 M-2,0 L-4.5,2.5 L-2,5" }, g);
-    el("title", {}, g).textContent = "National Rail";
+    return g;
   }
   document.querySelectorAll(".legend .rail-icon").forEach(g => railIcon(g, 0, 0));
 
-  function marker(parent, key, cx, cy) {
+  // Interchange markers. Hover or focus expands them to show the line's name.
+  const LIGHT = new Set(["#FFD300", "#F3A9BB"]); // pale tube colours get dark text for legibility
+  const PILL_H = 27;
+  function tween(from, to, ms, fn) {
+    const t0 = performance.now();
+    const step = now => {
+      const k = reduceMotionPref ? 1 : Math.min(1, (now - t0) / ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      fn(from + (to - from) * e);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function marker(parent, key, cx, cy, align, vert) {
     const [name, col, kind] = L[key];
-    if (kind === "rail") return railIcon(parent, cx, cy);
-    const c = kind === "ring"
-      ? el("circle", { class: "ix-ring", cx, cy, r: 5, stroke: col }, parent)
-      : el("circle", { class: "ix-dot", cx, cy, r: 6.5, fill: col }, parent);
-    el("title", {}, c).textContent = name;
+    const grow = align === "end" ? "left" : align === "start" ? "right" : "centre";
+    const g = el("g", { class: "ix", tabindex: "0", role: "img", "aria-label": kind === "rail" ? "National Rail" : `${name} line`, transform: `translate(${cx} ${cy})` }, parent);
+    if (kind === "rail") {
+      railIcon(g, 0, 0);
+      const label = el("text", { class: "ix-rail-text", y: 0, "dominant-baseline": "central",
+        x: grow === "left" ? -14 : 14, "text-anchor": grow === "left" ? "end" : "start", opacity: 0 }, g);
+      label.textContent = "National Rail";
+      const show = on => { if (on) parent.appendChild(g); tween(+label.getAttribute("opacity"), on ? 1 : 0, 160, v => label.setAttribute("opacity", v.toFixed(2))); };
+      hoverable(g, show);
+      return g;
+    }
+    const ring = kind === "ring";
+    const d0 = ring ? 10 : 13;                  // collapsed diameter
+    const shape = el("rect", {
+      class: ring ? "ix-ring" : "ix-dot", x: -d0 / 2, y: -d0 / 2, width: d0, height: d0, rx: d0 / 2,
+      [ring ? "stroke" : "fill"]: col
+    }, g);
+    const text = el("text", { class: "ix-text", x: 0, y: 0.5, "text-anchor": "middle", "dominant-baseline": "central", opacity: 0,
+      fill: ring ? "var(--ink)" : (LIGHT.has(col) ? "#14213D" : "#FFFFFF") }, g);
+    text.textContent = name;
+    let expanded = 0;
+    const draw = k => {
+      expanded = k;
+      const full = text.getComputedTextLength() + 24;
+      const w = d0 + (full - d0) * k, h = d0 + (PILL_H - d0) * k;
+      const x = grow === "right" ? -d0 / 2 : grow === "left" ? d0 / 2 - w : -w / 2;
+      const y = vert === "up" ? d0 / 2 - h : vert === "down" ? -d0 / 2 : -h / 2;
+      shape.setAttribute("x", x.toFixed(2)); shape.setAttribute("width", w.toFixed(2));
+      shape.setAttribute("y", y.toFixed(2)); shape.setAttribute("height", h.toFixed(2));
+      text.setAttribute("y", (y + h / 2 + 0.5).toFixed(2));
+      shape.setAttribute("rx", (h / 2).toFixed(2));
+      text.setAttribute("x", (x + w / 2).toFixed(2));
+      text.setAttribute("opacity", Math.max(0, (k - 0.55) / 0.45).toFixed(2));
+    };
+    hoverable(g, on => { if (on) parent.appendChild(g); tween(expanded, on ? 1 : 0, 180, draw); });
+    return g;
+  }
+  function hoverable(g, fn) {
+    let on = false;
+    const set = v => { if (v !== on) { on = v; fn(v); } };
+    g.addEventListener("mouseenter", () => set(true));
+    g.addEventListener("mouseleave", () => set(false));
+    g.addEventListener("focus", () => set(true));
+    g.addEventListener("blur", () => set(false));
+    g.addEventListener("click", () => set(!on));
   }
 
   // geometry
@@ -521,7 +584,7 @@
       best.lines.forEach((ln, i) => {
         el("tspan", { x: best.ax, y: best.by + ASC + i * LH }, text).textContent = ln;
       });
-      best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy));
+      best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid"));
     });
     fitView();
   }
@@ -574,12 +637,71 @@
     }
   }
 
+  const DEBUG = /[?&]debug\b/.test(location.search) ? { departures: [] } : null;
   const sgn = dir => dir === "S" ? 1 : -1;
-  const ZONE = 22;  // distance either side of a station where a train swings across it
-  // Where a train stands while stopped at station k: nose at the platform, before the station
-  const stopD = (k, dir) => Math.max(0, Math.min(cum[LAST], cum[k] - sgn(dir) * ZONE));
   const segOf = D => { let i = 0; while (i < segLen.length - 1 && D > cum[i + 1]) i++; return i; };
-  const nominalSpeed = seg => segLen[seg] / Math.max(45, RUN[seg] - 20); // px per second between stations
+  const nominalSpeed = seg => segLen[seg] / Math.max(40, RUN[seg] - 15); // track px per second
+
+  /* ---------- Train lanes ----------
+     Each direction runs in its own lane on its left of the track. On the outside of a bend the lane
+     wraps round the station; on the inside it takes a wider curve so the carriage never clips the track. */
+  function buildLane(dir) {
+    const side = sgn(dir);
+    const u = segLen.map((l, i) => ({ x: (S[i + 1].x - S[i].x) / l, y: (S[i + 1].y - S[i].y) / l }));
+    const n = u.map(v => ({ x: side * v.y, y: -side * v.x }));
+    const pts = [], anchorsIdx = [];
+    const push = (x, y) => pts.push({ x, y });
+    push(S[0].x + n[0].x * LANE, S[0].y + n[0].y * LANE); anchorsIdx.push(0);
+    const arc = (cx, cy, r, a1, a2) => {
+      let da = a2 - a1; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+      const steps = Math.max(6, Math.ceil(Math.abs(da) / (Math.PI / 90)));
+      const start = pts.length;
+      for (let i = 0; i <= steps; i++) { const a = a1 + da * i / steps; push(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+      return start + Math.round(steps / 2);
+    };
+    for (let k = 1; k < LAST; k++) {
+      const V = S[k], u1 = u[k - 1], u2 = u[k], n1 = n[k - 1], n2 = n[k];
+      const cross = u1.x * u2.y - u1.y * u2.x;
+      if (Math.abs(cross) < 1e-4) { push(V.x + n1.x * LANE, V.y + n1.y * LANE); anchorsIdx.push(pts.length - 1); continue; }
+      const inside = n1.x * u2.x + n1.y * u2.y > 0;
+      if (!inside) {
+        anchorsIdx.push(arc(V.x, V.y, LANE, Math.atan2(n1.y, n1.x), Math.atan2(n2.y, n2.x)));
+      } else {
+        let bx = n1.x + n2.x, by = n1.y + n2.y; const bl = Math.hypot(bx, by); bx /= bl; by /= bl;
+        const c = (LANE + INNER_R) / (bx * n1.x + by * n1.y);
+        const Cx = V.x + bx * c, Cy = V.y + by * c;
+        anchorsIdx.push(arc(Cx, Cy, INNER_R, Math.atan2(-n1.y, -n1.x), Math.atan2(-n2.y, -n2.x)));
+      }
+    }
+    const nl = n[LAST - 1];
+    push(S[LAST].x + nl.x * LANE, S[LAST].y + nl.y * LANE); anchorsIdx.push(pts.length - 1);
+    const cl = [0];
+    for (let i = 1; i < pts.length; i++) cl.push(cl[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    return { pts, cl, anchors: anchorsIdx.map(i => cl[i]), total: cl[cl.length - 1] };
+  }
+  const LANES = { S: buildLane("S"), N: buildLane("N") };
+
+  // track distance <-> lane distance (piecewise linear between stations)
+  function toL(D, dir) {
+    const A = LANES[dir].anchors, i = segOf(D);
+    return A[i] + (Math.max(0, Math.min(segLen[i], D - cum[i])) / segLen[i]) * (A[i + 1] - A[i]);
+  }
+  function fromL(Lv, dir) {
+    const A = LANES[dir].anchors;
+    let i = 0; while (i < A.length - 2 && Lv > A[i + 1]) i++;
+    return cum[i] + Math.max(0, Math.min(1, (Lv - A[i]) / (A[i + 1] - A[i]))) * segLen[i];
+  }
+  function poseAtL(Lv, dir) {
+    const { pts, cl } = LANES[dir];
+    let lo = 0, hi = cl.length - 1;
+    Lv = Math.max(0, Math.min(cl[hi], Lv));
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cl[mid] <= Lv) lo = mid; else hi = mid; }
+    const a = pts[lo], b = pts[hi], f = cl[hi] > cl[lo] ? (Lv - cl[lo]) / (cl[hi] - cl[lo]) : 0;
+    let ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    if (dir === "N") ang += 180;
+    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, ang };
+  }
+  const poseAt = (D, dir) => poseAtL(toL(D, dir), dir);
 
   function ingest(data) {
     const now = performance.now();
@@ -603,7 +725,7 @@
       const s = sgn(next.dir);
       seen.add(v);
 
-      // This train's own timetable: its remaining stops in order, each with an arrival time
+      // this train's own timetable: remaining stops in order, each with an arrival time
       const best = new Map();
       preds.forEach(p => {
         if (p.dir !== next.dir || s * (p.idx - next.idx) < 0) return;
@@ -611,113 +733,103 @@
       });
       const stops = [...best.values()].sort((a, b) => s * (a.idx - b.idx));
       let lastAt = 0;
-      stops.forEach(p => { p.at = Math.max(now + p.tts * 1000, lastAt + 15000 * (lastAt ? 1 : 0)); lastAt = p.at; });
+      stops.forEach(p => { p.at = Math.max(now + p.tts * 1000, lastAt ? lastAt + 15000 : 0); lastAt = p.at; });
 
       let t = trains.get(v);
-      if (!t) {
-        t = { v, opacity: 0, x: null, y: null, ang: 0, node: null, D: null };
+      const isNew = !t;
+      if (isNew) {
+        t = { v, opacity: 0, x: null, y: null, ang: 0, node: null, D: null, pendingD: null, arrivedAt: null };
         trains.set(v, t);
       }
-      const flipped = t.dir && t.dir !== next.dir;
+      const flipped = !isNew && t.dir !== next.dir;
       Object.assign(t, {
         dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc, stops,
         dest: next.dest !== undefined ? next.dest : (next.dir === "S" ? LAST : 0),
         fetchedAt: now, missed: 0
       });
       const model = modelD(t, now);
-      if (t.D === null || flipped) {
-        t.D = model;
+      if (isNew) {
+        t.D = model; t.needsPlace = true;
+      } else if (flipped) {
+        t.pendingD = model; // turned round at a terminus: fade across to the other lane
       } else if (s * (model - t.D) > Math.max(220, segLen[segOf(t.D)] * 1.2)) {
-        t.D = model; // far behind the data (e.g. missed updates): catch up
+        t.pendingD = model; // far behind the data (e.g. missed updates): fade forward
       }
     });
     trains.forEach((t, v) => { if (!seen.has(v)) t.missed = (t.missed || 0) + 1; });
   }
 
-  // Best estimate of where the data puts a train, used to place new trains and correct big drift
+  // Best estimate of where the data puts a train; used to place new trains and correct big drift
   function modelD(t, now) {
     const s = sgn(t.dir);
     const e = t.tts - (now - t.fetchedAt) / 1000;
     const prev = t.next - s;
     const loc = t.loc.toLowerCase();
     const first = name => name.toLowerCase().split(" ")[0];
-    if (prev < 0 || prev > LAST) return stopD(t.next, t.dir);
-    if (e <= 20 || (loc.startsWith("at ") && loc.includes(first(S[t.next].name)))) return stopD(t.next, t.dir);
+    if (prev < 0 || prev > LAST) return cum[t.next];
+    if (e <= 20 || (loc.startsWith("at ") && loc.includes(first(S[t.next].name)))) return cum[t.next];
     const run = RUN[Math.min(prev, t.next)];
-    if (e >= run) return stopD(prev, t.dir);
-    const p = 1 - e / run;
-    return stopD(prev, t.dir) + (stopD(t.next, t.dir) - stopD(prev, t.dir)) * p;
+    if (e >= run) return cum[prev];
+    return cum[prev] + (cum[t.next] - cum[prev]) * (1 - e / run);
   }
 
+  // Put a train where it doesn't overlap another in its lane (queues it behind)
+  function clearSpot(t, D, all) {
+    const s = sgn(t.dir);
+    let Lv = toL(D, t.dir);
+    const others = all.filter(o => o !== t && o.dir === t.dir && o.D !== null && o.missed < 2 && o.pendingD === null && !o.needsPlace)
+      .map(o => toL(o.D, o.dir)).sort((a, b) => s * (b - a)); // front first
+    for (const Lo of others) if (Math.abs(Lo - Lv) < GAP_L) Lv = Lo - s * GAP_L;
+    Lv = Math.max(0, Math.min(LANES[t.dir].total, Lv));
+    return fromL(Lv, t.dir);
+  }
+
+  function stationAt(D) { for (let k = 0; k <= LAST; k++) if (Math.abs(D - cum[k]) < 0.5) return k; return -1; }
+
   // Advance one train along the track for this frame
-  const GAP_D = SPAN * 1.25;
   function advance(t, now, dt, all) {
     const s = sgn(t.dir);
     const D = t.D;
-    // next timetabled stop ahead of the train's current position
-    let target = t.stops.find(st => s * (stopD(st.idx, t.dir) - D) > 0.5);
+    const here = stationAt(D);
+    if (here >= 0 && t.arrivedAt === null) t.arrivedAt = now;
+    if (here < 0) t.arrivedAt = null;
+
+    let target = t.stops.find(st => s * (cum[st.idx] - D) > 0.5);
     let targetD, arriveAt = null;
-    if (target) { targetD = stopD(target.idx, t.dir); arriveAt = target.at; }
+    if (target) { targetD = cum[target.idx]; arriveAt = target.at; }
     else {
-      // no prediction ahead: run on to the next station and wait there
-      let k = t.dir === "S" ? 0 : LAST;
-      while (k >= 0 && k <= LAST && s * (stopD(k, t.dir) - D) <= 0.5) k += s;
-      if (k < 0 || k > LAST) { t.moving = false; return; }
-      targetD = stopD(k, t.dir);
+      let k = here >= 0 ? here + s : (s > 0 ? segOf(D) + 1 : segOf(D));
+      if (k < 0 || k > LAST || here === (s > 0 ? LAST : 0)) { t.moving = false; return; }
+      targetD = cum[k];
     }
+
+    // every train waits 15 seconds at a platform
+    if (here >= 0 && now - t.arrivedAt < DWELL_MS) { t.moving = false; return; }
+
     const remaining = Math.abs(targetD - D);
-    const vNom = nominalSpeed(segOf(D + s * 1));
-    const atStation = S.some((_, k) => Math.abs(D - stopD(k, t.dir)) < 0.5);
+    const vNom = nominalSpeed(segOf(D + s));
     const timeLeft = arriveAt === null ? null : (arriveAt - now) / 1000;
-
-    // dwell at a platform until it is time to leave and arrive on schedule
-    if (atStation && timeLeft !== null && timeLeft > (remaining / vNom) * 1.1) { t.moving = false; return; }
-
     let speed = (timeLeft !== null && timeLeft > 0.5) ? remaining / timeLeft : vNom;
-    speed = Math.max(0.3 * vNom, Math.min(2.5 * vNom, speed));
+    speed = Math.max(0.2 * vNom, Math.min(2.5 * vNom, speed));
     let step = Math.min(remaining, speed * dt);
 
-    // keep a safe gap behind the train ahead in the same direction
-    let limit = Infinity;
+    // wait behind the train in front rather than overlapping it
+    const Lme = toL(D, t.dir);
+    let room = Infinity;
     all.forEach(o => {
-      if (o === t || o.dir !== t.dir || o.D === null || o.missed >= 2) return;
-      const ahead = s * (o.D - D);
-      if (ahead > 0) limit = Math.min(limit, ahead - GAP_D);
+      if (o === t || o.dir !== t.dir || o.D === null || o.missed >= 2 || o.pendingD !== null) return;
+      const ahead = s * (toL(o.D, o.dir) - Lme);
+      if (ahead > 0) room = Math.min(room, ahead - GAP_L);
     });
-    step = Math.max(0, Math.min(step, limit));
+    if (room < Infinity) {
+      const maxD = fromL(Lme + s * Math.max(0, room), t.dir);
+      step = Math.max(0, Math.min(step, s * (maxD - D)));
+    }
 
+    if (here >= 0 && step > 0 && DEBUG) DEBUG.departures.push(Math.round((now - t.arrivedAt) / 100) / 10);
     t.D = D + s * step;
     if (Math.abs(t.D - targetD) < 0.5) t.D = targetD;
     t.moving = step > 0;
-  }
-
-  // Screen position for a track distance: runs in the train lane, swinging smoothly across stations
-  function laneAt(D, dir, forcedSeg) {
-    const i = forcedSeg !== undefined ? forcedSeg : segOf(D);
-    const len = segLen[i];
-    const local = Math.max(0, Math.min(len, D - cum[i]));
-    return lanePoint(i, MARGIN + (local / len) * (len - 2 * MARGIN), dir);
-  }
-  function screenAt(D, dir) {
-    for (let k = 1; k < LAST; k++) {
-      if (Math.abs(D - cum[k]) < ZONE) {
-        const a = laneAt(cum[k] - ZONE, dir, k - 1), b = laneAt(cum[k] + ZONE, dir, k);
-        let u = (D - (cum[k] - ZONE)) / (2 * ZONE);
-        u = u * u * (3 - 2 * u);
-        const da = ((b.ang - a.ang + 540) % 360) - 180;
-        return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, ang: a.ang + da * u };
-      }
-    }
-    return laneAt(D, dir);
-  }
-
-  function lanePoint(seg, along, dir) {
-    const A = S[seg], B = S[seg + 1];
-    let ux = (B.x - A.x) / segLen[seg], uy = (B.y - A.y) / segLen[seg];
-    const bx = A.x + ux * along, by = A.y + uy * along;
-    if (dir === "N") { ux = -ux; uy = -uy; }
-    const nx = uy, ny = -ux; // keep left
-    return { x: bx + nx * LANE, y: by + ny * LANE, ang: Math.atan2(uy, ux) * 180 / Math.PI };
   }
 
   /* ---------- Drawing ---------- */
@@ -744,30 +856,32 @@
   function frame(now) {
     const dt = Math.min(0.25, (now - lastFrame) / 1000);
     lastFrame = now;
-    const ease = reduceMotion ? 1 : 1 - Math.pow(0.02, dt);
+    const fade = reduceMotion ? 1 : Math.min(1, dt * 4);
 
     const all = [...trains.values()].filter(t => t.fetchedAt !== undefined && t.D !== null);
-    // move trains front to back so followers see where their leader has moved to
+    // place newly seen trains without overlapping anyone
+    all.forEach(t => { if (t.needsPlace) { t.D = clearSpot(t, t.D, all); t.needsPlace = false; } });
+    // move trains front to back so each follower sees where its leader has moved to
     all.sort((a, b) => sgn(b.dir) * b.D - sgn(a.dir) * a.D);
-    all.forEach(t => advance(t, now, dt, all));
+    all.forEach(t => { if (t.pendingD === null) advance(t, now, dt, all); });
 
     const gone = [];
     all.forEach(t => {
-      const target = screenAt(t.D, t.dir);
       ensureNode(t);
-      if (t.x === null) { t.x = target.x; t.y = target.y; t.ang = target.ang; }
-      // follow the track exactly; only ease when correcting a jump or changing direction
-      const off = Math.hypot(target.x - t.x, target.y - t.y);
-      const k = off < 3 ? 1 : ease;
-      t.x += (target.x - t.x) * k;
-      t.y += (target.y - t.y) * k;
-      const da = ((target.ang - t.ang + 540) % 360) - 180;
-      t.ang += da * (Math.abs(da) < 2 ? 1 : Math.max(k, ease));
-
-      const wantOpacity = t.missed >= 2 ? 0 : 1;
-      t.opacity += (wantOpacity - t.opacity) * (reduceMotion ? 1 : Math.min(1, dt * 3));
+      // a train that must move a long way (turning round, catching up) fades out and back in
+      if (t.pendingD !== null) {
+        t.opacity += (0 - t.opacity) * fade;
+        if (t.opacity < 0.04 || reduceMotion) {
+          t.D = clearSpot(t, t.pendingD, all); t.pendingD = null; t.arrivedAt = null; t.x = null;
+        }
+      } else {
+        const wantOpacity = t.missed >= 2 ? 0 : 1;
+        t.opacity += (wantOpacity - t.opacity) * fade;
+      }
       if (t.missed >= 2 && t.opacity < 0.02) { gone.push(t); return; }
 
+      const p = poseAt(t.D, t.dir);
+      if (t.x === null || t.pendingD === null) { t.x = p.x; t.y = p.y; t.ang = p.ang; }
       const a = ((t.ang % 360) + 360) % 360;
       const flip = a > 90 && a < 270;
       t.node.setAttribute("transform", `translate(${t.x.toFixed(1)} ${t.y.toFixed(1)}) rotate(${t.ang.toFixed(1)}) scale(${TRAIN_SCALE})`);
@@ -892,7 +1006,7 @@
   function hideTip() { tip.hidden = true; tipFor = null; }
   document.addEventListener("scroll", hideTip, { passive: true });
 
-  if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { trains, stopD, S };
+  if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { DEBUG, trains, S, LANES, poseAtL, cum, segLen, TRAIN_SCALE };
 
   /* ---------- Start ---------- */
   requestAnimationFrame(frame);
@@ -903,7 +1017,11 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
     const now = performance.now();
-    trains.forEach(t => { if (t.fetchedAt !== undefined) t.D = modelD(t, now); });
+    trains.forEach(t => {
+      if (t.fetchedAt === undefined || t.D === null) return;
+      const m = modelD(t, now);
+      if (Math.abs(m - t.D) > 40) t.pendingD = m;
+    });
     lastFrame = now;
     if (Date.now() - lastFetch > POLL_MS) poll();
   });
