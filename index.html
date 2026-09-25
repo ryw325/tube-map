@@ -213,15 +213,19 @@
     border: 5px solid #000;
   }
   .board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 2px 10px; }
-  .board-head h2 { margin: 0; font-family: var(--sans); font-weight: 600; font-size: 16px; color: #E8E8E8; letter-spacing: 0.01em; display: flex; align-items: center; gap: 10px; }
-  .board-head h2::before { content: ""; width: 6px; height: 20px; border-radius: 3px; background: var(--line); }
+  .board { --amber: #FFA41C; --dot: "Doto", "DotGothic16", ui-monospace, monospace; }
+  .board-head { position: relative; justify-content: center !important; min-height: 30px; }
+  .board-head h2 { margin: 0; text-align: center; font-family: var(--dot); font-weight: 900; font-size: 17px; color: var(--amber); letter-spacing: 0.04em; text-shadow: 0 0 6px rgba(255,164,28,0.45); }
+  .board-head .board-close { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
   .board-close {
     font: inherit; font-size: 20px; line-height: 1; width: 30px; height: 30px; border-radius: 8px;
     border: 1px solid #333; background: #161616; color: #DDD; cursor: pointer;
   }
   .board-close:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
   .board-sections { display: grid; gap: 10px; }
-  .plat-label { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #9A9A9A; margin: 0 2px 5px; }
+  .plat-label, .board-note, .led-title { font-family: var(--dot); font-weight: 900; font-size: 17px; line-height: 1.3; letter-spacing: 0.02em; color: var(--amber); text-shadow: 0 0 6px rgba(255,164,28,0.45); }
+  .plat-label { margin: 0 2px 5px; }
+  .led-title { margin: 0 2px 2px; }
   .led {
     --amber: #FFA41C;
     position: relative; border-radius: 4px; padding: 9px 12px 8px;
@@ -238,7 +242,7 @@
   .led-row .when { text-align: right; font-variant-numeric: tabular-nums; }
   .led-empty { opacity: 0.9; }
   .led-clock { text-align: center; margin-top: 0.35em; font-variant-numeric: tabular-nums; }
-  .board-note { font-family: var(--sans); font-size: 12px; line-height: 1.45; color: #8C8C8C; margin: 10px 2px 0; }
+  .board-note { margin: 10px 2px 0; }
   .led-row.stop { grid-template-columns: 1fr auto; }
   .led-row.stop.passed { opacity: 0.35; }
   /* ---------- Side panel + full-screen layout ---------- */
@@ -291,8 +295,8 @@
   .rpanel .board-sections { flex: 1 1 auto; overflow: hidden; align-content: start; }
   .board-close[hidden] { display: none; }
   .led-prompt { display: grid; place-items: center; text-align: center; min-height: 5.2em; line-height: 1.35; }
-  .station-link.selected .station { stroke: var(--line); stroke-width: 6; }
-  .train.selected .train-body { stroke: var(--ink); stroke-width: 3; }
+  .station-link.selected .station { stroke: #FFA41C; stroke-width: 6; }
+  .train.selected .train-body, .train.selected:hover .train-body { stroke: #FFA41C; stroke-width: 3.5; }
   @media (max-width: 860px) {
     .rpanel { order: 0; padding-block: 8px 24px; }
     .facts { flex: none; }
@@ -310,7 +314,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v1.5</p>
+        <p class="eyebrow">Live prototype · v1.6</p>
         <button class="panel-hide" id="panel-hide" type="button" aria-label="Hide side panel" title="Hide side panel">
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M11 4 L6 9 L11 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -418,7 +422,6 @@
     <section class="facts" aria-label="Victoria line facts">
       <div class="facts-head">
         <p class="section-label">Did you know?</p>
-        <span class="facts-count" id="fact-count"></span>
       </div>
       <p class="fact-tag" id="fact-tag"></p>
       <p class="fact-text" id="fact-text" aria-live="polite"></p>
@@ -431,7 +434,7 @@
 
     <section class="board" id="pop" aria-labelledby="pop-title">
       <div class="board-head">
-        <h2 id="pop-title">Departures</h2>
+        <h2 id="pop-title">Departures Board</h2>
         <button class="board-close" id="pop-close" type="button" aria-label="Clear selection" hidden>×</button>
       </div>
       <div class="board-sections" id="pop-sections"></div>
@@ -1233,8 +1236,11 @@
     selected = node || null;
     if (selected) selected.classList.add("selected");
   }
+  function ledTitle(text) {
+    const h = document.createElement("p"); h.className = "led-title"; h.textContent = text;
+    popSections.appendChild(h);
+  }
   function showPrompt() {
-    popTitle.textContent = "Departures";
     popSections.innerHTML = "";
     const p = document.createElement("div"); p.className = "led-prompt"; p.textContent = "Tap a station or a train";
     const led = screen("", [p]);
@@ -1243,7 +1249,6 @@
     popClose.hidden = true;
   }
   function openPop(title, node, render) {
-    popTitle.textContent = title;
     popRender = render;
     popClose.hidden = false;
     setSelected(node);
@@ -1268,6 +1273,7 @@
       const isTerminus = k === 0 || k === LAST;
       const dirs = k === 0 ? ["S"] : k === LAST ? ["N"] : ["N", "S"];
       popSections.innerHTML = "";
+      ledTitle(S[k].name);
       let last = null;
       dirs.forEach(dir => {
         const pool = isTerminus ? preds : preds.filter(p => p.dir === dir);
@@ -1282,7 +1288,7 @@
         last = screen(label, cells);
       });
       addClock(last);
-      popNote.textContent = isTerminus ? "Terminus: times are for trains arriving here, which then turn round for the next departures." : "";
+      popNote.textContent = isTerminus ? "Terminus: arriving trains turn round to depart" : "";
       popNote.hidden = !isTerminus;
     });
   }
@@ -1291,16 +1297,16 @@
   function openTrain(t) {
     openPop(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`, t.node, () => {
       const now = performance.now(), s = sgn(t.dir);
-      popTitle.textContent = `${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`;
       popSections.innerHTML = "";
+      ledTitle(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name} · Train ${t.v}`);
       const stops = (t.stops || []).filter(st => s * (cum[st.idx] - t.D) > -0.5);
       const rows = stops.length
         ? stops.slice(0, 9).map(st => ledRow([[S[st.idx].name, "dest"], [whenText((st.at - now) / 1000), "when"]], "stop"))
         : [ledRow([[t.missed >= 2 ? "Out of service" : "No stops predicted", "dest"], ["", "when"]], "stop led-empty")];
       const led = screen("Calling at", rows);
       addClock(led);
-      popNote.textContent = `Train ${t.v}` + (t.loc ? ` · TfL reports: ${t.loc}` : "");
-      popNote.hidden = false;
+      popNote.textContent = t.loc ? `Now: ${t.loc}` : "";
+      popNote.hidden = !t.loc;
       if (t.missed >= 2 || !trains.has(t.v)) { popRender = null; setSelected(null); }
     });
   }
@@ -1321,7 +1327,7 @@
   /* ---------- Facts carousel ---------- */
   const FACTS = [{"tag": "History", "text": "The Victoria line was first proposed in the County of London Plan, published in 1943."}, {"tag": "Station art · Brixton", "text": "Brixton's platform tiles show a ‘ton of bricks’, a visual pun on the station's name, designed by Hans Unger."}, {"tag": "History", "text": "During planning the line was known simply as ‘Route C’."}, {"tag": "History", "text": "Names considered included the Walvic, Viking, Mayfair and West End lines before ‘Victoria line’ was chosen, after the station."}, {"tag": "Station art · Warren Street", "text": "Warren Street's tiles show a maze, a pun on ‘warren’. The design is by Crosby, Fletcher and Forbes."}, {"tag": "Construction", "text": "Test tunnels were dug between Tottenham and Manor House from January 1960, before the full line was approved."}, {"tag": "Construction", "text": "The government approved the line's £56 million budget on 20 August 1962, and construction started that September."}, {"tag": "Station art · Seven Sisters", "text": "Seven Sisters' tiles show seven trees, recalling the trees that gave the area its name. The design is by Hans Unger."}, {"tag": "Opening", "text": "The first section, from Walthamstow Central to Highbury & Islington, opened on 1 September 1968 without any ceremony."}, {"tag": "Opening", "text": "Queen Elizabeth II formally opened the line on 7 March 1969, becoming the first reigning monarch to ride on the Underground."}, {"tag": "Station art · Victoria", "text": "Victoria's tiles show a silhouette of Queen Victoria, after whom the station and the line are named. The design is by Edward Bawden."}, {"tag": "Opening", "text": "The extension to Brixton was opened by Princess Alexandra on 23 July 1971."}, {"tag": "Opening", "text": "Pimlico was the last station to open, on 14 September 1972, over a year after the Brixton extension."}, {"tag": "Station art · Pimlico", "text": "Pimlico's abstract tiles by Peter Sedgley nod to the nearby Tate Gallery, now Tate Britain."}, {"tag": "The line", "text": "The Victoria line is 21 km (13 miles) long and serves 16 stations."}, {"tag": "The line", "text": "It is one of only two Underground lines that run entirely underground. The other is the Waterloo & City line."}, {"tag": "Station art · Blackhorse Road", "text": "Blackhorse Road's tiles show exactly what the name says: a black horse, designed by Hans Unger."}, {"tag": "The line", "text": "The only part of the Victoria line above ground is Northumberland Park depot, on Tottenham Marshes."}, {"tag": "Technology", "text": "When it opened in 1968 the Victoria line was the world's first full-scale automatic railway."}, {"tag": "Technology", "text": "Its automatic trains beat Philadelphia's Lindenwold line, which opened with automatic operation in January 1969."}, {"tag": "Station art · Tottenham Hale", "text": "Tottenham Hale's tiles by Edward Bawden show the ferry that once carried passengers across the River Lea."}, {"tag": "Engineering", "text": "Many stations sit on a hump: trains climb to slow down as they arrive and roll downhill as they leave, saving about 5% of energy and running 9% faster."}, {"tag": "Trains", "text": "Trains on the Victoria line run at up to 80 km/h (50 mph)."}, {"tag": "Trains", "text": "The line opened with a fleet of 39½ eight-car trains of 1967 Stock."}, {"tag": "Station art · Finsbury Park", "text": "Finsbury Park's tiles by Tom Eckersley show crossed duelling pistols, recalling the park's history as a duelling spot."}, {"tag": "Trains", "text": "The last 1967 Stock train ran on 30 June 2011, after more than 40 years of service."}, {"tag": "Trains", "text": "Today's 47 eight-car trains are 2009 Stock, built by Bombardier."}, {"tag": "Trains", "text": "The 2009 Stock trains are slightly wider and longer than the originals, so they can't run on any other deep-level tube line."}, {"tag": "Station art · Highbury & Islington", "text": "Highbury & Islington's tiles by Edward Bawden show a castle that once stood nearby."}, {"tag": "Service", "text": "Since May 2017, trains at peak times run every 100 seconds: 36 trains an hour."}, {"tag": "Service", "text": "The upgrade to new trains and signalling increased the line's capacity by 21%, roughly 10,000 extra passengers an hour."}, {"tag": "Service", "text": "In 2019 the line carried 302 million passenger journeys, making it the second-busiest on the Underground."}, {"tag": "Station art · King's Cross", "text": "King's Cross St. Pancras' tiles by Tom Eckersley form a cross made of crowns."}, {"tag": "Service", "text": "Measured by journeys per mile, the Victoria line is by far the most intensively used line on the Underground."}, {"tag": "Stations", "text": "Pimlico is the only station on the line with no interchange to another line or railway."}, {"tag": "Stations", "text": "You can change across the platform to the Bakerloo line at Oxford Circus, the Northern line at Euston and the Piccadilly line at Finsbury Park."}, {"tag": "Station art · Euston", "text": "Euston's tiles by Tom Eckersley recall the lost Euston Arch that once stood at the old mainline station."}, {"tag": "Service", "text": "The Night Tube began on the Victoria line in August 2016, with trains every 10 minutes on Friday and Saturday nights."}, {"tag": "Incidents", "text": "In January 2014, contractors flooded a signalling room at Victoria with quick-setting concrete. Engineers used sugar to stop it setting, and services resumed the next day."}, {"tag": "Engineering", "text": "In 2010 water from the lost River Tyburn was pumped through heat exchangers at Victoria station to help cool it, at 200 litres a second."}, {"tag": "Station art · Green Park", "text": "Green Park's tiles by Hans Unger are an abstract pattern of trees from the park above. They were replaced in 1979 when the Jubilee line arrived."}, {"tag": "History", "text": "When the line opened, a journey from Walthamstow to Victoria took around 24 minutes."}, {"tag": "Stations", "text": "The stations were originally tiled in blue and grey, each with its own motif in the seat recesses to help passengers recognise where they were."}, {"tag": "Station art · Oxford Circus", "text": "Oxford Circus' tiles by Hans Unger are an abstract picture of the circus and its interchanging Underground lines."}, {"tag": "What might have been", "text": "Extensions to Streatham, Dulwich and Crystal Palace were considered, but none were ever built."}, {"tag": "Technology", "text": "The line's signalling was replaced in the 2010s, which London Underground called the world's first upgrade from one automatic train system to another."}, {"tag": "Station art · Stockwell", "text": "Stockwell's tiles by Abram Games show a swan, after The Swan, a famous pub and music venue nearby."}, {"tag": "Service", "text": "Not every train runs the full length: some turn back at Seven Sisters instead of continuing to Walthamstow Central."}, {"tag": "Station art · Walthamstow Central", "text": "Walthamstow Central's tiles by Julia Black adapt a William Morris design, a nod to the nearby William Morris Gallery."}, {"tag": "Station art · Vauxhall", "text": "Vauxhall's tiles by George Smith illustrate the Vauxhall Pleasure Gardens that once stood nearby."}];
   const factText = document.getElementById("fact-text"), factTag = document.getElementById("fact-tag");
-  const factCount = document.getElementById("fact-count"), factBar = document.createElement("span");
+  const factBar = document.createElement("span");
   document.getElementById("fact-dots").appendChild(factBar);
   const FACT_MS = 18000;
   let factIdx = Math.floor(Math.random() * FACTS.length), factStart = performance.now(), factPaused = false;
@@ -1330,7 +1336,6 @@
     const apply = () => {
       factTag.textContent = FACTS[factIdx].tag;
       factText.textContent = FACTS[factIdx].text;
-      factCount.textContent = `${factIdx + 1} / ${FACTS.length}`;
       factText.classList.remove("fading"); factTag.classList.remove("fading");
     };
     factStart = performance.now();
@@ -1396,7 +1401,7 @@
   applyDisplay();
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "1.5";
+  const VERSION = "1.6";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
