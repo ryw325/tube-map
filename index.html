@@ -198,6 +198,7 @@
   .settings small { display: block; color: var(--muted); margin-top: 8px; font-size: 12.5px; }
   .attrib { font-size: 12px; color: var(--muted); }
   .ix { cursor: default; outline: none; }
+  .ix-hit { fill: transparent; }
   .ix:focus-visible .ix-dot, .ix:focus-visible .ix-ring { stroke: var(--line); stroke-width: 3; }
   .ix-text { font-family: var(--sans); font-size: 16px; font-weight: 600; letter-spacing: 0.01em; pointer-events: none; }
   .ix-rail-text { font-family: var(--sans); font-size: 17px; font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
@@ -353,6 +354,7 @@
   .dest-alert { cursor: pointer; outline: none; }
   .dest-alert:focus-visible rect { stroke-width: 3; }
   .dest-alert rect { fill: #FFD23F; stroke: #1A1A1A; stroke-width: 1.5; }
+  .dest-alert text, .train-num { text-rendering: geometricPrecision; }
   .dest-alert text { fill: #1A1A1A; font-family: var(--sans); font-weight: 700; font-size: 13px; }
   .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   :root { --pill-bg: #E4E7E3; }
@@ -366,7 +368,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v2.1</p>
+        <p class="eyebrow">Live prototype · v2.2</p>
       </div>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
     </div>
@@ -625,9 +627,10 @@
   }
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Markers in one row make room for each other: an expanded marker pushes its neighbours aside
+  // Markers in one row make room for each other: an expanded marker pushes its neighbours aside.
+  // Each marker also gets an invisible hit area reaching halfway to its neighbours, so there are no dead gaps.
   function layoutRow(row) {
-    row.items.forEach((it, i) => {
+    const pos = row.items.map((it, i) => {
       let shift = 0;
       row.items.forEach((o, j) => {
         if (j === i || !o.extra) return;
@@ -635,31 +638,76 @@
         else if (o.grow === "left" && i < j) shift -= o.extra;
         else if (o.grow === "centre") shift += i < j ? -o.extra / 2 : o.extra / 2;
       });
-      it.g.setAttribute("transform", `translate(${(it.x + shift).toFixed(2)} ${it.y})`);
+      const gx = it.x + shift;
+      it.g.setAttribute("transform", `translate(${gx.toFixed(2)} ${it.y})`);
+      return gx;
     });
+    const y1 = Math.min(...row.items.map(it => it.ext.y1)) - 5, y2 = Math.max(...row.items.map(it => it.ext.y2)) + 5;
+    row.items.forEach((it, i) => {
+      const gx = pos[i];
+      const L0 = gx + it.ext.x1, R0 = gx + it.ext.x2;
+      const prev = row.items[i - 1], next = row.items[i + 1];
+      const L = prev ? (pos[i - 1] + prev.ext.x2 + L0) / 2 : L0 - 5;
+      const R = next ? (R0 + pos[i + 1] + next.ext.x1) / 2 : R0 + 5;
+      it.hit.setAttribute("x", (L - gx).toFixed(2)); it.hit.setAttribute("width", Math.max(0, R - L).toFixed(2));
+      it.hit.setAttribute("y", y1.toFixed(2)); it.hit.setAttribute("height", (y2 - y1).toFixed(2));
+    });
+  }
+
+  // Only one marker is open at a time, and the dots in the open row grow to pill height
+  let openIx = null;
+  function setRowHot(row, hot) {
+    clearTimeout(row.cool);
+    const go = () => {
+      if (row.hot === hot) return;
+      row.hot = hot;
+      tween(row.k, hot ? 1 : 0, 180, v => { row.k = v; row.items.forEach(it => it.render()); layoutRow(row); });
+    };
+    if (hot) go(); else row.cool = setTimeout(go, 160); // brief grace while moving between neighbours
   }
 
   function marker(parent, key, cx, cy, align, vert, row) {
     const [name, col, kind] = L[key];
     const grow = align === "end" ? "left" : align === "start" ? "right" : "centre";
+    if (row.k === undefined) { row.k = 0; row.hot = false; }
     const g = el("g", { class: "ix", tabindex: "0", role: "img", "aria-label": kind === "rail" ? "National Rail" : `${name} line`, transform: `translate(${cx} ${cy})` }, parent);
-    const item = { g, x: cx, y: cy, extra: 0, k: 0, grow: kind === "rail" && grow === "centre" ? "right" : grow };
+    const hit = el("rect", { class: "ix-hit" }, g);
+    const item = { g, hit, x: cx, y: cy, extra: 0, k: 0, grow: kind === "rail" && grow === "centre" ? "right" : grow, ext: { x1: -7.5, x2: 7.5, y1: -7.5, y2: 7.5 } };
     row.items.push(item);
+    const onHover = on => {
+      if (on) {
+        if (openIx && openIx !== item) openIx.set(false);
+        openIx = item;
+        parent.appendChild(g);
+        setRowHot(row, true);
+      } else {
+        if (openIx === item) openIx = null;
+        if (!row.items.some(it => it === openIx)) setRowHot(row, false);
+      }
+      tween(item.k, on ? 1 : 0, 180, v => { item.k = v; item.render(); layoutRow(row); });
+    };
     if (kind === "rail") {
-      railIcon(g, 0, 0);
+      const inner = railIcon(g, 0, 0);
       const left = item.grow === "left";
-      const label = el("text", { class: "ix-rail-text", y: 0, "dominant-baseline": "central",
-        x: left ? -14 : 14, "text-anchor": left ? "end" : "start", opacity: 0 }, g);
+      const label = el("text", { class: "ix-rail-text", "dominant-baseline": "central", "text-anchor": left ? "end" : "start", opacity: 0 }, g);
       label.textContent = "National Rail";
-      hoverable(g, on => {
-        if (on) parent.appendChild(g);
-        tween(item.k, on ? 1 : 0, 170, v => {
-          item.k = v;
-          label.setAttribute("opacity", v.toFixed(2));
-          item.extra = (label.getComputedTextLength() + 10) * v;
-          layoutRow(row);
-        });
-      });
+      item.render = () => {
+        const sc = 1 + (PILL_H / 15 - 1) * 0.85 * row.k;     // icon grows with the row
+        const w = 15 * sc, grown = w - 15;
+        const dx = left ? -grown / 2 : grown / 2;
+        const dy = vert === "up" ? -grown / 2 : vert === "down" ? grown / 2 : 0;
+        inner.setAttribute("transform", `translate(${dx.toFixed(2)} ${dy.toFixed(2)}) scale(${sc.toFixed(3)})`);
+        const edge = left ? 7.5 - w : -7.5 + w;
+        const tw = label.getComputedTextLength();
+        label.setAttribute("x", (edge + (left ? -7 : 7)).toFixed(2));
+        label.setAttribute("y", dy.toFixed(2));
+        label.setAttribute("opacity", item.k.toFixed(2));
+        const lab = (tw + 10) * item.k;
+        item.ext = left ? { x1: 7.5 - w - lab, x2: 7.5, y1: dy - w / 2, y2: dy + w / 2 } : { x1: -7.5, x2: -7.5 + w + lab, y1: dy - w / 2, y2: dy + w / 2 };
+        item.extra = grown + lab;
+      };
+      item.render();
+      item.set = hoverable(g, onHover);
       return g;
     }
     const ring = kind === "ring";
@@ -671,11 +719,12 @@
     const text = el("text", { class: "ix-text", x: 0, y: 0.5, "text-anchor": "middle", "dominant-baseline": "central", opacity: 0,
       fill: ring ? "var(--ink)" : (LIGHT.has(col) ? "#14213D" : "#FFFFFF") }, g);
     text.textContent = name;
-    const draw = k => {
-      item.k = k;
+    item.render = () => {
+      const k = item.k;
+      const dr = d0 + ((ring ? PILL_H - 3 : PILL_H) - d0) * row.k;  // dot grows to pill height while the row is active
       const full = text.getComputedTextLength() + 24;
-      const w = d0 + (full - d0) * k, h = d0 + (PILL_H - d0) * k;
-      const x = grow === "right" ? -d0 / 2 : grow === "left" ? d0 / 2 - w : -w / 2;
+      const w = dr + (Math.max(full, dr) - dr) * k, h = dr + (PILL_H - dr) * k;
+      const x = item.grow === "right" ? -d0 / 2 : item.grow === "left" ? d0 / 2 - w : -w / 2;
       const y = vert === "up" ? d0 / 2 - h : vert === "down" ? -d0 / 2 : -h / 2;
       shape.setAttribute("x", x.toFixed(2)); shape.setAttribute("width", w.toFixed(2));
       shape.setAttribute("y", y.toFixed(2)); shape.setAttribute("height", h.toFixed(2));
@@ -683,10 +732,11 @@
       text.setAttribute("x", (x + w / 2).toFixed(2));
       text.setAttribute("y", (y + h / 2 + 0.5).toFixed(2));
       text.setAttribute("opacity", Math.max(0, (k - 0.55) / 0.45).toFixed(2));
+      item.ext = { x1: x, x2: x + w, y1: y, y2: y + h };
       item.extra = w - d0;
-      layoutRow(row);
     };
-    hoverable(g, on => { if (on) parent.appendChild(g); tween(item.k, on ? 1 : 0, 180, draw); });
+    item.render();
+    item.set = hoverable(g, onHover);
     return g;
   }
   function hoverable(g, fn) {
@@ -697,6 +747,7 @@
     g.addEventListener("focus", () => set(true));
     g.addEventListener("blur", () => set(false));
     g.addEventListener("click", () => set(!on));
+    return set;
   }
 
   // geometry
@@ -807,7 +858,9 @@
         el("tspan", { x: best.ax, y: best.by + ASC + i * LH }, text).textContent = ln;
       });
       const row = { items: [] };
+      openIx = null;
       best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row));
+      if (row.items.length) layoutRow(row);
     });
     fitView();
   }
@@ -1012,6 +1065,20 @@
       }
       if (t.waiting !== null) { t.fetchedAt = now; t.missed = 0; return; }   // still waiting: no data about leaving yet
 
+      // Still running into Brixton / Walthamstow Central on screen, but the feed already shows it heading back out:
+      // hurry it in, turn it round quickly and send it on with the new data (only when it is close to the end)
+      if (!isNew && !t.loop && t.pendingD === null && t.D !== null && t.dir !== next.dir && termAhead(t) === from) {
+        const nearEnd = from === LAST ? segOf(t.D) >= LAST - 2 : segOf(t.D) <= 1;
+        if (nearEnd || t.rush) {
+          t.rush = true; t.turnAt = from; t.stops = [{ idx: from, at: now }]; t.midWait = null;
+          t.after = { next, stops, feedDest, fetchedAt: now };
+          t.fetchedAt = now; t.missed = 0;
+          return;
+        }
+      }
+      const heldAt = t.midWait;                                       // was holding at a mid-line terminus
+      t.rush = false; t.after = null; t.midWait = null;
+
       const flipped = !isNew && t.dir !== next.dir;
       const prevDest = t.dest;
       Object.assign(t, { dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc, stops, fetchedAt: now, missed: 0 });
@@ -1028,7 +1095,9 @@
         if (justLeft) { t.D = cum[from]; t.arrivedAt = now - DWELL_MS; t.needsPlace = false; t.freshDepart = false; } // brand-new: start at the platform
         else { t.D = modelD(t, now); t.needsPlace = true; }
       } else if (flipped) {
-        t.pendingD = modelD(t, now);
+        // turned back where it was holding (e.g. Seven Sisters): swap lanes there; otherwise go where the data puts it
+        t.pendingD = heldAt != null && heldAt === next.idx - s ? cum[heldAt] : modelD(t, now);
+        t.noDwell = true;                                               // it has already left in real life
       } else {
         const model = modelD(t, now);
         if (s * (model - t.D) > Math.max(220, segLen[segOf(t.D)] * 1.2)) t.pendingD = model; // far behind (missed updates)
@@ -1040,6 +1109,12 @@
       if (t.waiting !== null) return;                                    // waiting trains never time out here
       // Vanished while heading into Brixton / Walthamstow Central: it is turning round, so keep it
       if (t.pendingD === null && t.next === termAhead(t)) { t.turnAt = t.next; t.missed = 0; return; }
+      // Vanished while terminating mid-line: hold at that platform for a while in case it reappears
+      const lastStop = t.stops && t.stops.length ? t.stops[t.stops.length - 1].idx : t.next;
+      if (t.pendingD === null && !t.rush && !isTerm(lastStop) && lastStop === t.dest) {
+        if (t.midWait == null) { t.midWait = lastStop; t.midSince = now; }
+        if (now - t.midSince < MID_GRACE_MS) { t.missed = 0; return; }
+      }
       t.missed = (t.missed || 0) + 1;
     });
     // Late at night: a train left waiting with nothing following it goes out of service
@@ -1050,7 +1125,8 @@
   function waitingAt(k) {
     return [...trains.values()].filter(t => t.waiting === k && !t.retiring).sort((a, b) => a.waitSince - b.waitSince);
   }
-  function retire(t) { t.retiring = true; t.missed = 2; t.waiting = null; }
+  function retire(t) { t.retiring = true; t.missed = 2; t.waiting = null; t.midWait = null; }
+  const MID_GRACE_MS = 8 * 60000;   // how long a train that terminated mid-line is kept if it drops out of the feed
   // Arrived at the platform: turn round into the departing lane (or queue on the arrival platform) and wait
   function arriveAtTerminus(t, k, now) {
     const q = waitingAt(k);
@@ -1061,6 +1137,12 @@
     const earlier = others.find(w => w.queued);
     if (earlier) { turnRound(earlier, now); t.queued = true; }       // the train that arrived first leaves first
     else turnRound(t, now);
+    if (t.rush && t.after) {
+      const a = t.after;
+      departFrom(t, now, true);
+      Object.assign(t, { dir: a.next.dir, next: a.next.idx, tts: a.next.tts, loc: a.next.loc, stops: a.stops,
+        fetchedAt: a.fetchedAt, dest: a.feedDest, freshDepart: false, rush: false, after: null });
+    }
   }
   // U-turn: carry the train round the far side of the terminus station, from the arrival lane to the departure lane
   function turnRound(t, now) {
@@ -1078,6 +1160,7 @@
     t.dir = t.dir === "S" ? "N" : "S";
   }
   const LOOP_S = 15;    // seconds to go round (unhurried, like a real turn-round)
+  const LOOP_FAST_S = 2; // when the feed already shows it has left
   function loopPose(L) {
     const th = L.a0 + L.sweep * Math.PI * L.p;
     const x = L.cx + Math.cos(th) * L.r, y = L.cy + Math.sin(th) * L.r;
@@ -1090,12 +1173,13 @@
     return !all.some(o => o !== t && o.dir === t.dir && o.D !== null && !o.loop && (o.waiting === null || o.waiting === undefined) &&
       !o.retiring && Math.abs(toL(o.D, o.dir) - L0) < GAP_L + 6);
   }
-  function departFrom(t, now) {
+  function departFrom(t, now, late) {
     const k = t.waiting;
     // any train that arrived before this one and is still waiting can't be leaving: it has gone out of service
-    waitingAt(k).forEach(w => { if (w !== t && w.waitSince < t.waitSince) retire(w); });
+    // (skipped when this train was running late on screen, since it may really have arrived first)
+    if (!late) waitingAt(k).forEach(w => { if (w !== t && w.waitSince < t.waitSince) retire(w); });
     if (t.queued) turnRound(t, now);
-    t.waiting = null; t.queued = false; t.freshDepart = true;
+    t.waiting = null; t.queued = false; t.freshDepart = true; t.hurry = true;   // already gone: finish the turn quickly
     t.arrivedAt = now - DWELL_MS;                          // it has already left in real life: no extra dwell
     // promote the other waiting train into the departing lane
     const rest = waitingAt(k); if (rest[0] && rest[0].queued) turnRound(rest[0], now);
@@ -1129,23 +1213,20 @@
   function stationAt(D) { for (let k = 0; k <= LAST; k++) if (Math.abs(D - cum[k]) < 0.5) return k; return -1; }
 
   // Advance one train along the track for this frame
+  const CATCH = 4;   // top speed, as a multiple of normal, when catching up after a backlog
   function advance(t, now, dt, all) {
     if (t.waiting !== null || t.retiring || t.loop) { t.moving = false; return; }   // never leave a terminus without data
     const s = sgn(t.dir);
     const D = t.D;
     const here = stationAt(D);
     if (t.turnAt !== null && t.turnAt !== undefined && here === t.turnAt) { arriveAtTerminus(t, here, now); t.moving = false; return; }
-    if (here >= 0 && t.arrivedAt === null) t.arrivedAt = now;
+    if (here >= 0 && t.arrivedAt === null) { t.arrivedAt = (t.noDwell || t.rush) ? now - DWELL_MS : now; t.noDwell = false; }
     if (here < 0) t.arrivedAt = null;
 
     let target = t.stops.find(st => s * (cum[st.idx] - D) > 0.5);
     let targetD, arriveAt = null;
     if (target) { targetD = cum[target.idx]; arriveAt = target.at; }
-    else {
-      let k = here >= 0 ? here + s : (s > 0 ? segOf(D) + 1 : segOf(D));
-      if (k < 0 || k > LAST || here === (s > 0 ? LAST : 0)) { t.moving = false; return; }
-      targetD = cum[k];
-    }
+    else { t.moving = false; return; }   // no prediction for any station ahead: never head somewhere the data doesn't say
 
     // every train waits 15 seconds at a platform
     if (here >= 0 && now - t.arrivedAt < DWELL_MS) { t.moving = false; return; }
@@ -1153,8 +1234,12 @@
     const remaining = Math.abs(targetD - D);
     const vNom = nominalSpeed(segOf(D + s));
     const timeLeft = arriveAt === null ? null : (arriveAt - now) / 1000;
-    let speed = (timeLeft !== null && timeLeft > 0.5) ? remaining / timeLeft : vNom;
-    speed = Math.max(0.2 * vNom, Math.min(2.5 * vNom, speed));
+    let speed;
+    if (timeLeft !== null && timeLeft > 0.5) speed = remaining / timeLeft;
+    else if (timeLeft !== null) speed = vNom * (1 + Math.min(CATCH - 1, -timeLeft / 10));   // overdue: speed up the longer it's late
+    else speed = vNom;
+    if (t.rush) speed = CATCH * vNom;
+    speed = Math.max(0.2 * vNom, Math.min(CATCH * vNom, speed));
     let step = Math.min(remaining, speed * dt);
 
     // wait behind the train in front rather than overlapping it
@@ -1164,6 +1249,7 @@
       if (o === t || o.dir !== t.dir || o.D === null || o.missed >= 2 || o.pendingD !== null) return;
       if (o.waiting !== null && o.waiting !== undefined && t.turnAt === o.waiting) return; // a full platform means one has left service
       const ahead = s * (toL(o.D, o.dir) - Lme);
+      if (o.midWait != null && ahead > 0 && ahead - GAP_L < 30) { retire(o); return; }   // the next train needs that platform: it has gone to the sidings
       if (ahead > 0) room = Math.min(room, ahead - GAP_L);
     });
     if (room < Infinity) {
@@ -1202,7 +1288,7 @@
   const alertLayer = el("g", {});
   function drawAlert(t, now) {
     const on = now < (t.alertUntil || 0) && (t.waiting === null || t.waiting === undefined) && t.opacity > 0.5;
-    if (!on) { if (t.alert) { t.alert.remove(); t.alert = null; } return; }
+    if (!on) { if (t.alert) { t.alert.remove(); t.alert = null; } t.alertSlot = null; return; }
     if (!t.alert) {
       t.alert = el("g", { class: "dest-alert", role: "button", tabindex: "0", "aria-label": "Dismiss destination change" }, alertLayer);
       t.alertRect = el("rect", { rx: 6, height: 24, y: -12 }, t.alert);
@@ -1228,20 +1314,20 @@
     const clearance = (x, y) => Math.min(...bodies.map(([bx, by]) =>
       Math.hypot(Math.max(Math.abs(bx - x) - hw, 0), Math.max(Math.abs(by - y) - hh, 0)) - R));
     const a = t.ang * Math.PI / 180, nx = Math.sin(a), ny = -Math.cos(a);
-    const cands = [];
-    for (const d of [38, 54, 72, 92]) for (const side of [1, -1]) {
-      const x = t.x + nx * d * side, y = t.y + ny * d * side;
-      cands.push({ x, y, c: clearance(x, y) });
+    // pick the clearest spot once, then keep that side and distance for the full 30 seconds
+    if (!t.alertSlot) {
+      const cands = [];
+      for (const d of [38, 54, 72, 92]) for (const side of [1, -1]) {
+        const x = t.x + nx * d * side, y = t.y + ny * d * side;
+        cands.push({ d, side, c: clearance(x, y) });
+      }
+      t.alertSlot = cands.find(c => c.c >= 0) || cands.reduce((m, c) => c.c > m.c ? c : m);
     }
-    let best = cands.find(c => c.c >= 0) || cands.reduce((m, c) => c.c > m.c ? c : m);
-    // keep the chosen spot steady rather than jumping between sides every frame
-    if (t.alertPos && clearance(t.alertPos.x - (t.alertAnchor.x - t.x), t.alertPos.y - (t.alertAnchor.y - t.y)) >= 0) {
-      best = { x: t.alertPos.x - (t.alertAnchor.x - t.x), y: t.alertPos.y - (t.alertAnchor.y - t.y) };
-    }
-    t.alertPos = { x: best.x, y: best.y }; t.alertAnchor = { x: t.x, y: t.y };
+    const bx = t.x + nx * t.alertSlot.d * t.alertSlot.side, by = t.y + ny * t.alertSlot.d * t.alertSlot.side;
+    // fully opaque the whole time; only a short fade as it expires
     const left = Math.max(0, Math.min(1, (t.alertUntil - now) / 600));
-    t.alert.setAttribute("transform", `translate(${best.x.toFixed(1)} ${best.y.toFixed(1)})`);
-    t.alert.setAttribute("opacity", (Math.min(1, left) * (0.8 + 0.2 * Math.abs(Math.sin(now / 400)))).toFixed(2));
+    t.alert.setAttribute("transform", `translate(${bx.toFixed(2)} ${by.toFixed(2)})`);
+    t.alert.setAttribute("opacity", left.toFixed(2));
   }
 
   function frame(now) {
@@ -1275,8 +1361,8 @@
       if (t.loop) {
         const L = t.loop;
         const hold = L.p >= 0.5 && L.p < 1 && !departureClear(t, all);        // wait round the back until the platform is clear
-        if (!hold) L.p = reduceMotion ? 1 : Math.min(1, L.p + dt / LOOP_S);
-        if (L.p >= 1) t.loop = null;
+        if (!hold) L.p = reduceMotion ? 1 : Math.min(1, L.p + dt / (t.hurry ? LOOP_FAST_S : LOOP_S));
+        if (L.p >= 1) { t.loop = null; t.hurry = false; }
         else p = loopPose(L);
         t.x = p.x; t.y = p.y; t.ang = p.ang;
       } else if (t.turnFrom) {                                     // glide across to the departing lane and swing round
@@ -1474,6 +1560,7 @@
   }
   // clicking any empty part of the map resets the board
   wrap.addEventListener("click", e => {
+    if (openIx && !(e.target.closest && e.target.closest(".ix"))) openIx.set(false);
     if (e.target.closest && e.target.closest(".station-link, .label.clickable, .train, .ix, .dest-alert")) return;
     closePop();
   });
@@ -1665,7 +1752,7 @@
   applyTheme(themePref);
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "2.1";
+  const VERSION = "2.2";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
