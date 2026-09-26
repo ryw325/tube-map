@@ -394,7 +394,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Replay test · v2.3</p>
+        <p class="eyebrow">Replay test · v2.4</p>
       </div>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
     </div>
@@ -1034,6 +1034,7 @@
   const poseAt = (D, dir) => poseAtL(toL(D, dir), dir);
 
   const boardData = new Map(); // station index -> predictions at that station
+  const orderStrikes = new Map(); // "front>back" -> updates in a row the data has had them the other way round
   function ingest(data) {
     const now = performance.now();
     const groups = new Map();
@@ -1092,10 +1093,11 @@
       const justLeft = next.idx === from + s || next.idx === from + 2 * s;
 
       let t = trains.get(v);
-      // A new Vehicle ID leaving a terminus takes over the train waiting at the front of that platform queue
+      // A new Vehicle ID leaving a terminus takes over a waiting train, but only one that has waited longer
+      // than any normal turn-round (otherwise it's a different train and the waiting one keeps its place)
       if (!t && justLeft) {
-        const q = waitingAt(from);
-        const front = q.find(w => w.dir === next.dir) || q[0];
+        const q = waitingAt(from).filter(w => now - w.waitSince >= RENUMBER_MS);
+        const front = q[0];
         if (front) { trains.delete(front.v); front.renumberedFrom = front.v; front.v = v; trains.set(v, front); t = front; }
       }
       const isNew = !t;
@@ -1106,7 +1108,7 @@
       }
 
       // Waiting at a terminus and the feed now shows it leaving: fill in its label and send it on its way
-      if (t.waiting !== null && next.dir === opp(t.arrDir)) {
+      if (t.waiting !== null && next.dir === opp(t.arrDir) && leavingTerminus(next, t.waiting)) {
         departFrom(t, now);
       }
       if (t.waiting !== null) { t.fetchedAt = now; t.missed = 0; return; }   // still waiting: no data about leaving yet
@@ -1117,7 +1119,8 @@
         const nearEnd = from === LAST ? segOf(t.D) >= LAST - 2 : segOf(t.D) <= 1;
         if (nearEnd || t.rush) {
           t.rush = true; t.turnAt = from; t.stops = [{ idx: from, at: now }]; t.midWait = null;
-          t.after = { next, stops, feedDest, fetchedAt: now };
+          // only carry the new data through if it shows the train actually on its way out; otherwise it just waits there
+          t.after = leavingTerminus(next, from) ? { next, stops, feedDest, fetchedAt: now } : null;
           t.fetchedAt = now; t.missed = 0;
           return;
         }
@@ -1163,14 +1166,51 @@
       }
       t.missed = (t.missed || 0) + 1;
     });
+    // Order check: if the data puts a train ahead of the one in front of it on screen for two updates in a row,
+    // swap them (both fade and reappear in each other's place) instead of queueing it forever
+    const inOrder = new Set();
+    ["N", "S"].forEach(dir => {
+      const s = sgn(dir);
+      const line = [...trains.values()].filter(t => t.dir === dir && t.fetchedAt === now && t.missed === 0 && t.D !== null &&
+        t.pendingD === null && !t.loop && !t.rush && !t.needsPlace && t.midWait == null && (t.waiting === null || t.waiting === undefined) && !t.retiring)
+        .sort((a, b) => s * (b.D - a.D));                                   // screen order, front first
+      for (let i = 0; i + 1 < line.length; i++) {
+        const front = line[i], back = line[i + 1];
+        const key = front.v + ">" + back.v;
+        const wrong = back.next !== front.next ? s * (back.next - front.next) > 0 : back.tts < front.tts - 10;
+        if (!wrong) continue;
+        inOrder.add(key);
+        orderStrikes.set(key, (orderStrikes.get(key) || 0) + 1);
+        if (orderStrikes.get(key) >= 2) {
+          const a = front.D, b = back.D;
+          front.pendingD = b; back.pendingD = a; front.noDwell = back.noDwell = true;
+          orderStrikes.delete(key);
+          if (DEBUG) (DEBUG.swaps = DEBUG.swaps || []).push(`${back.v} ahead of ${front.v}`);
+        }
+      }
+    });
+    orderStrikes.forEach((n, key) => { if (!inOrder.has(key)) orderStrikes.delete(key); });
+
     // Late at night: a train left waiting with nothing following it goes out of service
-    trains.forEach(t => { if (t.waiting !== null && now - t.waitSince > 20 * 60000) retire(t); });
+    trains.forEach(t => { if (t.waiting !== null && now - t.waitSince > WAIT_MAX_MS) retire(t); });
   }
 
   /* ---------- Terminus turn-rounds ---------- */
   function waitingAt(k) {
     return [...trains.values()].filter(t => t.waiting === k && !t.retiring).sort((a, b) => a.waitSince - b.waitSince);
   }
+  // Does this prediction show a train actually on its way out of terminus k? (not just a timetabled departure)
+  function leavingTerminus(next, k) {
+    const adj = k === 0 ? 1 : LAST - 1;
+    if (next.idx === adj) return true;                                    // next stop is Stockwell / Blackhorse Road
+    const loc = (next.loc || "").trim().toLowerCase();
+    if (!loc || loc === "0") return false;                                // placeholder: still sitting at the platform
+    const term = S[k].name.toLowerCase().split(" ")[0];
+    if (loc.startsWith("at " + term) || loc.startsWith(term)) return false; // "At Brixton", "Brixton Area" with a far-off first stop
+    return true;                                                          // somewhere real on the line
+  }
+  const RENUMBER_MS = 8 * 60000;     // longer than any real turn-round seen (3-7 minutes)
+  const WAIT_MAX_MS = 10 * 60000;    // a train left waiting this long has gone out of service
   function retire(t) { t.retiring = true; t.missed = 2; t.waiting = null; t.midWait = null; }
   const MID_GRACE_MS = 8 * 60000;   // how long a train that terminated mid-line is kept if it drops out of the feed
   // Arrived at the platform: turn round into the departing lane (or queue on the arrival platform) and wait
@@ -1183,6 +1223,7 @@
     const earlier = others.find(w => w.queued);
     if (earlier) { turnRound(earlier, now); t.queued = true; }       // the train that arrived first leaves first
     else turnRound(t, now);
+    if (t.rush && !t.after) t.rush = false;
     if (t.rush && t.after) {
       const a = t.after;
       departFrom(t, now, true);
@@ -1223,7 +1264,7 @@
     const k = t.waiting;
     // any train that arrived before this one and is still waiting can't be leaving: it has gone out of service
     // (skipped when this train was running late on screen, since it may really have arrived first)
-    if (!late) waitingAt(k).forEach(w => { if (w !== t && w.waitSince < t.waitSince) retire(w); });
+    // trains leave in any order (two platforms), so nothing else is retired here
     if (t.queued) turnRound(t, now);
     t.waiting = null; t.queued = false; t.freshDepart = true; t.hurry = true;   // already gone: finish the turn quickly
     t.arrivedAt = now - DWELL_MS;                          // it has already left in real life: no extra dwell
@@ -1243,6 +1284,15 @@
     const run = RUN[Math.min(prev, t.next)];
     if (e >= run) return cum[prev];
     return cum[prev] + (cum[t.next] - cum[prev]) * (1 - e / run);
+  }
+
+  // Order two trains by where the data puts them: next station further along first, then sooner arrival.
+  // Negative when a is ahead of b. Trains in different directions keep their order.
+  function dataAhead(a, b) {
+    if (a.dir !== b.dir) return 0;
+    const s = sgn(a.dir);
+    if (a.next !== b.next) return s * (b.next - a.next);
+    return a.tts - b.tts;
   }
 
   // Put a train where it doesn't overlap another in its lane (queues it behind)
@@ -1401,7 +1451,7 @@
 
     const all = [...trains.values()].filter(t => t.fetchedAt !== undefined && t.D !== null);
     // place newly seen trains without overlapping anyone
-    all.forEach(t => { if (t.needsPlace) { t.D = clearSpot(t, t.D, all); t.needsPlace = false; } });
+    all.filter(t => t.needsPlace).sort(dataAhead).forEach(t => { t.D = clearSpot(t, t.D, all); t.needsPlace = false; });
     // move trains front to back so each follower sees where its leader has moved to
     all.sort((a, b) => sgn(b.dir) * b.D - sgn(a.dir) * a.D);
     all.forEach(t => { if (t.pendingD === null) advance(t, now, dt, all); });
@@ -1831,7 +1881,7 @@
   /* ---------- Recording and replay (test version only) ---------- */
   const slim = p => ({ vehicleId: p.vehicleId, naptanId: p.naptanId, platformName: p.platformName,
     destinationNaptanId: p.destinationNaptanId, destinationName: p.destinationName,
-    timeToStation: p.timeToStation, currentLocation: p.currentLocation, id: p.id });
+    timeToStation: p.timeToStation, currentLocation: p.currentLocation, id: p.id, timestamp: p.timestamp });
   const REC = {
     polls: [], status: [], start: Date.now(),
     addPoll(data) { this.polls.push({ w: Date.now(), d: data.map(slim) }); REPLAY.refreshRec(); },
@@ -2007,7 +2057,7 @@
   }
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "2.3-replay";
+  const VERSION = "2.4-replay";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
