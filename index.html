@@ -350,6 +350,8 @@
     .panel .clock-block { padding-top: 8px; }
     .panel .big-date { margin-top: 2px; }
   }
+  .dest-alert rect { fill: #FFD23F; stroke: #1A1A1A; stroke-width: 1.5; }
+  .dest-alert text { fill: #1A1A1A; font-family: var(--sans); font-weight: 700; font-size: 13px; }
   .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   :root { --pill-bg: #E4E7E3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #2A323A; } }
@@ -362,7 +364,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v1.9</p>
+        <p class="eyebrow">Live prototype · v2.0</p>
       </div>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
     </div>
@@ -491,7 +493,7 @@
 (function () {
   const NS = "http://www.w3.org/2000/svg";
   const API = "https://api.tfl.gov.uk";
-  const POLL_MS = 30000;
+  const POLL_MS = (/[?&]debug\b/.test(location.search) && /[?&]poll=(\d+)/.test(location.search)) ? +RegExp.$1 * 1000 : 30000;
   const STATUS_MS = 120000;
 
   /* ---------- Design constants (from the approved static prototype) ---------- */
@@ -961,6 +963,11 @@
     });
 
     const seen = new Set();
+    const isTerm = k => k === 0 || k === LAST;
+    const termAhead = t => t.dir === "S" ? LAST : 0;          // terminus a train is heading for
+    const termBehind = dir => dir === "S" ? 0 : LAST;          // terminus a train in `dir` has just left
+    const opp = d => d === "S" ? "N" : "S";
+
     groups.forEach((preds, v) => {
       preds.sort((a, b) => a.tts - b.tts);
       learnRunTimes(preds);
@@ -977,29 +984,96 @@
       const stops = [...best.values()].sort((a, b) => s * (a.idx - b.idx));
       let lastAt = 0;
       stops.forEach(p => { p.at = Math.max(now + p.tts * 1000, lastAt ? lastAt + 15000 : 0); lastAt = p.at; });
+      const feedDest = next.dest !== undefined ? next.dest : (next.dir === "S" ? LAST : 0);
+
+      // Has this train just left a terminus? (first stop ahead is the one after Brixton / Walthamstow Central)
+      const from = termBehind(next.dir);
+      const justLeft = next.idx === from + s || next.idx === from + 2 * s;
 
       let t = trains.get(v);
+      // A new Vehicle ID leaving a terminus takes over the train waiting at the front of that platform queue
+      if (!t && justLeft) {
+        const q = waitingAt(from);
+        const front = q.find(w => w.dir === next.dir) || q[0];
+        if (front) { trains.delete(front.v); front.renumberedFrom = front.v; front.v = v; trains.set(v, front); t = front; }
+      }
       const isNew = !t;
       if (isNew) {
-        t = { v, opacity: 0, x: null, y: null, ang: 0, node: null, D: null, pendingD: null, arrivedAt: null };
+        t = { v, opacity: 0, x: null, y: null, ang: 0, node: null, D: null, pendingD: null, arrivedAt: null,
+              waiting: null, queued: false, dest: feedDest, destCand: null, destCandN: 0, alertUntil: 0 };
         trains.set(v, t);
       }
+
+      // Waiting at a terminus and the feed now shows it leaving: fill in its label and send it on its way
+      if (t.waiting !== null && next.dir === opp(t.arrDir)) {
+        departFrom(t, now);
+      }
+      if (t.waiting !== null) { t.fetchedAt = now; t.missed = 0; return; }   // still waiting: no data about leaving yet
+
       const flipped = !isNew && t.dir !== next.dir;
-      Object.assign(t, {
-        dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc, stops,
-        dest: next.dest !== undefined ? next.dest : (next.dir === "S" ? LAST : 0),
-        fetchedAt: now, missed: 0
-      });
-      const model = modelD(t, now);
+      const prevDest = t.dest;
+      Object.assign(t, { dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc, stops, fetchedAt: now, missed: 0 });
+      t.turnAt = null;
+
+      // Destination: only accept a change once it has held for two updates, then flag it for 30 seconds
+      if (isNew || t.freshDepart) { t.dest = feedDest; t.destCand = null; t.destCandN = 0; t.freshDepart = false; }
+      else if (feedDest !== prevDest) {
+        if (t.destCand === feedDest) t.destCandN++; else { t.destCand = feedDest; t.destCandN = 1; }
+        if (t.destCandN >= 2) { t.dest = feedDest; t.destCand = null; t.destCandN = 0; if (!flipped) t.alertUntil = now + 30000; }
+      } else { t.destCand = null; t.destCandN = 0; }
+
       if (isNew) {
-        t.D = model; t.needsPlace = true;
+        if (justLeft) { t.D = cum[from]; t.arrivedAt = now - DWELL_MS; t.needsPlace = false; t.freshDepart = false; } // brand-new: start at the platform
+        else { t.D = modelD(t, now); t.needsPlace = true; }
       } else if (flipped) {
-        t.pendingD = model; // turned round at a terminus: fade across to the other lane
-      } else if (s * (model - t.D) > Math.max(220, segLen[segOf(t.D)] * 1.2)) {
-        t.pendingD = model; // far behind the data (e.g. missed updates): fade forward
+        t.pendingD = modelD(t, now);
+      } else {
+        const model = modelD(t, now);
+        if (s * (model - t.D) > Math.max(220, segLen[segOf(t.D)] * 1.2)) t.pendingD = model; // far behind (missed updates)
       }
     });
-    trains.forEach((t, v) => { if (!seen.has(v)) t.missed = (t.missed || 0) + 1; });
+
+    trains.forEach((t, v) => {
+      if (seen.has(v)) return;
+      if (t.waiting !== null) return;                                    // waiting trains never time out here
+      // Vanished while heading into Brixton / Walthamstow Central: it is turning round, so keep it
+      if (t.pendingD === null && t.next === termAhead(t)) { t.turnAt = t.next; t.missed = 0; return; }
+      t.missed = (t.missed || 0) + 1;
+    });
+    // Late at night: a train left waiting with nothing following it goes out of service
+    trains.forEach(t => { if (t.waiting !== null && now - t.waitSince > 20 * 60000) retire(t); });
+  }
+
+  /* ---------- Terminus turn-rounds ---------- */
+  function waitingAt(k) {
+    return [...trains.values()].filter(t => t.waiting === k && !t.retiring).sort((a, b) => a.waitSince - b.waitSince);
+  }
+  function retire(t) { t.retiring = true; t.missed = 2; t.waiting = null; }
+  // Arrived at the platform: turn round into the departing lane (or queue on the arrival platform) and wait
+  function arriveAtTerminus(t, k, now) {
+    const q = waitingAt(k);
+    if (q.length >= 2) retire(q[0]);                       // only two platforms: the oldest has gone out of service
+    t.waiting = k; t.waitSince = now; t.arrDir = t.dir; t.turnAt = null; t.stops = []; t.loc = "";
+    const others = waitingAt(k).filter(w => w !== t);
+    if (others.some(w => !w.queued)) { t.queued = true; return; }   // other platform: stays in the arrival lane for now
+    const earlier = others.find(w => w.queued);
+    if (earlier) { turnRound(earlier, now); t.queued = true; }       // the train that arrived first leaves first
+    else turnRound(t, now);
+  }
+  function turnRound(t, now) {
+    t.queued = false;
+    t.turnFrom = { x: t.x, y: t.y, ang: t.ang, start: now };
+    t.dir = t.dir === "S" ? "N" : "S";
+  }
+  function departFrom(t, now) {
+    const k = t.waiting;
+    // any train that arrived before this one and is still waiting can't be leaving: it has gone out of service
+    waitingAt(k).forEach(w => { if (w !== t && w.waitSince < t.waitSince) retire(w); });
+    if (t.queued) turnRound(t, now);
+    t.waiting = null; t.queued = false; t.freshDepart = true;
+    t.arrivedAt = now - DWELL_MS;                          // it has already left in real life: no extra dwell
+    // promote the other waiting train into the departing lane
+    const rest = waitingAt(k); if (rest[0] && rest[0].queued) turnRound(rest[0], now);
   }
 
   // Best estimate of where the data puts a train; used to place new trains and correct big drift
@@ -1031,9 +1105,11 @@
 
   // Advance one train along the track for this frame
   function advance(t, now, dt, all) {
+    if (t.waiting !== null || t.retiring) { t.moving = false; return; }   // never leave a terminus without data
     const s = sgn(t.dir);
     const D = t.D;
     const here = stationAt(D);
+    if (t.turnAt !== null && t.turnAt !== undefined && here === t.turnAt) { arriveAtTerminus(t, here, now); t.moving = false; return; }
     if (here >= 0 && t.arrivedAt === null) t.arrivedAt = now;
     if (here < 0) t.arrivedAt = null;
 
@@ -1061,6 +1137,7 @@
     let room = Infinity;
     all.forEach(o => {
       if (o === t || o.dir !== t.dir || o.D === null || o.missed >= 2 || o.pendingD !== null) return;
+      if (o.waiting !== null && o.waiting !== undefined && t.turnAt === o.waiting) return; // a full platform means one has left service
       const ahead = s * (toL(o.D, o.dir) - Lme);
       if (ahead > 0) room = Math.min(room, ahead - GAP_L);
     });
@@ -1077,7 +1154,7 @@
 
   /* ---------- Drawing ---------- */
   let mode = "dest";
-  const labelFor = t => mode === "dest" ? S[t.dest].code : t.v;
+  const labelFor = t => (t.waiting !== null && t.waiting !== undefined) ? "" : (mode === "dest" ? S[t.dest].code : t.v);
 
   function ensureNode(t) {
     if (t.node) return;
@@ -1095,6 +1172,28 @@
 
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let lastFrame = performance.now();
+
+  // Yellow tag beside a train for 30 seconds after its destination changes
+  const alertLayer = el("g", {});
+  function drawAlert(t, now) {
+    const on = now < (t.alertUntil || 0) && t.waiting === null && t.opacity > 0.5;
+    if (!on) { if (t.alert) { t.alert.remove(); t.alert = null; } return; }
+    if (!t.alert) {
+      t.alert = el("g", { class: "dest-alert" }, alertLayer);
+      t.alertRect = el("rect", { rx: 6, height: 24, y: -12 }, t.alert);
+      t.alertText = el("text", { x: 0, y: 0.5, "text-anchor": "middle", "dominant-baseline": "central" }, t.alert);
+    }
+    const txt = `Now to ${S[t.dest].code}`;
+    if (t.alertText.textContent !== txt) {
+      t.alertText.textContent = txt;
+      const w = t.alertText.getComputedTextLength() + 16;
+      t.alertRect.setAttribute("x", (-w / 2).toFixed(1)); t.alertRect.setAttribute("width", w.toFixed(1));
+    }
+    const a = t.ang * Math.PI / 180, nx = Math.sin(a), ny = -Math.cos(a);   // outward: the train's left, away from the track
+    const left = Math.max(0, Math.min(1, (t.alertUntil - now) / 600));      // fade out over the last 0.6 s
+    t.alert.setAttribute("transform", `translate(${(t.x + nx * 34).toFixed(1)} ${(t.y + ny * 34).toFixed(1)})`);
+    t.alert.setAttribute("opacity", (Math.min(1, left) * (0.75 + 0.25 * Math.abs(Math.sin(now / 400)))).toFixed(2));
+  }
 
   function frame(now) {
     const dt = Math.min(0.25, (now - lastFrame) / 1000);
@@ -1124,7 +1223,17 @@
       if (t.missed >= 2 && t.opacity < 0.02) { gone.push(t); return; }
 
       const p = poseAt(t.D, t.dir);
-      if (t.x === null || t.pendingD === null) { t.x = p.x; t.y = p.y; t.ang = p.ang; }
+      if (t.turnFrom) {                                     // glide across to the departing lane and swing round
+        const k = reduceMotion ? 1 : Math.min(1, (now - t.turnFrom.start) / 1400);
+        const e = k * k * (3 - 2 * k);
+        const f = t.turnFrom;
+        if (f.x === null) { t.x = p.x; t.y = p.y; t.ang = p.ang; t.turnFrom = null; }
+        else {
+          let da = ((p.ang - f.ang + 540) % 360) - 180; if (Math.abs(da) > 170) da = 180;
+          t.x = f.x + (p.x - f.x) * e; t.y = f.y + (p.y - f.y) * e; t.ang = f.ang + da * e;
+          if (k >= 1) t.turnFrom = null;
+        }
+      } else if (t.x === null || t.pendingD === null) { t.x = p.x; t.y = p.y; t.ang = p.ang; }
       const a = ((t.ang % 360) + 360) % 360;
       const flip = a > 90 && a < 270;
       t.node.setAttribute("transform", `translate(${t.x.toFixed(1)} ${t.y.toFixed(1)}) rotate(${t.ang.toFixed(1)}) scale(${TRAIN_SCALE})`);
@@ -1132,9 +1241,12 @@
       t.text.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)");
       const label = labelFor(t);
       if (t.text.textContent !== label) t.text.textContent = label;
-      t.node.setAttribute("aria-label", `Vehicle ID ${t.v}, ${t.dir === "N" ? "northbound" : "southbound"} to ${S[t.dest].name}, ${t.loc || "location not reported"}`);
+      t.node.setAttribute("aria-label", t.waiting !== null && t.waiting !== undefined
+        ? `Train waiting to depart ${S[t.waiting].name}`
+        : `Vehicle ID ${t.v}, ${t.dir === "N" ? "northbound" : "southbound"} to ${S[t.dest].name}, ${t.loc || "location not reported"}`);
+      drawAlert(t, now);
     });
-    gone.forEach(t => { t.node && t.node.remove(); trains.delete(t.v); });
+    gone.forEach(t => { t.node && t.node.remove(); t.alert && t.alert.remove(); trains.delete(t.v); if (selected === t.node) closePop(); });
 
     requestAnimationFrame(frame);
   }
@@ -1343,6 +1455,19 @@
 
   // Train: its upcoming stops with predicted times
   function openTrain(t) {
+    if (t.waiting !== null && t.waiting !== undefined) {
+      openPop("", t.node, () => {
+        popSections.innerHTML = "";
+        if (t.waiting === null) { openTrain(t); return; }
+        ledTitle(`Waiting at ${S[t.waiting].name}`);
+        const mins = Math.floor((performance.now() - t.waitSince) / 60000);
+        const led = screen("", [ledRow([["Awaiting departure", "dest"], [mins < 1 ? "" : `${mins} min`, "when"]], "stop")]);
+        addClock(led);
+        popNote.textContent = `Arrived as Vehicle ID ${t.v}. Details appear when it leaves.`;
+        popNote.hidden = false;
+      });
+      return;
+    }
     openPop(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`, t.node, () => {
       const now = performance.now(), s = sgn(t.dir);
       popSections.innerHTML = "";
@@ -1483,7 +1608,7 @@
   applyTheme(themePref);
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "1.9";
+  const VERSION = "2.0";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
