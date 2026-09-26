@@ -268,9 +268,7 @@
     .panel { height: 100%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; padding: 28px 26px 32px 28px; border-right: 1px solid var(--rule); }
     .map-wrap { height: 100%; min-width: 0; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 16px 24px 16px 24px; }
     svg.map { width: 100%; height: 100%; max-height: none; }
-    body.panel-hidden .wrap { grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 460px); }
     .rpanel { height: 100%; overflow: hidden; box-sizing: border-box; border-left: 1px solid var(--rule); }
-    body.panel-hidden .panel { display: none; }
   }
   @media (max-width: 860px) { .panel-hide, .panel-show { display: none !important; } .map-wrap { order: -1; } }
   /* ---------- Right panel: clock, facts, fixed departure board ---------- */
@@ -330,7 +328,7 @@
     .panel .status-reason { max-height: 3.2em; overflow: hidden; }
   }
   /* TfL credit, always visible on the map */
-  .map-credit { position: absolute; right: 18px; bottom: 12px; margin: 0; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .map-credit { fill: var(--muted); font-family: var(--sans); font-size: 19px; pointer-events: none; }
   .seg3 { grid-template-columns: 1fr 1fr 1fr; }
   .controls.inline { display: grid; grid-template-columns: auto 1fr 3.8em; align-items: center; gap: 6px 10px; margin-top: 12px; font-size: 14px; }
   .controls.inline input[type="range"] { margin: 0; }
@@ -343,7 +341,8 @@
   .panel .clock-block { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--rule); }
   .panel .big-time { font-size: clamp(40px, min(3.6vw, 7.5vh), 76px); }
   .panel .big-date { font-size: clamp(14px, 1vw, 18px); margin-top: 6px; }
-  .rpanel .board { flex: 1.15 1 0; }
+  .rpanel .board { flex: 1 1 0; }
+  .rpanel .facts { flex: 0 0 auto; height: clamp(230px, 33vh, 380px); min-height: 0; }
   @media (max-height: 820px) and (min-width: 861px) {
     .panel .sub-label { margin: 8px 0 4px; }
     .panel .seg label { padding: 6px 6px; }
@@ -363,10 +362,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v1.8</p>
-        <button class="panel-hide" id="panel-hide" type="button" aria-label="Hide side panel" title="Hide side panel">
-          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M11 4 L6 9 L11 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+        <p class="eyebrow">Live prototype · v1.9</p>
       </div>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
     </div>
@@ -463,10 +459,6 @@
   <main class="map-wrap" id="map-wrap">
     <svg class="map" id="map" viewBox="0 0 1300 1400" role="img" aria-label="Live schematic map of the Victoria line showing each train"></svg>
     <div class="tip" id="tip" hidden></div>
-    <p class="map-credit">Powered by TfL Open Data</p>
-    <button class="panel-show" id="panel-show" type="button" aria-label="Show side panel" title="Show side panel" hidden>
-      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4 L12 9 L7 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
   </main>
 
   <aside class="rpanel" aria-label="Clock, facts and departures">
@@ -823,6 +815,10 @@
     const x1 = Math.min(bb.x, Math.min(...xs) - m), y1 = Math.min(bb.y, Math.min(...ys) - m);
     const x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m), y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
     const pad = 56; // same clearance top and bottom
+    // TfL credit sits inside the same boundary, aligned to the bottom-right of the map content
+    let credit = svg.querySelector(".map-credit");
+    if (!credit) { credit = el("text", { class: "map-credit", "text-anchor": "end" }); credit.textContent = "Powered by TfL Open Data"; }
+    credit.setAttribute("x", x2.toFixed(0)); credit.setAttribute("y", y2.toFixed(0));
     svg.setAttribute("viewBox", `${(x1 - pad).toFixed(0)} ${(y1 - pad).toFixed(0)} ${(x2 - x1 + pad * 2).toFixed(0)} ${(y2 - y1 + pad * 2).toFixed(0)}`);
   }
 
@@ -1310,7 +1306,7 @@
   }
   // clicking any empty part of the map resets the board
   wrap.addEventListener("click", e => {
-    if (e.target.closest && e.target.closest(".station-link, .label.clickable, .train, .ix, .panel-show")) return;
+    if (e.target.closest && e.target.closest(".station-link, .label.clickable, .train, .ix")) return;
     closePop();
   });
   document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
@@ -1450,16 +1446,7 @@
     applyTheme(inp.value);
   }));
 
-  /* ---------- Side panel show / hide (remembered per screen) ---------- */
-  const panelShow = document.getElementById("panel-show");
-  function setPanel(hidden) {
-    document.body.classList.toggle("panel-hidden", hidden);
-    panelShow.hidden = !hidden;
-    try { localStorage.setItem("panel-hidden", hidden ? "1" : "0"); } catch (e) {}
-  }
-  document.getElementById("panel-hide").addEventListener("click", () => { setPanel(true); panelShow.focus(); });
-  panelShow.addEventListener("click", () => { setPanel(false); document.getElementById("panel-hide").focus(); });
-  try { if (localStorage.getItem("panel-hidden") === "1") setPanel(true); } catch (e) {}
+  try { localStorage.removeItem("panel-hidden"); } catch (e) {}
 
   /* ---------- Display: background warmth and brightness (remembered per screen) ---------- */
   const warmth = document.getElementById("warmth"), bright = document.getElementById("brightness");
@@ -1496,7 +1483,7 @@
   applyTheme(themePref);
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "1.8";
+  const VERSION = "1.9";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
