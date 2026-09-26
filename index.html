@@ -368,7 +368,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v2.2</p>
+        <p class="eyebrow">Live prototype · v2.3</p>
       </div>
       <h1><span class="swatch" aria-hidden="true"></span>Victoria Line</h1>
     </div>
@@ -1286,7 +1286,7 @@
 
   // Yellow tag beside a train for 30 seconds after its destination changes
   const alertLayer = el("g", {});
-  function drawAlert(t, now) {
+  function drawAlert(t, now, dt) {
     const on = now < (t.alertUntil || 0) && (t.waiting === null || t.waiting === undefined) && t.opacity > 0.5;
     if (!on) { if (t.alert) { t.alert.remove(); t.alert = null; } t.alertSlot = null; return; }
     if (!t.alert) {
@@ -1311,19 +1311,37 @@
       [-15, 0, 15].forEach(d => bodies.push([o.x + cx * d, o.y + cy * d]));
     });
     const hw = t.alertW / 2 + 4, hh = 16, R = 13;
-    const clearance = (x, y) => Math.min(...bodies.map(([bx, by]) =>
-      Math.hypot(Math.max(Math.abs(bx - x) - hw, 0), Math.max(Math.abs(by - y) - hh, 0)) - R));
-    const a = t.ang * Math.PI / 180, nx = Math.sin(a), ny = -Math.cos(a);
-    // pick the clearest spot once, then keep that side and distance for the full 30 seconds
-    if (!t.alertSlot) {
+    const trainGap = (x, y) => bodies.length ? Math.min(...bodies.map(([bx, by]) =>
+      Math.hypot(Math.max(Math.abs(bx - x) - hw, 0), Math.max(Math.abs(by - y) - hh, 0)) - R)) : 99;
+    // station names, their interchange dots and the station circles are obstacles too
+    const mapGap = (x, y) => {
+      let m = 99;
+      S.forEach(st => {
+        const r = st.labelRect;
+        if (r) m = Math.min(m, Math.hypot(Math.max(r.x - (x + hw), (x - hw) - r.x2, 0), Math.max(r.y - (y + hh), (y - hh) - r.y2, 0)) - 2);
+        m = Math.min(m, Math.hypot(Math.max(Math.abs(st.x - x) - hw, 0), Math.max(Math.abs(st.y - y) - hh, 0)) - 13);
+      });
+      return m;
+    };
+    const a = t.ang * Math.PI / 180, nx = Math.sin(a), ny = -Math.cos(a), ax = Math.cos(a), ay = Math.sin(a);
+    const at = c => ({ x: t.x + nx * c.d * c.side + ax * c.along, y: t.y + ny * c.d * c.side + ay * c.along });
+    const pick = () => {
       const cands = [];
-      for (const d of [38, 54, 72, 92]) for (const side of [1, -1]) {
-        const x = t.x + nx * d * side, y = t.y + ny * d * side;
-        cands.push({ d, side, c: clearance(x, y) });
+      for (const d of [38, 54, 72, 92, 116]) for (const side of [1, -1]) for (const along of [0, 40, -40]) {
+        const c = { d, side, along }, q = at(c);
+        c.map = mapGap(q.x, q.y); c.c = Math.min(c.map, trainGap(q.x, q.y));
+        cands.push(c);
       }
-      t.alertSlot = cands.find(c => c.c >= 0) || cands.reduce((m, c) => c.c > m.c ? c : m);
-    }
-    const bx = t.x + nx * t.alertSlot.d * t.alertSlot.side, by = t.y + ny * t.alertSlot.d * t.alertSlot.side;
+      // first choice: clear of everything; then clear of the map at least; otherwise the least bad
+      return cands.find(c => c.c >= 0) || cands.find(c => c.map >= 0) || cands.reduce((m, c) => c.c > m.c ? c : m);
+    };
+    // keep the chosen spot for the full 30 seconds, unless the train carries it over a station name
+    if (!t.alertSlot) { t.alertSlot = pick(); const q = at(t.alertSlot); t.alertOff = { x: q.x - t.x, y: q.y - t.y }; }
+    else { const q = at(t.alertSlot); if (mapGap(q.x, q.y) < 0) t.alertSlot = pick(); }
+    // glide to a new spot rather than jumping
+    const q = at(t.alertSlot), tx = q.x - t.x, ty = q.y - t.y, k = Math.min(1, dt * 6);
+    t.alertOff.x += (tx - t.alertOff.x) * k; t.alertOff.y += (ty - t.alertOff.y) * k;
+    const bx = t.x + t.alertOff.x, by = t.y + t.alertOff.y;
     // fully opaque the whole time; only a short fade as it expires
     const left = Math.max(0, Math.min(1, (t.alertUntil - now) / 600));
     t.alert.setAttribute("transform", `translate(${bx.toFixed(2)} ${by.toFixed(2)})`);
@@ -1386,7 +1404,7 @@
       t.node.setAttribute("aria-label", t.waiting !== null && t.waiting !== undefined
         ? `Train waiting to depart ${S[t.waiting].name}`
         : `Vehicle ID ${t.v}, ${t.dir === "N" ? "northbound" : "southbound"} to ${S[t.dest].name}, ${t.loc || "location not reported"}`);
-      drawAlert(t, now);
+      drawAlert(t, now, dt);
     });
     gone.forEach(t => { t.node && t.node.remove(); t.alert && t.alert.remove(); trains.delete(t.v); if (selected === t.node) closePop(); });
 
@@ -1752,7 +1770,7 @@
   applyTheme(themePref);
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "2.2";
+  const VERSION = "2.3";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
