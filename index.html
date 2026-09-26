@@ -302,6 +302,36 @@
     .facts { flex: none; }
     .rpanel .board { flex: none; }
   }
+  /* ---------- Compact, collapsible left panel ---------- */
+  .panel { gap: clamp(12px, 2.2vh, 22px) !important; }
+  .panel h1 { font-size: clamp(24px, min(1.85vw, 4.6vh), 42px); white-space: nowrap; }
+  .panel h1 .swatch { height: 1em; }
+  .stats { grid-template-columns: repeat(4, 1fr) !important; gap: 8px !important; }
+  .stats dt { font-size: 10.5px !important; letter-spacing: 0.06em; }
+  .stats dd { font-size: clamp(20px, 3vh, 26px) !important; }
+  .sec { border-top: 1px solid var(--rule); padding-top: 10px; }
+  .sec > summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 2px 0;
+  }
+  .sec > summary::-webkit-details-marker { display: none; }
+  .sec > summary::after { content: ""; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translate(-2px, -2px); transition: transform 0.2s; }
+  .sec[open] > summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+  .sec > summary:focus-visible { outline: 2px solid var(--line); outline-offset: 3px; border-radius: 4px; }
+  .sec[open] > summary { margin-bottom: 10px; }
+  .sec .legend { gap: 6px; }
+  .sub-label { font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 12px 0 6px; }
+  .sec .legend + .sub-label { margin-top: 10px; }
+  .sec .controls { margin-top: 12px; gap: 4px; }
+  .sec .key-row { margin-top: 0; }
+  .key-note { display: block; color: var(--muted); margin-top: 6px; font-size: 12px; }
+  @media (max-height: 800px) and (min-width: 861px) {
+    .panel { padding-top: 18px !important; padding-bottom: 18px !important; }
+    .sec .legend li { font-size: 14px; }
+    .panel .status-reason { max-height: 3.2em; overflow: hidden; }
+  }
+  /* TfL credit, always visible on the map */
+  .map-credit { position: absolute; right: 18px; bottom: 12px; margin: 0; font-size: 12px; color: var(--muted); pointer-events: none; }
   .empty-msg { fill: var(--muted); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   :root { --pill-bg: #E4E7E3; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #2A323A; } }
@@ -314,7 +344,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v1.6</p>
+        <p class="eyebrow">Live prototype · v1.7</p>
         <button class="panel-hide" id="panel-hide" type="button" aria-label="Hide side panel" title="Hide side panel">
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M11 4 L6 9 L11 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -330,29 +360,13 @@
 
     <dl class="stats">
       <div><dt>Trains</dt><dd id="stat-trains">–</dd></div>
+      <div><dt>North</dt><dd id="stat-nb">–</dd></div>
+      <div><dt>South</dt><dd id="stat-sb">–</dd></div>
       <div><dt>Stations</dt><dd>16</dd></div>
-      <div><dt>Northbound</dt><dd id="stat-nb">–</dd></div>
-      <div><dt>Southbound</dt><dd id="stat-sb">–</dd></div>
     </dl>
 
-    <div>
-      <p class="section-label">Carriage label</p>
-      <div class="seg" role="radiogroup" aria-label="Carriage label">
-        <input type="radio" name="lbl" id="lbl-dest" value="dest" checked><label for="lbl-dest">Destination</label>
-        <input type="radio" name="lbl" id="lbl-num" value="num"><label for="lbl-num">Vehicle number</label>
-      </div>
-    </div>
-
-    <div class="controls">
-      <p class="section-label">Display</p>
-      <label class="ctl" for="warmth"><span>Background warmth</span><output id="warmth-out">Neutral</output></label>
-      <input type="range" id="warmth" min="0" max="100" step="1" value="50">
-      <label class="ctl" for="brightness"><span>Brightness</span><output id="brightness-out">100%</output></label>
-      <input type="range" id="brightness" min="20" max="100" step="1" value="100">
-    </div>
-
-    <div>
-      <p class="section-label">Key</p>
+    <details class="sec" id="sec-key" open>
+      <summary>Key</summary>
       <ul class="legend">
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
@@ -367,22 +381,19 @@
           <span>Station</span>
         </li>
       </ul>
-    </div>
-
-    <div>
-      <p class="section-label">Interchanges</p>
+      <p class="sub-label">Interchanges</p>
       <ul class="legend">
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
             <circle class="ix-dot" cx="-4" cy="0" r="6" fill="#003688"/><circle class="ix-dot" cx="6" cy="0" r="6" fill="#A0A5A9"/>
           </svg>
-          <span>Tube line <small>in that line's colour</small></span>
+          <span>Tube line</span>
         </li>
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
             <circle class="ix-ring" cx="-6" cy="0" r="5" stroke="#972861"/><circle class="ix-ring" cx="6" cy="0" r="5" stroke="#6950A1"/>
           </svg>
-          <span>Overground <small>or</small> Elizabeth line <small>in that line's colour</small></span>
+          <span>Overground or Elizabeth line</span>
         </li>
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
@@ -391,23 +402,34 @@
           <span>National Rail</span>
         </li>
       </ul>
-    </div>
-
-    <details class="settings" id="settings">
-      <summary>TfL API key</summary>
-      <form class="key-row" id="key-form">
-        <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your app key" aria-label="TfL API key">
-        <button type="submit" id="key-save">Save</button>
-      </form>
-      <small id="key-note">Optional. The map works without a key, but TfL allows more requests with one. The key is saved only in this browser, never in the code.</small>
     </details>
 
-    <p class="attrib">Tap a station for departures, a train for its upcoming stops, or an interchange marker for the line’s name.<br>Powered by TfL Open Data.</p>
+    <details class="sec" id="sec-prefs">
+      <summary>Preferences</summary>
+      <p class="sub-label">Carriage label</p>
+      <div class="seg" role="radiogroup" aria-label="Carriage label">
+        <input type="radio" name="lbl" id="lbl-dest" value="dest" checked><label for="lbl-dest">Destination</label>
+        <input type="radio" name="lbl" id="lbl-num" value="num"><label for="lbl-num">Vehicle ID</label>
+      </div>
+      <div class="controls">
+        <label class="ctl" for="warmth"><span>Background warmth</span><output id="warmth-out">Neutral</output></label>
+        <input type="range" id="warmth" min="0" max="100" step="1" value="50">
+        <label class="ctl" for="brightness"><span>Brightness</span><output id="brightness-out">100%</output></label>
+        <input type="range" id="brightness" min="20" max="100" step="1" value="100">
+      </div>
+      <p class="sub-label"><label for="key-input">TfL API key</label></p>
+      <form class="key-row" id="key-form">
+        <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your app key">
+        <button type="submit" id="key-save">Save</button>
+      </form>
+      <small class="key-note" id="key-note">Optional. Saved only in this browser.</small>
+    </details>
   </aside>
 
   <main class="map-wrap" id="map-wrap">
     <svg class="map" id="map" viewBox="0 0 1300 1400" role="img" aria-label="Live schematic map of the Victoria line showing each train"></svg>
     <div class="tip" id="tip" hidden></div>
+    <p class="map-credit">Powered by TfL Open Data</p>
     <button class="panel-show" id="panel-show" type="button" aria-label="Show side panel" title="Show side panel" hidden>
       <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4 L12 9 L7 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
@@ -418,6 +440,14 @@
       <div class="big-time" id="big-time">--:--</div>
       <div class="big-date" id="big-date">&nbsp;</div>
     </div>
+
+    <section class="board" id="pop" aria-labelledby="pop-title">
+      <div class="board-head">
+        <h2 id="pop-title">Departures Board</h2>
+      </div>
+      <div class="board-sections" id="pop-sections"></div>
+      <p class="board-note" id="pop-note" hidden></p>
+    </section>
 
     <section class="facts" aria-label="Victoria line facts">
       <div class="facts-head">
@@ -430,15 +460,6 @@
         <div class="facts-dots" id="fact-dots" aria-hidden="true"></div>
         <button type="button" class="facts-btn" id="fact-next" aria-label="Next fact">›</button>
       </div>
-    </section>
-
-    <section class="board" id="pop" aria-labelledby="pop-title">
-      <div class="board-head">
-        <h2 id="pop-title">Departures Board</h2>
-        <button class="board-close" id="pop-close" type="button" aria-label="Clear selection" hidden>×</button>
-      </div>
-      <div class="board-sections" id="pop-sections"></div>
-      <p class="board-note" id="pop-note" hidden></p>
     </section>
   </aside>
 </div>
@@ -1085,7 +1106,7 @@
       t.text.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)");
       const label = labelFor(t);
       if (t.text.textContent !== label) t.text.textContent = label;
-      t.node.setAttribute("aria-label", `Train ${t.v}, ${t.dir === "N" ? "northbound" : "southbound"} to ${S[t.dest].name}, ${t.loc || "location not reported"}`);
+      t.node.setAttribute("aria-label", `Vehicle ID ${t.v}, ${t.dir === "N" ? "northbound" : "southbound"} to ${S[t.dest].name}, ${t.loc || "location not reported"}`);
     });
     gone.forEach(t => { t.node && t.node.remove(); trains.delete(t.v); });
 
@@ -1186,7 +1207,7 @@
     l1.appendChild(document.createTextNode(`${S[t.dest].name} (${S[t.dest].code})`));
     const l2 = document.createElement("div"); l2.textContent = nextTxt;
     const l3 = document.createElement("div"); l3.textContent = t.loc ? `TfL: ${t.loc}` : "";
-    const l4 = document.createElement("div"); l4.className = "id"; l4.textContent = `Vehicle ${t.v}`;
+    const l4 = document.createElement("div"); l4.className = "id"; l4.textContent = `Vehicle ID ${t.v}`;
     tip.append(l1, l2, l3, l4);
     const r = t.node.getBoundingClientRect(), w = wrap.getBoundingClientRect();
     tip.style.left = (r.left + r.width / 2 - w.left) + "px";
@@ -1203,7 +1224,6 @@
   const popTitle = document.getElementById("pop-title");
   const popSections = document.getElementById("pop-sections");
   const popNote = document.getElementById("pop-note");
-  const popClose = document.getElementById("pop-close");
   let popRender = null, popTimer = null, selected = null;
   const clockFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
@@ -1246,11 +1266,9 @@
     const led = screen("", [p]);
     addClock(led);
     popNote.hidden = true;
-    popClose.hidden = true;
   }
   function openPop(title, node, render) {
     popRender = render;
-    popClose.hidden = false;
     setSelected(node);
     render();
     clearInterval(popTimer);
@@ -1260,7 +1278,11 @@
     popRender = null; setSelected(null);
     showPrompt();
   }
-  popClose.addEventListener("click", closePop);
+  // clicking any empty part of the map resets the board
+  wrap.addEventListener("click", e => {
+    if (e.target.closest && e.target.closest(".station-link, .label.clickable, .train, .ix, .panel-show")) return;
+    closePop();
+  });
   document.addEventListener("keydown", e => { if (e.key === "Escape") closePop(); });
   showPrompt();
   popTimer = setInterval(showPrompt, 1000);
@@ -1298,7 +1320,7 @@
     openPop(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name}`, t.node, () => {
       const now = performance.now(), s = sgn(t.dir);
       popSections.innerHTML = "";
-      ledTitle(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name} · Train ${t.v}`);
+      ledTitle(`${t.dir === "N" ? "Northbound" : "Southbound"} to ${S[t.dest].name} · Vehicle ID ${t.v}`);
       const stops = (t.stops || []).filter(st => s * (cum[st.idx] - t.D) > -0.5);
       const rows = stops.length
         ? stops.slice(0, 9).map(st => ledRow([[S[st.idx].name, "dest"], [whenText((st.at - now) / 1000), "when"]], "stop"))
@@ -1356,6 +1378,14 @@
   })();
   showFact(factIdx, false);
 
+  // Key and Preferences work as an accordion (one open at a time) so the panel always fits the screen
+  const secs = [...document.querySelectorAll("details.sec")];
+  try { const v = localStorage.getItem("open-sec"); if (v !== null) secs.forEach(d => { d.open = d.id === v; }); } catch (e) {}
+  secs.forEach(d => d.addEventListener("toggle", () => {
+    if (d.open) secs.forEach(o => { if (o !== d) o.open = false; });
+    try { localStorage.setItem("open-sec", secs.some(o => o.open) ? secs.find(o => o.open).id : ""); } catch (e) {}
+  }));
+
   /* ---------- Side panel show / hide (remembered per screen) ---------- */
   const panelShow = document.getElementById("panel-show");
   function setPanel(hidden) {
@@ -1401,7 +1431,7 @@
   applyDisplay();
 
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
-  const VERSION = "1.6";
+  const VERSION = "1.7";
   async function checkForUpdate() {
     if (location.protocol === "file:") return;
     try {
