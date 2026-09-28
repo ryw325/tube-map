@@ -123,6 +123,7 @@
       <div class="board-sections" id="pop-sections"></div>
       <p class="board-note" id="pop-note" hidden></p>
     </section>
+    <p class="tfl-credit">Powered by TfL Open Data</p>
 
     <section class="facts" id="facts" aria-label="Line facts">
       <div class="facts-head">
@@ -140,7 +141,7 @@
 </div>
 <div class="dimmer" id="dimmer" aria-hidden="true"></div>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "2.5"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "2.7"; -->
 <script src="lines/index.js"></script>
 <script>
   /* Pick the line (?line=… or the last one viewed), then load its data and the shared engine in order */
@@ -151,7 +152,7 @@
     if (!lines.some(l => l.id === id)) id = "victoria";
     try { localStorage.setItem("line", id); } catch (e) {}
     const bust = "?b=" + Date.now();
-    document.write('<script src="lines/' + id + '.js' + bust + '"><\/script><script src="engine.js' + bust + '"><\/script>');
+    document.write('<script src="lines/river.js' + bust + '"><\/script><script src="lines/' + id + '.js' + bust + '"><\/script><script src="engine.js' + bust + '"><\/script>');
   })();
 </script>
 </body>

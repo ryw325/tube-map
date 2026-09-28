@@ -222,6 +222,7 @@
   }
   .led-row { display: grid; grid-template-columns: 1.2em 1fr auto; gap: 0.5em; align-items: baseline; white-space: nowrap; }
   .led-row .dest { overflow: hidden; text-overflow: clip; }
+  .led-row .dest .mq { display: inline-block; white-space: nowrap; will-change: transform; }
   .led-row .when { text-align: right; font-variant-numeric: tabular-nums; }
   .led-empty { opacity: 0.9; }
   .led-clock { text-align: center; margin-top: 0.35em; font-variant-numeric: tabular-nums; }
@@ -247,7 +248,7 @@
   @media (min-width: 861px) {
     html, body { height: 100%; overflow: hidden; }
     body { padding: 0; }
-    .wrap { max-width: none; margin: 0; height: 100vh; height: 100dvh; grid-template-columns: clamp(285px, 19vw, 340px) minmax(0, 1fr) clamp(320px, 24vw, 460px); grid-template-rows: minmax(0, 1fr); gap: 0; align-items: stretch; }
+    .wrap { max-width: none; margin: 0; height: 100vh; height: 100dvh; --lw: clamp(285px, 19vw, 340px); --rw: clamp(320px, 24vw, 460px); grid-template-columns: var(--lw) minmax(0, 1fr) var(--rw); transition: grid-template-columns .28s ease; grid-template-rows: minmax(0, 1fr); gap: 0; align-items: stretch; }
     .panel { height: 100%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; padding: 28px 26px 32px 28px; border-right: 1px solid var(--rule); }
     .map-wrap { height: 100%; min-width: 0; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 16px 24px 16px 24px; }
     svg.map { width: 100%; height: 100%; max-height: none; }
@@ -311,7 +312,6 @@
     .panel .status-reason { max-height: 3.2em; overflow: hidden; }
   }
   /* TfL credit, always visible on the map */
-  .map-credit { fill: var(--muted); font-family: var(--sans); font-size: 19px; pointer-events: none; }
   .seg3 { grid-template-columns: 1fr 1fr 1fr; }
   .controls.inline { display: grid; grid-template-columns: auto 1fr 3.8em; align-items: center; gap: 6px 10px; margin-top: 12px; font-size: 14px; }
   .controls.inline input[type="range"] { margin: 0; }
@@ -350,3 +350,39 @@
   .line-title:hover .line-caret { stroke: var(--line); }
   .line-pick { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
   .line-title:has(.line-pick:focus-visible) { outline: 2px solid var(--line); outline-offset: 4px; border-radius: 6px; }
+
+  /* TfL credit, under the departures board */
+  .tfl-credit { margin: calc(-1 * clamp(6px, 1.2vh, 14px)) 0 0; font-size: 12px; color: var(--muted); text-align: center; letter-spacing: 0.02em; }
+
+  /* Collapsible side panels (desktop and TV) */
+  .edge-toggle { display: none; }
+  @media (min-width: 861px) {
+    .wrap.left-closed { --lw: 0px; }
+    .wrap.right-closed { --rw: 0px; }
+    .wrap .panel, .wrap .rpanel { transition: opacity .2s ease, visibility 0s linear 0s; }
+    .wrap.left-closed .panel, .wrap.right-closed .rpanel { opacity: 0; visibility: hidden; overflow: hidden; transition: opacity .15s ease, visibility 0s linear .28s; }
+    .edge-toggle { display: grid; place-items: center; position: absolute; top: 50%; transform: translateY(-50%); z-index: 6; width: 18px; height: 52px; padding: 0;
+      background: var(--pill-bg); border: 1px solid var(--rule); color: var(--muted); cursor: pointer; opacity: .45; transition: opacity .15s, color .15s; }
+    .edge-toggle:hover, .edge-toggle:focus-visible { opacity: 1; color: var(--ink); }
+    .edge-toggle:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+    .edge-toggle svg path { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .edge-toggle.left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
+    .edge-toggle.right { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
+    .edge-toggle.right svg { transform: scaleX(-1); }
+    .left-closed .edge-toggle.left svg { transform: scaleX(-1); }
+    .right-closed .edge-toggle.right svg { transform: none; }
+  }
+
+  /* Zoom and pan */
+  svg.map { touch-action: none; user-select: none; -webkit-user-select: none; }
+  svg.map.zoomed { cursor: grab; }
+  svg.map.zoomed:active { cursor: grabbing; }
+  @media (max-width: 860px) { svg.map { touch-action: pan-y; } }
+  .zoom-ctl { position: absolute; right: 22px; bottom: 18px; z-index: 5; display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--pill-bg); opacity: .6; transition: opacity .15s; }
+  .zoom-ctl:hover, .zoom-ctl:focus-within { opacity: 1; }
+  .zoom-ctl button { width: 34px; height: 32px; padding: 0; border: 0; background: none; color: var(--ink); font: 600 18px/1 var(--sans); cursor: pointer; display: grid; place-items: center; }
+  .zoom-ctl button + button { border-top: 1px solid var(--rule); }
+  .zoom-ctl button:hover:not(:disabled) { background: color-mix(in srgb, var(--pill-bg) 70%, var(--ink)); }
+  .zoom-ctl button:disabled { opacity: .35; cursor: default; }
+  .zoom-ctl button:focus-visible { outline: 2px solid var(--line); outline-offset: -2px; }
+  .zoom-ctl svg path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

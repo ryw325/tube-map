@@ -28,7 +28,7 @@
   /* ---------- Stations ---------- */
   const LINE = window.UNDERCURRENT_LINE;
   const S = LINE.stations.map(s => ({ ...s }));
-  const VERSION = "2.5-replay";
+  const VERSION = "2.7-replay";
   const dirLabel = d => LINE.dirs[d].label;
   // "Northbound" / "Eastbound" etc. from the platform name, used where the direction word changes along a line
   const platformWord = name => { const m = /^(\w+bound)\b/i.exec(name || ""); return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : ""; };
@@ -69,16 +69,27 @@
   })();
   const SPACING = LINE.spacing || 1.25;
   S.forEach(s => { s.x *= SPACING; s.y *= SPACING; });
-  const LAST = S.length - 1;
   const byNaptan = Object.fromEntries(S.map((s, i) => [s.naptan, i]));
+  const byId = Object.fromEntries(S.map((s, i) => [s.id, i]));
 
-  // Track geometry: cumulative distance from the first station
-  const segLen = S.slice(1).map((s, i) => Math.hypot(s.x - S[i].x, s.y - S[i].y));
-  const cum = [0];
-  segLen.forEach((l, i) => cum.push(cum[i] + l));
+  // Routes: each is one unbranched run of stations, all written in the same direction (first station = the "N" end).
+  // A simple line has one route; a branching line lists every end-to-end combination. Trains follow one route at a time.
+  const ROUTE_LISTS = (LINE.routes || [S.map(s => s.id)]).map(r => r.map(id => {
+    if (byId[id] === undefined) throw new Error("Unknown station in route: " + id);
+    return byId[id];
+  }));
+  // every piece of track once (for drawing and label placement)
+  const TRACK_SEGS = [];
+  ROUTE_LISTS.forEach(r => r.slice(1).forEach((b, i) => {
+    const a = r[i];
+    if (!TRACK_SEGS.some(([x, y]) => (x === a && y === b) || (x === b && y === a))) TRACK_SEGS.push([a, b]);
+  }));
 
-  // Typical running time (seconds) for each segment i -> i+1. Refined from live data as it arrives.
-  const RUN = segLen.map((l, i) => (LINE.run && LINE.run[i]) || 120);
+  // Typical running time (seconds) between neighbouring stations, keyed by the pair. Refined from live data.
+  const runKey = (a, b) => a < b ? a + "-" + b : b + "-" + a;
+  const RUNT = new Map();
+  ROUTE_LISTS[0].slice(1).forEach((b, i) => RUNT.set(runKey(ROUTE_LISTS[0][i], b), (LINE.run && LINE.run[i]) || 120));
+  const runTime = (a, b) => RUNT.get(runKey(a, b)) || 120;
 
   const L = {
     bakerloo: ["Bakerloo", "#B36305"], central: ["Central", "#E32017"], circle: ["Circle", "#FFD300"],
@@ -102,13 +113,20 @@
     (parent || svg).appendChild(n);
     return n;
   };
+  // The Thames: the same master shape on every line, only moved and resized to suit this map
+  const RIVER = window.UNDERCURRENT_RIVER, RP = LINE.river;
   const riverG = el("g", { transform: `scale(${SPACING})` });
-  if (LINE.river) {
-    el("path", { class: "river", d: LINE.river.d }, riverG);
-    el("text", { class: "river-label", x: LINE.river.label[0], y: LINE.river.label[1], "text-anchor": "middle" }, riverG).textContent = "Thames";
+  if (RIVER && RP) {
+    const k = RP.scale || 1;
+    const g = el("g", { transform: `translate(${RP.x || 0} ${RP.y || 0}) scale(${k})` }, riverG);
+    el("path", { class: "river", d: RIVER.d, style: `stroke-width: ${((RP.width || RIVER.width) / k).toFixed(1)}px` }, g);
+    if (RP.label) {
+      const lx = (RP.x || 0) + RP.label[0] * k, ly = (RP.y || 0) + RP.label[1] * k;   // label stays the same size on every map
+      el("text", { class: "river-label", x: lx, y: ly, "text-anchor": "middle" }, riverG).textContent = "Thames";
+    }
   }
 
-  const trackD = "M " + S.map(s => s.x + " " + s.y).join(" L ");
+  const trackD = ROUTE_LISTS.map(r => "M " + r.map(i => S[i].x + " " + S[i].y).join(" L ")).join(" ");
   el("path", { class: "track", d: trackD });             // track under the trains
   const trainLayer = el("g", {});
   const content = el("g", {});                           // stations and labels, drawn above trains
@@ -275,7 +293,7 @@
   }
 
   // geometry
-  const segs = S.slice(1).map((s, i) => [S[i], s]);
+  const segs = TRACK_SEGS.map(([a, b]) => [S[a], S[b]]);
   const ptSeg = (px, py, a, b) => {
     const dx = b.x - a.x, dy = b.y - a.y;
     let k = ((px - a.x) * dx + (py - a.y) * dy) / (dx * dx + dy * dy);
@@ -389,20 +407,135 @@
     fitView();
   }
 
+  /* ---------- Collapsible side panels (remembered on this screen) ---------- */
+  (function panels() {
+    const wrap = document.querySelector(".wrap"), mw = document.getElementById("map-wrap");
+    let state = { left: true, right: true };
+    try { state = Object.assign(state, JSON.parse(localStorage.getItem("panels") || "{}")); } catch (e) {}
+    const make = side => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = `edge-toggle ${side}`;
+      b.innerHTML = '<svg viewBox="0 0 10 16" width="8" height="14" aria-hidden="true"><path d="M7 2 L2 8 L7 14"/></svg>';
+      b.addEventListener("click", () => { state[side] = !state[side]; apply(); try { localStorage.setItem("panels", JSON.stringify(state)); } catch (e) {} });
+      mw.appendChild(b); return b;
+    };
+    const btn = { left: make("left"), right: make("right") };
+    function apply() {
+      wrap.classList.toggle("left-closed", !state.left);
+      wrap.classList.toggle("right-closed", !state.right);
+      btn.left.setAttribute("aria-label", state.left ? "Hide the left panel" : "Show the left panel");
+      btn.right.setAttribute("aria-label", state.right ? "Hide the right panel" : "Show the right panel");
+      btn.left.setAttribute("aria-expanded", state.left); btn.right.setAttribute("aria-expanded", state.right);
+    }
+    apply();
+  })();
+
+  /* ---------- View: fit to the line, plus zoom and pan ---------- */
+  const view = { base: null, x: 0, y: 0, w: 1, h: 1, user: false };
+  const narrow = window.matchMedia("(max-width: 860px)");
   function fitView() {
     const bb = content.getBBox();
     // include the train lanes, which can sit outside the labels (e.g. below Brixton)
     const xs = S.map(s => s.x), ys = S.map(s => s.y), m = LANE_OUTER + 6;
     const x1 = Math.min(bb.x, Math.min(...xs) - m), y1 = Math.min(bb.y, Math.min(...ys) - m);
     const x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m), y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
-    const pad = 56; // same clearance top and bottom
-    // TfL credit sits inside the same boundary, aligned to the bottom-right of the map content
-    let credit = svg.querySelector(".map-credit");
-    if (!credit) { credit = el("text", { class: "map-credit", "text-anchor": "end" }); credit.textContent = "Powered by TfL Open Data"; }
-    credit.setAttribute("x", x2.toFixed(0)); credit.setAttribute("y", y2.toFixed(0));
-    svg.setAttribute("viewBox", `${(x1 - pad).toFixed(0)} ${(y1 - pad).toFixed(0)} ${(x2 - x1 + pad * 2).toFixed(0)} ${(y2 - y1 + pad * 2).toFixed(0)}`);
+    const pad = 56; // same clearance on every side
+    view.base = { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
+    if (view.user) applyView(); else resetView();
   }
-
+  // screen shape of the map area (on phones the map takes the line's own shape and the page scrolls)
+  function aspect() {
+    if (narrow.matches || !view.base) return view.base ? view.base.w / view.base.h : 1;
+    const r = svg.getBoundingClientRect();
+    return r.width > 10 && r.height > 10 ? r.width / r.height : view.base.w / view.base.h;
+  }
+  function fitSize() {
+    const b = view.base, a = aspect();
+    return b.w / b.h > a ? { w: b.w, h: b.w / a } : { w: b.h * a, h: b.h };
+  }
+  function resetView() {
+    if (!view.base) return;
+    const f = fitSize(), b = view.base;
+    view.w = f.w; view.h = f.h; view.x = b.x + b.w / 2 - f.w / 2; view.y = b.y + b.h / 2 - f.h / 2;
+    view.user = false;
+    applyView();
+  }
+  function applyView() {
+    const b = view.base, f = fitSize(), a = aspect();
+    // keep the zoom level (units per screen pixel) when the map area changes shape
+    let cx = view.x + view.w / 2, cy = view.y + view.h / 2;
+    let w = Math.max(f.w / ZOOM_MAX, Math.min(f.w * ZOOM_OUT, view.w));
+    view.w = w; view.h = w / a;
+    // don't let the line wander off screen
+    cx = Math.max(b.x, Math.min(b.x + b.w, cx)); cy = Math.max(b.y, Math.min(b.y + b.h, cy));
+    view.x = cx - view.w / 2; view.y = cy - view.h / 2;
+    svg.setAttribute("viewBox", `${view.x.toFixed(1)} ${view.y.toFixed(1)} ${view.w.toFixed(1)} ${view.h.toFixed(1)}`);
+    svg.classList.toggle("zoomed", view.user);
+    const z = document.getElementById("zoom-fit"); if (z) z.disabled = !view.user;
+  }
+  const ZOOM_MAX = 8, ZOOM_OUT = 1.6;
+  function toMap(clientX, clientY) {
+    const r = svg.getBoundingClientRect();
+    return { x: view.x + (clientX - r.left) / r.width * view.w, y: view.y + (clientY - r.top) / r.height * view.h, r };
+  }
+  function zoomAt(clientX, clientY, f) {
+    if (!view.base) return;
+    const p = toMap(clientX, clientY), fs = fitSize();
+    const w = Math.max(fs.w / ZOOM_MAX, Math.min(fs.w * ZOOM_OUT, view.w * f)); f = w / view.w;
+    view.x = p.x - (p.x - view.x) * f; view.y = p.y - (p.y - view.y) * f; view.w = w; view.h = view.h * f;
+    view.user = true; applyView();
+  }
+  function zoomCentre(f) { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, f); }
+  svg.addEventListener("wheel", e => {
+    e.preventDefault();
+    const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;          // lines -> pixels
+    zoomAt(e.clientX, e.clientY, Math.exp(d * (e.ctrlKey ? 0.01 : 0.0015)));  // ctrlKey = trackpad pinch
+  }, { passive: false });
+  // drag to pan, two fingers to pinch; a drag never counts as a click
+  const pts = new Map(); let drag = null, dragged = false;
+  svg.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    drag = { sx: e.clientX, sy: e.clientY }; dragged = false;
+  });
+  svg.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId)) return;
+    const prev = pts.get(e.pointerId); const cur = { x: e.clientX, y: e.clientY };
+    if (!dragged && Math.hypot(cur.x - drag.sx, cur.y - drag.sy) < 5 && pts.size < 2) return;
+    if (!dragged) { dragged = true; try { svg.setPointerCapture(e.pointerId); } catch (x) {} hideTip && hideTip(); }
+    const r = svg.getBoundingClientRect();
+    if (pts.size >= 2) {
+      const [a, b] = [...pts.entries()].map(([id, v]) => id === e.pointerId ? cur : v);
+      const [pa, pb] = [...pts.values()];
+      const d0 = Math.hypot(pa.x - pb.x, pa.y - pb.y), d1 = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d0 > 0 && d1 > 0) zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d0 / d1);
+      view.x -= ((cur.x - prev.x) / 2) / r.width * view.w; view.y -= ((cur.y - prev.y) / 2) / r.height * view.h;
+    } else {
+      view.x -= (cur.x - prev.x) / r.width * view.w; view.y -= (cur.y - prev.y) / r.height * view.h;
+    }
+    pts.set(e.pointerId, cur); view.user = true; applyView();
+  });
+  const endPointer = e => { pts.delete(e.pointerId); if (!pts.size) drag = null; };
+  svg.addEventListener("pointerup", endPointer); svg.addEventListener("pointercancel", endPointer);
+  svg.addEventListener("click", e => { if (dragged) { e.stopPropagation(); e.preventDefault(); dragged = false; } }, true);
+  svg.addEventListener("dblclick", e => { if (!e.target.closest(".station-link, .train, .ix, .dest-alert")) resetView(); });
+  // + / − / fit buttons, and keyboard shortcuts
+  (function zoomControls() {
+    const box = document.createElement("div");
+    box.className = "zoom-ctl";
+    box.innerHTML = '<button type="button" id="zoom-in" aria-label="Zoom in">+</button><button type="button" id="zoom-out" aria-label="Zoom out">−</button><button type="button" id="zoom-fit" aria-label="Fit the whole line" disabled><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>';
+    document.getElementById("map-wrap").appendChild(box);
+    document.getElementById("zoom-in").addEventListener("click", () => zoomCentre(1 / 1.4));
+    document.getElementById("zoom-out").addEventListener("click", () => zoomCentre(1.4));
+    document.getElementById("zoom-fit").addEventListener("click", resetView);
+    document.addEventListener("keydown", e => {
+      if (e.target.closest && e.target.closest("input, select, textarea")) return;
+      if (e.key === "+" || e.key === "=") zoomCentre(1 / 1.4);
+      else if (e.key === "-" || e.key === "_") zoomCentre(1.4);
+      else if (e.key === "0") resetView();
+    });
+  })();
+  if (window.ResizeObserver) new ResizeObserver(() => { if (view.base) (view.user ? applyView : resetView)(); }).observe(svg);
 
   layout();
   if (document.fonts) {
@@ -421,98 +554,222 @@
     return API + path + (key ? (path.includes("?") ? "&" : "?") + "app_key=" + encodeURIComponent(key) : "");
   }
 
-  // Direction of a prediction: "S" = towards the last station (index increasing), "N" = towards the first
-  function directionOf(p, nextIdx) {
-    const destIdx = byNaptan[p.destinationNaptanId];
-    if (destIdx !== undefined && destIdx !== nextIdx) return destIdx > nextIdx ? "S" : "N";
-    if (destIdx === LAST) return "S";
-    if (destIdx === 0) return "N";
-    const plat = (p.platformName || "").toLowerCase();
+  const DEBUG = /[?&]debug\b/.test(location.search) ? { departures: [] } : null;
+  const sgn = dir => dir === "S" ? 1 : -1;
+
+  /* ---------- Routes: track geometry and train lanes for each run of stations ----------
+     Each direction runs in its own lane on its left of the track. On the outside of a bend the lane
+     wraps round the station; on the inside it takes a wider curve so the carriage never clips the track. */
+  function makeRoute(st, id) {
+    const P = st.map(i => S[i]);
+    const R = { id, st, LAST: st.length - 1, pos: {} };
+    st.forEach((g, k) => { R.pos[g] = k; });
+    R.segLen = P.slice(1).map((s, i) => Math.hypot(s.x - P[i].x, s.y - P[i].y));
+    R.cum = [0]; R.segLen.forEach((l, i) => R.cum.push(R.cum[i] + l));
+    R.segOf = D => { let i = 0; while (i < R.segLen.length - 1 && D > R.cum[i + 1]) i++; return i; };
+    R.stationAt = D => { for (let k = 0; k <= R.LAST; k++) if (Math.abs(D - R.cum[k]) < 0.5) return k; return -1; };
+    R.run = seg => runTime(st[seg], st[seg + 1]);
+    R.nominalSpeed = seg => R.segLen[seg] / Math.max(40, R.run(seg) - 15); // track px per second
+    function buildLane(dir) {
+      const side = sgn(dir), LAST = R.LAST;
+      const u = R.segLen.map((l, i) => ({ x: (P[i + 1].x - P[i].x) / l, y: (P[i + 1].y - P[i].y) / l }));
+      const n = u.map(v => ({ x: side * v.y, y: -side * v.x }));
+      const pts = [], anchorsIdx = [];
+      const push = (x, y) => pts.push({ x, y });
+      push(P[0].x + n[0].x * LANE, P[0].y + n[0].y * LANE); anchorsIdx.push(0);
+      const arc = (cx, cy, r, a1, a2) => {
+        let da = a2 - a1; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+        const steps = Math.max(6, Math.ceil(Math.abs(da) / (Math.PI / 90)));
+        const start = pts.length;
+        for (let i = 0; i <= steps; i++) { const a = a1 + da * i / steps; push(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+        return start + Math.round(steps / 2);
+      };
+      for (let k = 1; k < LAST; k++) {
+        const V = P[k], u1 = u[k - 1], u2 = u[k], n1 = n[k - 1], n2 = n[k];
+        const cross = u1.x * u2.y - u1.y * u2.x;
+        if (Math.abs(cross) < 1e-4) { push(V.x + n1.x * LANE, V.y + n1.y * LANE); anchorsIdx.push(pts.length - 1); continue; }
+        const inside = n1.x * u2.x + n1.y * u2.y > 0;
+        if (!inside) {
+          anchorsIdx.push(arc(V.x, V.y, LANE, Math.atan2(n1.y, n1.x), Math.atan2(n2.y, n2.x)));
+        } else {
+          let bx = n1.x + n2.x, by = n1.y + n2.y; const bl = Math.hypot(bx, by); bx /= bl; by /= bl;
+          const c = (LANE + INNER_R) / (bx * n1.x + by * n1.y);
+          const Cx = V.x + bx * c, Cy = V.y + by * c;
+          anchorsIdx.push(arc(Cx, Cy, INNER_R, Math.atan2(-n1.y, -n1.x), Math.atan2(-n2.y, -n2.x)));
+        }
+      }
+      const nl = n[LAST - 1];
+      push(P[LAST].x + nl.x * LANE, P[LAST].y + nl.y * LANE); anchorsIdx.push(pts.length - 1);
+      const cl = [0];
+      for (let i = 1; i < pts.length; i++) cl.push(cl[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+      return { pts, cl, anchors: anchorsIdx.map(i => cl[i]), total: cl[cl.length - 1] };
+    }
+    R.LANES = { S: buildLane("S"), N: buildLane("N") };
+    // track distance <-> lane distance (piecewise linear between stations)
+    R.toL = (D, dir) => {
+      const A = R.LANES[dir].anchors, i = R.segOf(D);
+      return A[i] + (Math.max(0, Math.min(R.segLen[i], D - R.cum[i])) / R.segLen[i]) * (A[i + 1] - A[i]);
+    };
+    R.fromL = (Lv, dir) => {
+      const A = R.LANES[dir].anchors;
+      let i = 0; while (i < A.length - 2 && Lv > A[i + 1]) i++;
+      return R.cum[i] + Math.max(0, Math.min(1, (Lv - A[i]) / (A[i + 1] - A[i]))) * R.segLen[i];
+    };
+    R.poseAtL = (Lv, dir) => {
+      const { pts, cl } = R.LANES[dir];
+      let lo = 0, hi = cl.length - 1;
+      Lv = Math.max(0, Math.min(cl[hi], Lv));
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cl[mid] <= Lv) lo = mid; else hi = mid; }
+      const a = pts[lo], b = pts[hi], f = cl[hi] > cl[lo] ? (Lv - cl[lo]) / (cl[hi] - cl[lo]) : 0;
+      let ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+      if (dir === "N") ang += 180;
+      return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, ang };
+    };
+    R.poseAt = (D, dir) => R.poseAtL(R.toL(D, dir), dir);
+    return R;
+  }
+  const ROUTES = ROUTE_LISTS.map((st, i) => makeRoute(st, i));
+  const R0 = ROUTES[0];
+  // a station is a terminus if it is an end of every route that uses it
+  // One-way track (e.g. the Heathrow loop): pairs listed [from, to] may only be run in that order
+  const ONEWAY_BAD = new Set((LINE.oneway || []).map(([a, b]) => byId[b] + ">" + byId[a]));
+  // Loop destinations: a train shown as going to one station actually carries on round to another before turning
+  const LOOP_END = new Set(Object.values(LINE.loopTo || {}).map(id => byId[id]));
+  const LOOP_TO = Object.fromEntries(Object.entries(LINE.loopTo || {}).map(([a, b]) => [byId[a], byId[b]]));
+  // Branch names for "via" text (e.g. Northern line "via Bank" / "via Charing Cross")
+  const VIA_IDX = (LINE.via || []).map(id => byId[id]).filter(i => i !== undefined);
+  const viaNorm = txt => (txt || "").replace(/\bCX\b/g, "Charing Cross").trim();
+  function viaFromTowards(towards) {
+    const m = /\bvia\s+(.+)$/i.exec(towards || "");
+    return m ? viaNorm(m[1]) : "";
+  }
+  // Which branch station lies ahead of index k (towards destination g) on route R, if any
+  function viaOnRoute(R, k, dir, g) {
+    if (!VIA_IDX.length || k == null) return "";
+    const s = dir === "S" ? 1 : -1, end = g !== undefined && R.pos[g] !== undefined ? R.pos[g] : (dir === "S" ? R.LAST : 0);
+    for (let i = k; s * (end - i) > 0; i += s) {
+      const st = R.st[i + s];
+      if (VIA_IDX.includes(st) && st !== g) return S[st].name;
+    }
+    return "";
+  }
+  const shownDest = t => S[t.destShow !== undefined && t.destShow !== null ? t.destShow : t.dest];
+  function viaText(t) {
+    let v = viaFromTowards(t.towards);
+    if (!v) {                                   // no TfL wording: only say "via" once the predictions pin the branch down
+      const guess = viaOnRoute(t.r, t.next != null ? t.next - sgn(t.dir) : null, t.dir, t.dest);
+      const gi = VIA_IDX.find(i => S[i].name === guess);
+      const pinned = gi !== undefined && (t.stops || []).some(st => {
+        const g = t.r.st[st.idx];
+        return ROUTES.every(R => R.pos[g] === undefined || R.pos[gi] !== undefined);
+      });
+      if (pinned) v = guess;
+    }
+    return v ? ` via ${v}` : "";
+  }
+  const destFull = t => shownDest(t).name + viaText(t);
+  const isTermG = g => ROUTES.every(R => R.pos[g] === undefined || R.pos[g] === 0 || R.pos[g] === R.LAST) && ROUTES.some(R => R.pos[g] !== undefined);
+
+  // Where train o is, expressed as a distance along route R (null if o isn't on track that R shares)
+  function projectD(o, R, D) {
+    if (D === undefined) D = o.D;
+    if (o.r === R) return D;
+    const Q = o.r, i = Q.segOf(D), f = Q.segLen[i] ? (D - Q.cum[i]) / Q.segLen[i] : 0;
+    const a = Q.st[i], b = Q.st[i + 1];
+    if (f <= 0.001 && R.pos[a] !== undefined) return R.cum[R.pos[a]];
+    if (f >= 0.999 && R.pos[b] !== undefined) return R.cum[R.pos[b]];
+    const ja = R.pos[a], jb = R.pos[b];
+    if (ja === undefined || jb === undefined || Math.abs(ja - jb) !== 1) return null;
+    return ja < jb ? R.cum[ja] + f * R.segLen[ja] : R.cum[jb] + (1 - f) * R.segLen[jb];
+  }
+
+  // Which way train o is heading, in route R's terms (routes can run the same track in opposite orders, e.g. round a loop)
+  function projDir(o, R) {
+    if (o.r === R) return o.dir;
+    const Q = o.r, i = Q.segOf(o.D), ja = R.pos[Q.st[i]], jb = R.pos[Q.st[i + 1]];
+    if (ja === undefined || jb === undefined) return o.dir;
+    return jb > ja ? o.dir : (o.dir === "S" ? "N" : "S");
+  }
+
+  // Direction of a prediction along route R: "S" = towards the route's last station, "N" = towards its first
+  function directionOn(R, g, destG, platform) {
+    const k = R.pos[g], d = destG === undefined ? undefined : R.pos[destG];
+    if (k !== undefined && d !== undefined && d !== k) return d > k ? "S" : "N";
+    if (d !== undefined && d === R.LAST) return "S";
+    if (d !== undefined && d === 0) return "N";
+    const plat = (platform || "").toLowerCase();
     if (LINE.dirs.S.platform.some(w => plat.startsWith(w))) return "S";
     if (LINE.dirs.N.platform.some(w => plat.startsWith(w))) return "N";
     return null;
   }
+  // Direction for a station board row: from the first route that has both the station and the destination
+  function directionAny(g, destG, platform) {
+    const R = ROUTES.find(R => R.pos[g] !== undefined && destG !== undefined && R.pos[destG] !== undefined && destG !== g) ||
+              ROUTES.find(R => R.pos[g] !== undefined);
+    return R ? directionOn(R, g, destG, platform) : null;
+  }
 
-  function learnRunTimes(preds) {
+  // Pick the route that best explains a vehicle's predictions (and, if given, starts from station mustG)
+  function chooseRoute(raw, t, mustG) {
+    let best = null;
+    ROUTES.forEach(R => {
+      if (mustG != null && R.pos[mustG] === undefined) return;
+      const first = raw[0];
+      if (R.pos[first.g] === undefined) return;
+      const dir = directionOn(R, first.g, first.dest, first.plat);
+      if (!dir) return;
+      const s = sgn(dir), k0 = R.pos[first.g];
+      let score = 0;
+      raw.forEach(p => {
+        const k = R.pos[p.g];
+        if (k === undefined) { score -= 1; return; }
+        if (s * (k - k0) >= 0) score += 1;
+      });
+      if (first.dest !== undefined && R.pos[first.dest] === undefined) score -= 5;   // destination is on another branch
+      if (first.shown !== undefined && R.pos[first.shown] === undefined) score -= 5; // named loop station (e.g. Terminal 4) not on this route
+      if (ONEWAY_BAD.size) {                                                        // would run one-way track the wrong way
+        const kFrom = mustG != null ? R.pos[mustG] : k0 - s;
+        const kTo = Math.max(...raw.map(p => R.pos[p.g] === undefined ? -Infinity : s * R.pos[p.g])) * s;
+        for (let i = kFrom; s * (kTo - i) > 0; i += s) {
+          if (i < 0 || i + s < 0 || i > R.LAST || i + s > R.LAST) continue;
+          if (ONEWAY_BAD.has(R.st[i] + ">" + R.st[i + s])) { score -= 20; break; }
+        }
+      }
+      const via = VIA_IDX.length ? viaFromTowards(first.towards) : "";
+      if (via) {                                                                    // "via Bank": the route must pass that branch ahead
+        const vi = VIA_IDX.find(i => S[i].name.toLowerCase() === via.toLowerCase());
+        if (vi !== undefined && R.pos[vi] === undefined) score -= 5;
+      }
+      if (t && t.r === R) score += 0.5;                                               // stay on the current route if it fits
+      if (mustG != null) {                                                          // leaving a terminus: must lead away from it
+        const km = R.pos[mustG];
+        if (s * (k0 - km) <= 0) score -= 10;
+      }
+      if (!best || score > best.score) best = { R, dir, score };
+    });
+    if (!best) return null;
+    const R = best.R;
+    const preds = raw.filter(p => R.pos[p.g] !== undefined).map(p => ({
+      idx: R.pos[p.g], dir: directionOn(R, p.g, p.dest, p.plat) || best.dir, tts: p.tts, loc: p.loc, dest: p.dest, pdir: p.pdir, towards: p.towards, shown: p.shown
+    }));
+    return { R, preds };
+  }
+
+  function learnRunTimes(R, preds) {
     // For one vehicle, consecutive stations in its own direction give running time + dwell.
     for (let i = 1; i < preds.length; i++) {
       const a = preds[i - 1], b = preds[i];
       if (a.dir !== b.dir || Math.abs(a.idx - b.idx) !== 1) continue;
       const dt = b.tts - a.tts;
       if (dt < 40 || dt > 400) continue;
-      const seg = Math.min(a.idx, b.idx);
-      RUN[seg] = RUN[seg] * 0.9 + dt * 0.1;
+      const key = runKey(R.st[a.idx], R.st[b.idx]);
+      RUNT.set(key, (RUNT.get(key) || 120) * 0.9 + dt * 0.1);
     }
   }
-
-  const DEBUG = /[?&]debug\b/.test(location.search) ? { departures: [] } : null;
-  const sgn = dir => dir === "S" ? 1 : -1;
-  const segOf = D => { let i = 0; while (i < segLen.length - 1 && D > cum[i + 1]) i++; return i; };
-  const nominalSpeed = seg => segLen[seg] / Math.max(40, RUN[seg] - 15); // track px per second
-
-  /* ---------- Train lanes ----------
-     Each direction runs in its own lane on its left of the track. On the outside of a bend the lane
-     wraps round the station; on the inside it takes a wider curve so the carriage never clips the track. */
-  function buildLane(dir) {
-    const side = sgn(dir);
-    const u = segLen.map((l, i) => ({ x: (S[i + 1].x - S[i].x) / l, y: (S[i + 1].y - S[i].y) / l }));
-    const n = u.map(v => ({ x: side * v.y, y: -side * v.x }));
-    const pts = [], anchorsIdx = [];
-    const push = (x, y) => pts.push({ x, y });
-    push(S[0].x + n[0].x * LANE, S[0].y + n[0].y * LANE); anchorsIdx.push(0);
-    const arc = (cx, cy, r, a1, a2) => {
-      let da = a2 - a1; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
-      const steps = Math.max(6, Math.ceil(Math.abs(da) / (Math.PI / 90)));
-      const start = pts.length;
-      for (let i = 0; i <= steps; i++) { const a = a1 + da * i / steps; push(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
-      return start + Math.round(steps / 2);
-    };
-    for (let k = 1; k < LAST; k++) {
-      const V = S[k], u1 = u[k - 1], u2 = u[k], n1 = n[k - 1], n2 = n[k];
-      const cross = u1.x * u2.y - u1.y * u2.x;
-      if (Math.abs(cross) < 1e-4) { push(V.x + n1.x * LANE, V.y + n1.y * LANE); anchorsIdx.push(pts.length - 1); continue; }
-      const inside = n1.x * u2.x + n1.y * u2.y > 0;
-      if (!inside) {
-        anchorsIdx.push(arc(V.x, V.y, LANE, Math.atan2(n1.y, n1.x), Math.atan2(n2.y, n2.x)));
-      } else {
-        let bx = n1.x + n2.x, by = n1.y + n2.y; const bl = Math.hypot(bx, by); bx /= bl; by /= bl;
-        const c = (LANE + INNER_R) / (bx * n1.x + by * n1.y);
-        const Cx = V.x + bx * c, Cy = V.y + by * c;
-        anchorsIdx.push(arc(Cx, Cy, INNER_R, Math.atan2(-n1.y, -n1.x), Math.atan2(-n2.y, -n2.x)));
-      }
-    }
-    const nl = n[LAST - 1];
-    push(S[LAST].x + nl.x * LANE, S[LAST].y + nl.y * LANE); anchorsIdx.push(pts.length - 1);
-    const cl = [0];
-    for (let i = 1; i < pts.length; i++) cl.push(cl[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
-    return { pts, cl, anchors: anchorsIdx.map(i => cl[i]), total: cl[cl.length - 1] };
-  }
-  const LANES = { S: buildLane("S"), N: buildLane("N") };
-
-  // track distance <-> lane distance (piecewise linear between stations)
-  function toL(D, dir) {
-    const A = LANES[dir].anchors, i = segOf(D);
-    return A[i] + (Math.max(0, Math.min(segLen[i], D - cum[i])) / segLen[i]) * (A[i + 1] - A[i]);
-  }
-  function fromL(Lv, dir) {
-    const A = LANES[dir].anchors;
-    let i = 0; while (i < A.length - 2 && Lv > A[i + 1]) i++;
-    return cum[i] + Math.max(0, Math.min(1, (Lv - A[i]) / (A[i + 1] - A[i]))) * segLen[i];
-  }
-  function poseAtL(Lv, dir) {
-    const { pts, cl } = LANES[dir];
-    let lo = 0, hi = cl.length - 1;
-    Lv = Math.max(0, Math.min(cl[hi], Lv));
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cl[mid] <= Lv) lo = mid; else hi = mid; }
-    const a = pts[lo], b = pts[hi], f = cl[hi] > cl[lo] ? (Lv - cl[lo]) / (cl[hi] - cl[lo]) : 0;
-    let ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-    if (dir === "N") ang += 180;
-    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, ang };
-  }
-  const poseAt = (D, dir) => poseAtL(toL(D, dir), dir);
 
   const boardData = new Map(); // station index -> predictions at that station
   const orderStrikes = new Map(); // "front>back" -> updates in a row the data has had them the other way round
+  const opp = d => d === "S" ? "N" : "S";
   function ingest(data) {
     const now = performance.now();
     const groups = new Map();
@@ -520,7 +777,8 @@
     data.forEach(p => {
       const idx = byNaptan[p.naptanId];
       if (idx === undefined) return;
-      const dir = directionOf(p, idx);
+      const destG = byNaptan[p.destinationNaptanId];
+      const dir = directionAny(idx, destG, p.platformName);
       if (!dir) return;
       const list = boardData.get(idx) || boardData.set(idx, []).get(idx);
       const key = (p.vehicleId || "").trim() || p.id;
@@ -528,118 +786,141 @@
       if (existing && existing.tts <= p.timeToStation) return;
       if (existing) list.splice(list.indexOf(existing), 1);
       list.push({ key, dir, tts: p.timeToStation, fetchedAt: now,
-        dest: byNaptan[p.destinationNaptanId], destName: (p.destinationName || "").replace(/ Underground Station$/, ""),
-        pdir: platformWord(p.platformName),
+        dest: destG, destName: (p.destinationName || "").replace(/ Underground Station$/, ""),
+        pdir: platformWord(p.platformName), towards: p.towards || "",
         platform: (p.platformName || "").replace(/^\w+bound\s*-\s*/i, "") });
     });
     data.forEach(p => {
       const v = (p.vehicleId || "").trim();
-      const idx = byNaptan[p.naptanId];
-      if (!v || v === "000" || idx === undefined) return;
-      const dir = directionOf(p, idx);
-      if (!dir) return;
+      const g = byNaptan[p.naptanId];
+      if (!v || v === "000" || g === undefined) return;
+      let dg = byNaptan[p.destinationNaptanId], shown;
+      if (dg !== undefined && LOOP_TO[dg] !== undefined) { shown = dg; dg = LOOP_TO[dg]; }
       (groups.get(v) || groups.set(v, []).get(v)).push({
-        idx, dir, tts: p.timeToStation, loc: p.currentLocation || "", dest: byNaptan[p.destinationNaptanId], pdir: platformWord(p.platformName)
+        g, tts: p.timeToStation, loc: p.currentLocation || "", dest: dg, shown,
+        plat: p.platformName || "", pdir: platformWord(p.platformName), towards: p.towards || ""
       });
     });
 
     const seen = new Set();
-    const isTerm = k => k === 0 || k === LAST;
-    const termAhead = t => t.dir === "S" ? LAST : 0;          // terminus a train is heading for
-    const termBehind = dir => dir === "S" ? 0 : LAST;          // terminus a train in `dir` has just left
-    const opp = d => d === "S" ? "N" : "S";
+    const termAhead = t => t.dir === "S" ? t.r.LAST : 0;       // end of the route a train is heading for
+    const termBehind = (R, dir) => dir === "S" ? 0 : R.LAST;    // end of the route a train in `dir` has just left
 
-    groups.forEach((preds, v) => {
-      preds.sort((a, b) => a.tts - b.tts);
-      learnRunTimes(preds);
-      const next = preds[0];
-      const s = sgn(next.dir);
+    groups.forEach((raw, v) => {
+      raw.sort((a, b) => a.tts - b.tts);
+      let t = trains.get(v);
+      if (t) seen.add(v);
+      const waitingG = t && t.waiting !== null && t.waiting !== undefined ? t.waiting : null;
+      const pick = chooseRoute(raw, t, null);
+      if (!pick || !pick.preds.length) return;
+      let R = pick.R, preds = pick.preds;
+      learnRunTimes(R, preds);
+      let next = preds[0];
+      let s = sgn(next.dir);
       seen.add(v);
 
-      // this train's own timetable: remaining stops in order, each with an arrival time
-      const best = new Map();
-      preds.forEach(p => {
-        if (p.dir !== next.dir || s * (p.idx - next.idx) < 0) return;
-        if (!best.has(p.idx) || best.get(p.idx).tts > p.tts) best.set(p.idx, p);
-      });
-      const stops = [...best.values()].sort((a, b) => s * (a.idx - b.idx));
-      let lastAt = 0;
-      stops.forEach(p => { p.at = Math.max(now + p.tts * 1000, lastAt ? lastAt + 15000 : 0); lastAt = p.at; });
-      const feedDest = next.dest !== undefined ? next.dest : (next.dir === "S" ? LAST : 0);
-
-      // Has this train just left a terminus? (first stop ahead is the one after Brixton / Walthamstow Central)
-      const from = termBehind(next.dir);
+      // Has this train just left the end of its route? (first stop ahead is one or two stations out)
+      let from = termBehind(R, next.dir);
       const justLeft = next.idx === from + s || next.idx === from + 2 * s;
 
-      let t = trains.get(v);
       // A new Vehicle ID leaving a terminus takes over a waiting train, but only one that has waited longer
       // than any normal turn-round (otherwise it's a different train and the waiting one keeps its place)
       if (!t && justLeft) {
-        const q = waitingAt(from).filter(w => now - w.waitSince >= RENUMBER_MS);
+        const q = waitingAt(R.st[from]).filter(w => now - w.waitSince >= RENUMBER_MS);
         const front = q[0];
         if (front) { trains.delete(front.v); front.renumberedFrom = front.v; front.v = v; trains.set(v, front); t = front; }
       }
       const isNew = !t;
       if (isNew) {
-        t = { v, opacity: 0, x: null, y: null, ang: 0, node: null, D: null, pendingD: null, arrivedAt: null,
-              waiting: null, queued: false, dest: feedDest, destCand: null, destCandN: 0, alertUntil: 0 };
+        t = { v, r: R, opacity: 0, x: null, y: null, ang: 0, node: null, D: null, pendingD: null, arrivedAt: null,
+              waiting: null, queued: false, dest: undefined, destCand: null, destCandN: 0, alertUntil: 0 };
         trains.set(v, t);
       }
+      let feedDest = next.dest !== undefined ? next.dest : R.st[next.dir === "S" ? R.LAST : 0];
 
       // Waiting at a terminus and the feed now shows it leaving: fill in its label and send it on its way
-      if (t.waiting !== null && next.dir === opp(t.arrDir) && leavingTerminus(next, t.waiting)) {
-        departFrom(t, now);
+      if (t.waiting !== null && t.waiting !== undefined) {
+        const W = chooseRoute(raw, t, t.waiting);               // the route it leaves on must start from this station
+        if (W && W.preds.length) {
+          const wn = W.preds[0], wk = W.R.pos[t.waiting];
+          const wdir = wn.dir;
+          if (wdir === (wk === 0 ? "S" : wk === W.R.LAST ? "N" : opp(t.arrDir)) && leavingTerminus(W.R, wn, wk)) {
+            departFrom(t, now);
+            t.r = W.R; t.D = W.R.cum[wk];
+            R = W.R; preds = W.preds; next = wn; s = sgn(next.dir); from = wk;
+            feedDest = next.dest !== undefined ? next.dest : R.st[next.dir === "S" ? R.LAST : 0];
+          }
+        }
       }
-      if (t.waiting !== null) { t.fetchedAt = now; t.missed = 0; return; }   // still waiting: no data about leaving yet
+      if (t.waiting !== null && t.waiting !== undefined) { t.fetchedAt = now; t.missed = 0; return; }   // still waiting: no data about leaving yet
 
-      // Still running into Brixton / Walthamstow Central on screen, but the feed already shows it heading back out:
+      // Still running into the end of its route on screen, but the feed already shows it heading back out:
       // hurry it in, turn it round quickly and send it on with the new data (only when it is close to the end)
-      if (!isNew && !t.loop && t.pendingD === null && t.D !== null && t.dir !== next.dir && termAhead(t) === from) {
-        const nearEnd = from === LAST ? segOf(t.D) >= LAST - 2 : segOf(t.D) <= 1;
+      if (!isNew && !t.loop && t.pendingD === null && t.D !== null && t.dir !== next.dir && t.r.st[termAhead(t)] === R.st[from]) {
+        const Q = t.r, endK = termAhead(t);
+        const nearEnd = endK === Q.LAST ? Q.segOf(t.D) >= Q.LAST - 2 : Q.segOf(t.D) <= 1;
         if (nearEnd || t.rush) {
-          t.rush = true; t.turnAt = from; t.stops = [{ idx: from, at: now }]; t.midWait = null;
+          t.rush = true; t.turnAt = endK; t.stops = [{ idx: endK, at: now }]; t.midWait = null;
           // only carry the new data through if it shows the train actually on its way out; otherwise it just waits there
-          t.after = leavingTerminus(next, from) ? { next, stops, feedDest, fetchedAt: now } : null;
+          t.after = leavingTerminus(R, next, from) ? { R, next, stops: stopsFrom(preds, next, now), feedDest, fetchedAt: now } : null;
           t.fetchedAt = now; t.missed = 0;
           return;
         }
       }
-      const heldAt = t.midWait;                                       // was holding at a mid-line terminus
+      const heldAtG = t.midWait != null ? t.r.st[t.midWait] : null;   // was holding at a mid-line terminus
       t.rush = false; t.after = null; t.midWait = null;
+
+      // Switching route (e.g. the feed now shows which branch it takes): carry its position across
+      let moved = false;
+      if (!isNew && t.r !== R) {
+        const pd = t.D !== null ? projectD(t, R) : null;
+        const pp = t.pendingD !== null ? projectD(t, R, t.pendingD) : null;
+        t.r = R;
+        if (pd !== null) { t.D = pd; if (t.pendingD !== null) t.pendingD = pp !== null ? pp : null; }
+        else { moved = true; }
+        t.loop = null; t.turnAt = null;
+      }
 
       const flipped = !isNew && t.dir !== next.dir;
       const prevDest = t.dest;
-      Object.assign(t, { dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc, pdir: next.pdir, stops, fetchedAt: now, missed: 0 });
+      Object.assign(t, { dir: next.dir, next: next.idx, tts: next.tts, loc: next.loc, pdir: next.pdir, stops: stopsFrom(preds, next, now), fetchedAt: now, missed: 0 });
       t.turnAt = null;
 
       // Destination: only accept a change once it has held for two updates, then flag it for 30 seconds
-      if (isNew || t.freshDepart) { t.dest = feedDest; t.destCand = null; t.destCandN = 0; t.freshDepart = false; }
+      if (isNew || t.freshDepart || prevDest === undefined) { t.dest = feedDest; t.destCand = null; t.destCandN = 0; t.freshDepart = false; }
       else if (feedDest !== prevDest) {
         if (t.destCand === feedDest) t.destCandN++; else { t.destCand = feedDest; t.destCandN = 1; }
         if (t.destCandN >= 2) { t.dest = feedDest; t.destCand = null; t.destCandN = 0; if (!flipped) t.alertUntil = now + 30000; }
       } else { t.destCand = null; t.destCandN = 0; }
+      t.destShow = t.dest === feedDest ? next.shown : t.destShow;
+      t.towards = next.towards || "";
 
       if (isNew) {
-        if (justLeft) { t.D = cum[from]; t.arrivedAt = now - DWELL_MS; t.needsPlace = false; t.freshDepart = false; } // brand-new: start at the platform
+        if (justLeft) { t.D = R.cum[from]; t.arrivedAt = now - DWELL_MS; t.needsPlace = false; t.freshDepart = false; } // brand-new: start at the platform
         else { t.D = modelD(t, now); t.needsPlace = true; }
+      } else if (moved) {
+        t.pendingD = modelD(t, now); t.noDwell = true;                 // on a branch it couldn't reach: fade across
+        if (t.D === null || projectD(t, R) === null) t.D = t.pendingD;
       } else if (flipped) {
         // turned back where it was holding (e.g. Seven Sisters): swap lanes there; otherwise go where the data puts it
-        t.pendingD = heldAt != null && heldAt === next.idx - s ? cum[heldAt] : modelD(t, now);
+        const hk = heldAtG != null ? R.pos[heldAtG] : undefined;
+        t.pendingD = hk !== undefined && hk === next.idx - s ? R.cum[hk] : modelD(t, now);
         t.noDwell = true;                                               // it has already left in real life
       } else {
         const model = modelD(t, now);
-        if (s * (model - t.D) > Math.max(220, segLen[segOf(t.D)] * 1.2)) t.pendingD = model; // far behind (missed updates)
+        if (s * (model - t.D) > Math.max(220, R.segLen[R.segOf(t.D)] * 1.2)) t.pendingD = model; // far behind (missed updates)
       }
     });
 
     trains.forEach((t, v) => {
       if (seen.has(v)) return;
-      if (t.waiting !== null) return;                                    // waiting trains never time out here
-      // Vanished while heading into Brixton / Walthamstow Central: it is turning round, so keep it
-      if (t.pendingD === null && t.next === termAhead(t)) { t.turnAt = t.next; t.missed = 0; return; }
+      if (t.waiting !== null && t.waiting !== undefined) return;         // waiting trains never time out here
+      const R = t.r, isTerm = k => k === 0 || k === R.LAST;
+      // Vanished while heading into the end of its route: it is turning round, so keep it
+      if (t.pendingD === null && t.next === termAhead(t) && (isTermG(R.st[t.next]) || LOOP_END.has(R.st[t.next]))) { t.turnAt = t.next; t.missed = 0; return; }
       // Vanished while terminating mid-line: hold at that platform for a while in case it reappears
       const lastStop = t.stops && t.stops.length ? t.stops[t.stops.length - 1].idx : t.next;
-      if (t.pendingD === null && !t.rush && !isTerm(lastStop) && lastStop === t.dest) {
+      if (t.pendingD === null && !t.rush && !(isTerm(lastStop) && isTermG(R.st[lastStop])) && R.st[lastStop] === t.dest) {
         if (t.midWait == null) { t.midWait = lastStop; t.midSince = now; }
         if (now - t.midSince < MID_GRACE_MS) { t.missed = 0; return; }
       }
@@ -648,43 +929,60 @@
     // Order check: if the data puts a train ahead of the one in front of it on screen for two updates in a row,
     // swap them (both fade and reappear in each other's place) instead of queueing it forever
     const inOrder = new Set();
-    ["N", "S"].forEach(dir => {
+    const live = [...trains.values()].filter(t => t.fetchedAt === now && t.missed === 0 && t.D !== null &&
+      t.pendingD === null && !t.loop && !t.rush && !t.needsPlace && t.midWait == null && (t.waiting === null || t.waiting === undefined) && !t.retiring);
+    ROUTES.forEach(R => ["N", "S"].forEach(dir => {
       const s = sgn(dir);
-      const line = [...trains.values()].filter(t => t.dir === dir && t.fetchedAt === now && t.missed === 0 && t.D !== null &&
-        t.pendingD === null && !t.loop && !t.rush && !t.needsPlace && t.midWait == null && (t.waiting === null || t.waiting === undefined) && !t.retiring)
-        .sort((a, b) => s * (b.D - a.D));                                   // screen order, front first
+      const line = live.filter(t => projDir(t, R) === dir).map(t => ({ t, d: projectD(t, R), nk: R.pos[t.r.st[t.next]] }))
+        .filter(x => x.d !== null && x.nk !== undefined)
+        .sort((a, b) => s * (b.d - a.d));                                  // screen order, front first
       for (let i = 0; i + 1 < line.length; i++) {
         const front = line[i], back = line[i + 1];
-        const key = front.v + ">" + back.v;
-        const wrong = back.next !== front.next ? s * (back.next - front.next) > 0 : back.tts < front.tts - 10;
+        const key = front.t.v + ">" + back.t.v;
+        if (inOrder.has(key)) continue;
+        const wrong = back.nk !== front.nk ? s * (back.nk - front.nk) > 0 : back.t.tts < front.t.tts - 10;
         if (!wrong) continue;
+        const fOnB = projectD(front.t, back.t.r), bOnF = projectD(back.t, front.t.r);
+        if (fOnB === null || bOnF === null) continue;
         inOrder.add(key);
         orderStrikes.set(key, (orderStrikes.get(key) || 0) + 1);
         if (orderStrikes.get(key) >= 2) {
-          const a = front.D, b = back.D;
-          front.pendingD = b; back.pendingD = a; front.noDwell = back.noDwell = true;
+          front.t.pendingD = bOnF; back.t.pendingD = fOnB; front.t.noDwell = back.t.noDwell = true;
           orderStrikes.delete(key);
-          if (DEBUG) (DEBUG.swaps = DEBUG.swaps || []).push(`${back.v} ahead of ${front.v}`);
+          if (DEBUG) (DEBUG.swaps = DEBUG.swaps || []).push(`${back.t.v} ahead of ${front.t.v}`);
         }
       }
-    });
+    }));
     orderStrikes.forEach((n, key) => { if (!inOrder.has(key)) orderStrikes.delete(key); });
 
     // Late at night: a train left waiting with nothing following it goes out of service
-    trains.forEach(t => { if (t.waiting !== null && now - t.waitSince > WAIT_MAX_MS) retire(t); });
+    trains.forEach(t => { if (t.waiting !== null && t.waiting !== undefined && now - t.waitSince > WAIT_MAX_MS) retire(t); });
+  }
+
+  // This train's own timetable: remaining stops in order, each with an arrival time
+  function stopsFrom(preds, next, now) {
+    const s = sgn(next.dir), best = new Map();
+    preds.forEach(p => {
+      if (p.dir !== next.dir || s * (p.idx - next.idx) < 0) return;
+      if (!best.has(p.idx) || best.get(p.idx).tts > p.tts) best.set(p.idx, p);
+    });
+    const stops = [...best.values()].sort((a, b) => s * (a.idx - b.idx)).map(p => ({ ...p }));
+    let lastAt = 0;
+    stops.forEach(p => { p.at = Math.max(now + p.tts * 1000, lastAt ? lastAt + 15000 : 0); lastAt = p.at; });
+    return stops;
   }
 
   /* ---------- Terminus turn-rounds ---------- */
-  function waitingAt(k) {
-    return [...trains.values()].filter(t => t.waiting === k && !t.retiring).sort((a, b) => a.waitSince - b.waitSince);
+  function waitingAt(g) {
+    return [...trains.values()].filter(t => t.waiting === g && !t.retiring).sort((a, b) => a.waitSince - b.waitSince);
   }
-  // Does this prediction show a train actually on its way out of terminus k? (not just a timetabled departure)
-  function leavingTerminus(next, k) {
-    const adj = k === 0 ? 1 : LAST - 1;
-    if (next.idx === adj) return true;                                    // next stop is Stockwell / Blackhorse Road
+  // Does this prediction show a train actually on its way out of the end of route R (station k)? (not just a timetabled departure)
+  function leavingTerminus(R, next, k) {
+    const adj = k === 0 ? 1 : R.LAST - 1;
+    if (next.idx === adj) return true;                                    // next stop is the first one out
     const loc = (next.loc || "").trim().toLowerCase();
     if (!loc || loc === "0") return false;                                // placeholder: still sitting at the platform
-    const term = S[k].name.toLowerCase().split(" ")[0];
+    const term = S[R.st[k]].name.toLowerCase().split(" ")[0];
     if (loc.startsWith("at " + term) || loc.startsWith(term)) return false; // "At Brixton", "Brixton Area" with a far-off first stop
     return true;                                                          // somewhere real on the line
   }
@@ -694,10 +992,11 @@
   const MID_GRACE_MS = 8 * 60000;   // how long a train that terminated mid-line is kept if it drops out of the feed
   // Arrived at the platform: turn round into the departing lane (or queue on the arrival platform) and wait
   function arriveAtTerminus(t, k, now) {
-    const q = waitingAt(k);
+    const g = t.r.st[k];
+    const q = waitingAt(g);
     if (q.length >= 2) retire(q[0]);                       // only two platforms: the oldest has gone out of service
-    t.waiting = k; t.waitSince = now; t.arrDir = t.dir; t.turnAt = null; t.stops = []; t.loc = "";
-    const others = waitingAt(k).filter(w => w !== t);
+    t.waiting = g; t.waitK = k; t.waitSince = now; t.arrDir = t.dir; t.turnAt = null; t.stops = []; t.loc = "";
+    const others = waitingAt(g).filter(w => w !== t);
     if (others.some(w => !w.queued)) { t.queued = true; return; }   // other platform: stays in the arrival lane for now
     const earlier = others.find(w => w.queued);
     if (earlier) { turnRound(earlier, now); t.queued = true; }       // the train that arrived first leaves first
@@ -706,6 +1005,7 @@
     if (t.rush && t.after) {
       const a = t.after;
       departFrom(t, now, true);
+      if (a.R !== t.r) { t.r = a.R; t.D = a.R.cum[a.R.pos[g]]; }
       Object.assign(t, { dir: a.next.dir, next: a.next.idx, tts: a.next.tts, loc: a.next.loc, stops: a.stops,
         fetchedAt: a.fetchedAt, dest: a.feedDest, freshDepart: false, rush: false, after: null });
     }
@@ -713,15 +1013,16 @@
   // U-turn: carry the train round the far side of the terminus station, from the arrival lane to the departure lane
   function turnRound(t, now) {
     t.queued = false;
-    const k = t.waiting !== null && t.waiting !== undefined ? t.waiting : (t.dir === "S" ? LAST : 0);
-    const V = S[k], W = S[k === 0 ? 1 : LAST - 1];
+    const R = t.r;
+    const k = t.waitK !== undefined && t.waiting !== null && t.waiting !== undefined ? R.pos[t.waiting] : (t.dir === "S" ? R.LAST : 0);
+    const V = S[R.st[k]], W = S[R.st[k === 0 ? 1 : R.LAST - 1]];
     let ux = V.x - W.x, uy = V.y - W.y; const ul = Math.hypot(ux, uy); ux /= ul; uy /= ul;   // pointing beyond the end of the line
-    const pa = poseAt(cum[k], t.dir);                                                     // arrival-lane end
+    const pa = R.poseAt(R.cum[k], t.dir);                                                 // arrival-lane end
     const a0 = Math.atan2(pa.y - V.y, pa.x - V.x), r = Math.hypot(pa.x - V.x, pa.y - V.y);
     const au = Math.atan2(uy, ux);
     let d = ((au - a0 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;                          // quarter turn towards "beyond"
     const sweep = d >= 0 ? 1 : -1;
-    t.loop = { cx: V.x, cy: V.y, r, a0, sweep, p: t.x === null ? 1 : 0, k };
+    t.loop = { cx: V.x, cy: V.y, r, a0, sweep, p: t.x === null ? 1 : 0, g: R.st[k] };
     t.turnFrom = null;
     t.dir = t.dir === "S" ? "N" : "S";
   }
@@ -735,79 +1036,81 @@
   }
   // Is the departure side of this terminus clear of a train that has only just left?
   function departureClear(t, all) {
-    const L0 = toL(cum[t.loop.k], t.dir);
-    return !all.some(o => o !== t && o.dir === t.dir && o.D !== null && !o.loop && (o.waiting === null || o.waiting === undefined) &&
-      !o.retiring && Math.abs(toL(o.D, o.dir) - L0) < GAP_L + 6);
+    const R = t.r, k = R.pos[t.loop.g];
+    if (k === undefined) return true;
+    const L0 = R.toL(R.cum[k], t.dir);
+    return !all.some(o => {
+      if (o === t || o.D === null || o.loop || (o.waiting !== null && o.waiting !== undefined) || o.retiring) return false;
+      const d = projectD(o, R);
+      return d !== null && projDir(o, R) === t.dir && Math.abs(R.toL(d, t.dir) - L0) < GAP_L + 6;
+    });
   }
   function departFrom(t, now, late) {
-    const k = t.waiting;
-    // any train that arrived before this one and is still waiting can't be leaving: it has gone out of service
-    // (skipped when this train was running late on screen, since it may really have arrived first)
+    const g = t.waiting;
     // trains leave in any order (two platforms), so nothing else is retired here
     if (t.queued) turnRound(t, now);
     t.waiting = null; t.queued = false; t.freshDepart = true; t.hurry = true;   // already gone: finish the turn quickly
     t.arrivedAt = now - DWELL_MS;                          // it has already left in real life: no extra dwell
     // promote the other waiting train into the departing lane
-    const rest = waitingAt(k); if (rest[0] && rest[0].queued) turnRound(rest[0], now);
+    const rest = waitingAt(g); if (rest[0] && rest[0].queued) turnRound(rest[0], now);
   }
 
   // Best estimate of where the data puts a train; used to place new trains and correct big drift
   function modelD(t, now) {
-    const s = sgn(t.dir);
+    const R = t.r, s = sgn(t.dir);
     const e = t.tts - (now - t.fetchedAt) / 1000;
     const prev = t.next - s;
     const loc = t.loc.toLowerCase();
     const first = name => name.toLowerCase().split(" ")[0];
-    if (prev < 0 || prev > LAST) return cum[t.next];
-    if (e <= 20 || (loc.startsWith("at ") && loc.includes(first(S[t.next].name)))) return cum[t.next];
-    const run = RUN[Math.min(prev, t.next)];
-    if (e >= run) return cum[prev];
-    return cum[prev] + (cum[t.next] - cum[prev]) * (1 - e / run);
+    if (prev < 0 || prev > R.LAST) return R.cum[t.next];
+    if (e <= 20 || (loc.startsWith("at ") && loc.includes(first(S[R.st[t.next]].name)))) return R.cum[t.next];
+    const run = R.run(Math.min(prev, t.next));
+    if (e >= run) return R.cum[prev];
+    return R.cum[prev] + (R.cum[t.next] - R.cum[prev]) * (1 - e / run);
   }
 
   // Order two trains by where the data puts them: next station further along first, then sooner arrival.
-  // Negative when a is ahead of b. Trains in different directions keep their order.
+  // Negative when a is ahead of b. Trains in different directions (or on different branches) keep their order.
   function dataAhead(a, b) {
     if (a.dir !== b.dir) return 0;
-    const s = sgn(a.dir);
-    if (a.next !== b.next) return s * (b.next - a.next);
+    const s = sgn(a.dir), bn = a.r.pos[b.r.st[b.next]];
+    if (bn === undefined) return 0;
+    if (a.next !== bn) return s * (bn - a.next);
     return a.tts - b.tts;
   }
 
   // Put a train where it doesn't overlap another in its lane (queues it behind)
   function clearSpot(t, D, all) {
-    const s = sgn(t.dir);
-    let Lv = toL(D, t.dir);
-    const others = all.filter(o => o !== t && o.dir === t.dir && o.D !== null && o.missed < 2 && o.pendingD === null && !o.needsPlace)
-      .map(o => toL(o.D, o.dir)).sort((a, b) => s * (b - a)); // front first
+    const R = t.r, s = sgn(t.dir);
+    let Lv = R.toL(D, t.dir);
+    const others = all.filter(o => o !== t && o.D !== null && o.missed < 2 && o.pendingD === null && !o.needsPlace && projDir(o, R) === t.dir)
+      .map(o => projectD(o, R)).filter(d => d !== null).map(d => R.toL(d, t.dir)).sort((a, b) => s * (b - a)); // front first
     for (const Lo of others) if (Math.abs(Lo - Lv) < GAP_L) Lv = Lo - s * GAP_L;
-    Lv = Math.max(0, Math.min(LANES[t.dir].total, Lv));
-    return fromL(Lv, t.dir);
+    Lv = Math.max(0, Math.min(R.LANES[t.dir].total, Lv));
+    return R.fromL(Lv, t.dir);
   }
-
-  function stationAt(D) { for (let k = 0; k <= LAST; k++) if (Math.abs(D - cum[k]) < 0.5) return k; return -1; }
 
   // Advance one train along the track for this frame
   const CATCH = 4;   // top speed, as a multiple of normal, when catching up after a backlog
   function advance(t, now, dt, all) {
-    if (t.waiting !== null || t.retiring || t.loop) { t.moving = false; return; }   // never leave a terminus without data
-    const s = sgn(t.dir);
+    if ((t.waiting !== null && t.waiting !== undefined) || t.retiring || t.loop) { t.moving = false; return; }   // never leave a terminus without data
+    const R = t.r, s = sgn(t.dir);
     const D = t.D;
-    const here = stationAt(D);
+    const here = R.stationAt(D);
     if (t.turnAt !== null && t.turnAt !== undefined && here === t.turnAt) { arriveAtTerminus(t, here, now); t.moving = false; return; }
     if (here >= 0 && t.arrivedAt === null) { t.arrivedAt = (t.noDwell || t.rush) ? now - DWELL_MS : now; t.noDwell = false; }
     if (here < 0) t.arrivedAt = null;
 
-    let target = t.stops.find(st => s * (cum[st.idx] - D) > 0.5);
+    let target = t.stops.find(st => s * (R.cum[st.idx] - D) > 0.5);
     let targetD, arriveAt = null;
-    if (target) { targetD = cum[target.idx]; arriveAt = target.at; }
+    if (target) { targetD = R.cum[target.idx]; arriveAt = target.at; }
     else { t.moving = false; return; }   // no prediction for any station ahead: never head somewhere the data doesn't say
 
     // every train waits 15 seconds at a platform
     if (here >= 0 && now - t.arrivedAt < DWELL_MS) { t.moving = false; return; }
 
     const remaining = Math.abs(targetD - D);
-    const vNom = nominalSpeed(segOf(D + s));
+    const vNom = R.nominalSpeed(R.segOf(D + s));
     const timeLeft = arriveAt === null ? null : (arriveAt - now) / 1000;
     let speed;
     if (timeLeft !== null && timeLeft > 0.5) speed = remaining / timeLeft;
@@ -817,18 +1120,20 @@
     speed = Math.max(0.2 * vNom, Math.min(CATCH * vNom, speed));
     let step = Math.min(remaining, speed * dt);
 
-    // wait behind the train in front rather than overlapping it
-    const Lme = toL(D, t.dir);
+    // wait behind the train in front rather than overlapping it (on shared track, whichever branch it's from)
+    const Lme = R.toL(D, t.dir);
     let room = Infinity;
     all.forEach(o => {
-      if (o === t || o.dir !== t.dir || o.D === null || o.missed >= 2 || o.pendingD !== null) return;
-      if (o.waiting !== null && o.waiting !== undefined && t.turnAt === o.waiting) return; // a full platform means one has left service
-      const ahead = s * (toL(o.D, o.dir) - Lme);
+      if (o === t || o.D === null || o.missed >= 2 || o.pendingD !== null) return;
+      if (o.waiting !== null && o.waiting !== undefined && t.turnAt !== null && t.turnAt !== undefined && R.st[t.turnAt] === o.waiting) return; // a full platform means one has left service
+      const od = projectD(o, R);
+      if (od === null || projDir(o, R) !== t.dir) return;
+      const ahead = s * (R.toL(od, t.dir) - Lme);
       if (o.midWait != null && ahead > 0 && ahead - GAP_L < 30) { retire(o); return; }   // the next train needs that platform: it has gone to the sidings
       if (ahead > 0) room = Math.min(room, ahead - GAP_L);
     });
     if (room < Infinity) {
-      const maxD = fromL(Lme + s * Math.max(0, room), t.dir);
+      const maxD = R.fromL(Lme + s * Math.max(0, room), t.dir);
       step = Math.max(0, Math.min(step, s * (maxD - D)));
     }
 
@@ -840,7 +1145,7 @@
 
   /* ---------- Drawing ---------- */
   let mode = "dest";
-  const labelFor = t => (t.waiting !== null && t.waiting !== undefined) ? "" : (mode === "dest" ? S[t.dest].code : t.v);
+  const labelFor = t => (t.waiting !== null && t.waiting !== undefined) ? "" : (mode === "dest" ? shownDest(t).code : t.v);
 
   function ensureNode(t) {
     if (t.node) return;
@@ -872,7 +1177,7 @@
       t.alert.addEventListener("click", dismiss);
       t.alert.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") dismiss(e); });
     }
-    const txt = `Now to ${S[t.dest].code}`;
+    const txt = `Now to ${shownDest(t).code}`;
     if (t.alertText.textContent !== txt) {
       t.alertText.textContent = txt;
       t.alertW = t.alertText.getComputedTextLength() + 16;
@@ -950,7 +1255,7 @@
       }
       if (t.missed >= 2 && t.opacity < 0.02) { gone.push(t); return; }
 
-      let p = poseAt(t.D, t.dir);
+      let p = t.r.poseAt(t.D, t.dir);
       if (t.loop) {
         const L = t.loop;
         const hold = L.p >= 0.5 && L.p < 1 && !departureClear(t, all);        // wait round the back until the platform is clear
@@ -978,7 +1283,7 @@
       if (t.text.textContent !== label) t.text.textContent = label;
       t.node.setAttribute("aria-label", t.waiting !== null && t.waiting !== undefined
         ? `Train waiting to depart ${S[t.waiting].name}`
-        : `Vehicle ID ${t.v}, ${dirText(t).toLowerCase()} to ${S[t.dest].name}, ${t.loc || "location not reported"}`);
+        : `Vehicle ID ${t.v}, ${dirText(t).toLowerCase()} to ${destFull(t)}, ${t.loc || "location not reported"}`);
       drawAlert(t, now, dt);
     });
     gone.forEach(t => { t.node && t.node.remove(); t.alert && t.alert.remove(); trains.delete(t.v); if (selected === t.node) closePop(); });
@@ -1085,11 +1390,12 @@
   function showTip(t) {
     tipFor = t;
     const eta = Math.max(0, Math.round(t.tts - (performance.now() - t.fetchedAt) / 1000));
-    const nextTxt = eta <= 15 ? `At or arriving at ${S[t.next].name}` : `Next: ${S[t.next].name} in ${eta >= 60 ? Math.round(eta / 60) + " min" : eta + " s"}`;
+    const nx = S[t.r.st[t.next]];
+    const nextTxt = eta <= 15 ? `At or arriving at ${nx.name}` : `Next: ${nx.name} in ${eta >= 60 ? Math.round(eta / 60) + " min" : eta + " s"}`;
     tip.innerHTML = "";
     const l1 = document.createElement("div");
     l1.innerHTML = `<strong>${dirText(t)}</strong> to `;
-    l1.appendChild(document.createTextNode(`${S[t.dest].name} (${S[t.dest].code})`));
+    l1.appendChild(document.createTextNode(`${destFull(t)} (${shownDest(t).code})`));
     const l2 = document.createElement("div"); l2.textContent = nextTxt;
     const l3 = document.createElement("div"); l3.textContent = t.loc ? `TfL: ${t.loc}` : "";
     const l4 = document.createElement("div"); l4.className = "id"; l4.textContent = `Vehicle ID ${t.v}`;
@@ -1102,7 +1408,7 @@
   function hideTip() { tip.hidden = true; tipFor = null; }
   document.addEventListener("scroll", hideTip, { passive: true });
 
-  if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { DEBUG, trains, S, LANES, poseAtL, cum, segLen, TRAIN_SCALE };
+  if (/[?&]debug\b/.test(location.search)) window.__undercurrent = { DEBUG, trains, S, ROUTES, LANES: R0.LANES, poseAtL: R0.poseAtL, cum: R0.cum, segLen: R0.segLen, TRAIN_SCALE };
 
   /* ---------- Departure board (fixed in the right panel) ---------- */
   const pop = document.getElementById("pop");
@@ -1120,8 +1426,33 @@
   function ledRow(cells, cls) {
     const r = document.createElement("div");
     r.className = "led-row" + (cls ? " " + cls : "");
-    cells.forEach(([text, c]) => { const s = document.createElement("span"); if (c) s.className = c; s.textContent = text; r.appendChild(s); });
+    cells.forEach(([text, c]) => {
+      const s = document.createElement("span"); if (c) s.className = c;
+      if (c === "dest") { const m = document.createElement("span"); m.className = "mq"; m.textContent = text; s.appendChild(m); }
+      else s.textContent = text;
+      r.appendChild(s);
+    });
     return r;
+  }
+  // Text too long for its space on the board glides across and back, like a dot-matrix display.
+  // Timed from one shared clock, so the once-a-second board refresh never makes it jump.
+  const reduceMotionBoard = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const MQ_EPOCH = performance.now(), MQ_SPEED = 45, MQ_HOLD = 1.6;
+  function marquee(root) {
+    root.querySelectorAll(".mq").forEach(m => {
+      const box = m.parentElement, over = m.scrollWidth - box.clientWidth;
+      if (over <= 1) { m.style.animation = ""; return; }
+      const move = over / MQ_SPEED, T = 2 * (move + MQ_HOLD);
+      const hold = (MQ_HOLD / T) * 100, out = hold + (move / T) * 100;
+      const name = "mq" + Math.round(over) + "x" + Math.round(T * 10);
+      if (!document.getElementById(name)) {
+        const st = document.createElement("style"); st.id = name;
+        st.textContent = `@keyframes ${name}{0%,${hold.toFixed(2)}%{transform:translateX(0)}${out.toFixed(2)}%,${(out + hold).toFixed(2)}%{transform:translateX(-${Math.ceil(over)}px)}100%{transform:translateX(0)}}`;
+        document.head.appendChild(st);
+      }
+      const delay = -(((performance.now() - MQ_EPOCH) / 1000) % T);
+      m.style.animation = `${name} ${T.toFixed(2)}s linear ${delay.toFixed(2)}s infinite`;
+    });
   }
   function screen(labelText, rows) {
     const wrapEl = document.createElement("div");
@@ -1130,6 +1461,7 @@
     rows.forEach(r => led.appendChild(r));
     wrapEl.appendChild(led);
     popSections.appendChild(wrapEl);
+    if (!reduceMotionBoard) marquee(led);
     return led;
   }
   function addClock(led) {
@@ -1173,13 +1505,24 @@
   showPrompt();
   popTimer = setInterval(showPrompt, 1000);
 
+  // "via" for a departures row: from TfL's own text, else only when every route between here and there agrees
+  function boardVia(k, p) {
+    if (!VIA_IDX.length) return "";
+    const t = viaFromTowards(p.towards);
+    if (t) return ` via ${t}`;
+    if (p.dest === undefined) return "";
+    const opts = new Set(ROUTES.filter(R => R.pos[k] !== undefined && R.pos[p.dest] !== undefined)
+      .map(R => viaOnRoute(R, R.pos[k], R.pos[p.dest] > R.pos[k] ? "S" : "N", p.dest)));
+    return opts.size === 1 && [...opts][0] ? ` via ${[...opts][0]}` : "";
+  }
   // Station departures: next three each way
   function openBoard(k) {
     openPop(S[k].name, stationNodes[k], () => {
       const now = performance.now();
       const preds = (boardData.get(k) || []).map(p => ({ ...p, left: p.tts - (now - p.fetchedAt) / 1000 })).filter(p => p.left > -20);
-      const isTerminus = k === 0 || k === LAST;
-      const dirs = k === 0 ? ["S"] : k === LAST ? ["N"] : ["N", "S"];
+      const isTerminus = isTermG(k);
+      const atStart = ROUTES.some(R => R.pos[k] === 0);
+      const dirs = isTerminus ? [atStart ? "S" : "N"] : ["N", "S"];
       popSections.innerHTML = "";
       ledTitle(S[k].name);
       let last = null;
@@ -1191,7 +1534,7 @@
         const label = (!isTerminus && word ? word : dirLabel(dir)) + (plat && !isTerminus ? ` · ${plat}` : "");
         const cells = rows.length ? rows.map((p, i) => ledRow([
           [String(i + 1)],
-          [isTerminus ? S[dir === "N" ? 0 : LAST].name : (p.dest !== undefined ? S[p.dest].name : p.destName || "Check front of train"), "dest"],
+          [(p.dest !== undefined && p.dest !== k ? S[p.dest].name : p.destName || "Check front of train") + boardVia(k, p), "dest"],
           [whenText(p.left), "when"]
         ])) : [ledRow([[""], [everLoaded ? "No trains listed" : "Loading…", "dest"], ["", "when"]], "led-empty")];
         last = screen(label, cells);
@@ -1218,13 +1561,13 @@
       });
       return;
     }
-    openPop(`${dirText(t)} to ${S[t.dest].name}`, t.node, () => {
+    openPop(`${dirText(t)} to ${destFull(t)}`, t.node, () => {
       const now = performance.now(), s = sgn(t.dir);
       popSections.innerHTML = "";
-      ledTitle(`${dirText(t)} to ${S[t.dest].name} · Vehicle ID ${t.v}`);
-      const stops = (t.stops || []).filter(st => s * (cum[st.idx] - t.D) > -0.5);
+      ledTitle(`${dirText(t)} to ${destFull(t)} · Vehicle ID ${t.v}`);
+      const stops = (t.stops || []).filter(st => s * (t.r.cum[st.idx] - t.D) > -0.5);
       const rows = stops.length
-        ? stops.slice(0, 9).map(st => ledRow([[S[st.idx].name, "dest"], [whenText((st.at - now) / 1000), "when"]], "stop"))
+        ? stops.slice(0, 9).map(st => ledRow([[S[t.r.st[st.idx]].name, "dest"], [whenText((st.at - now) / 1000), "when"]], "stop"))
         : [ledRow([[t.missed >= 2 ? "Out of service" : "No stops predicted", "dest"], ["", "when"]], "stop led-empty")];
       const led = screen("Calling at", rows);
       addClock(led);
