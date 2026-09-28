@@ -271,13 +271,7 @@ window.UNDERCURRENT_LINE = {
    "northern"
   ]
  },
- "river": {
-  "d": "M -200 1010 L 150 1010 L 400 760 L 560 760 L 710 610 L 1300 610",
-  "label": [
-   480,
-   765
-  ]
- },
+ "river": {"x": 0, "y": 0, "scale": 1, "label": [480, 765]},
  "facts": [
   {
    "tag": "History",
