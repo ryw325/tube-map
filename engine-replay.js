@@ -28,7 +28,7 @@
   /* ---------- Stations ---------- */
   const LINE = window.UNDERCURRENT_LINE;
   const S = LINE.stations.map(s => ({ ...s }));
-  const VERSION = "2.7-replay";
+  const VERSION = "3.02-replay";
   const dirLabel = d => LINE.dirs[d].label;
   // "Northbound" / "Eastbound" etc. from the platform name, used where the direction word changes along a line
   const platformWord = name => { const m = /^(\w+bound)\b/i.exec(name || ""); return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : ""; };
@@ -104,6 +104,9 @@
     rail: ["National Rail", null, "rail"]
   };
   const IX = LINE.ix || {};
+  // interchange markers for lines that have their own map become shortcuts to that line (v2.8)
+  const GO_LINES = new Set((window.UNDERCURRENT_LINES || []).map(l => l.id).filter(id => id !== LINE.id));
+  let txBusy = false;                                      // true while the hand-over animation is running
 
   /* ---------- SVG scaffolding ---------- */
   const svg = document.getElementById("map");
@@ -127,7 +130,7 @@
   }
 
   const trackD = ROUTE_LISTS.map(r => "M " + r.map(i => S[i].x + " " + S[i].y).join(" L ")).join(" ");
-  el("path", { class: "track", d: trackD });             // track under the trains
+  const trackPath = el("path", { class: "track", d: trackD });   // track under the trains
   const trainLayer = el("g", {});
   const content = el("g", {});                           // stations and labels, drawn above trains
   el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
@@ -152,7 +155,7 @@
     el("path", { class: "ix-rail-glyph", d: "M-4.5,-2.5 H4.5 M2,-5 L4.5,-2.5 L2,0 M4.5,2.5 H-4.5 M-2,0 L-4.5,2.5 L-2,5" }, g);
     return g;
   }
-  document.querySelectorAll(".legend .rail-icon").forEach(g => railIcon(g, 0, 0));
+  document.querySelectorAll(".legend .rail-icon").forEach(g => { g.replaceChildren(); railIcon(g, 0, 0); });
 
   // Interchange markers. Hover or focus expands them to show the line's name.
   const LIGHT = new Set(["#FFD300", "#F3A9BB", "#95CDBA"]); // pale tube colours get dark text for legibility
@@ -171,7 +174,14 @@
 
   // Markers in one row make room for each other: an expanded marker pushes its neighbours aside.
   // Each marker also gets an invisible hit area reaching halfway to its neighbours, so there are no dead gaps.
-  function layoutRow(row) {
+  // The icon under the pointer stays under it: if the row reflows (a long name collapsing beside it), the whole row
+  // shifts just enough to keep the pointer on that icon, and no more. When the pointer leaves, the row eases back.
+  let ixPtr = null;                                        // pointer position across the map, in map units
+  let pinRow = null;                                       // the row whose hovered icon is pinned under the pointer
+  const trackPtr = e => { ixPtr = toMap(e.clientX, e.clientY).x; if (pinRow && pinRow.pin) layoutRow(pinRow, true); };
+  svg.addEventListener("pointermove", trackPtr); svg.addEventListener("pointerdown", trackPtr);
+  const ROW_LIMIT = 120;                                   // map units a row may sit from home before it eases back
+  function layoutRow(row, byPointer) {
     const pos = row.items.map((it, i) => {
       let shift = 0;
       row.items.forEach((o, j) => {
@@ -180,18 +190,38 @@
         else if (o.grow === "left" && i < j) shift -= o.extra;
         else if (o.grow === "centre") shift += i < j ? -o.extra / 2 : o.extra / 2;
       });
-      const gx = it.x + shift;
-      it.g.setAttribute("transform", `translate(${gx.toFixed(2)} ${it.y})`);
-      return gx;
+      return it.x + shift;
     });
+    // each icon's hover area reaches halfway to its neighbours, so there are no dead gaps
+    const spans = row.items.map((it, i) => {
+      const L0 = pos[i] + it.ext.x1, R0 = pos[i] + it.ext.x2, prev = row.items[i - 1], next = row.items[i + 1];
+      return [prev ? (pos[i - 1] + prev.ext.x2 + L0) / 2 : L0 - 5, next ? (R0 + pos[i + 1] + next.ext.x1) / 2 : R0 + 5];
+    });
+    // Home is offset 0. While the pointer is on a middle icon the row stays put, moving only if that icon would
+    // otherwise slip out from under the pointer. On the two outer icons it eases back towards home (never further than
+    // keeps the pointer on the icon). Safety limit: if it has wandered more than ROW_LIMIT from home, it eases back
+    // from any icon, so drift can't build up however long you glide.
+    let off = row.off || 0;
+    const pi = row.pin && ixPtr !== null ? row.items.indexOf(row.pin.item) : -1;
+    if (pi >= 0) {
+      const [L, R] = spans[pi], m = Math.min(4, (R - L) / 2);
+      const lo = ixPtr - R + m, hi = ixPtr - L - m;          // offsets that keep the pointer on this icon
+      const outer = pi === 0 || pi === row.items.length - 1;
+      if (byPointer) {
+        // The pointer moved: never chase it (that would drag the row along and stop you reaching the next icon).
+        // Only ease towards home, and only while the pointer is still on this icon.
+        if (off >= lo && off <= hi && (outer || Math.abs(off) > ROW_LIMIT)) off = Math.max(lo, Math.min(hi, off * 0.8));
+      } else {
+        // The icons changed size (a name opening or closing): shift just enough to keep the pointer on this icon.
+        off = Math.max(lo, Math.min(hi, off));
+      }
+      row.off = off;
+    }
     const y1 = Math.min(...row.items.map(it => it.ext.y1)) - 5, y2 = Math.max(...row.items.map(it => it.ext.y2)) + 5;
     row.items.forEach((it, i) => {
-      const gx = pos[i];
-      const L0 = gx + it.ext.x1, R0 = gx + it.ext.x2;
-      const prev = row.items[i - 1], next = row.items[i + 1];
-      const L = prev ? (pos[i - 1] + prev.ext.x2 + L0) / 2 : L0 - 5;
-      const R = next ? (R0 + pos[i + 1] + next.ext.x1) / 2 : R0 + 5;
-      it.hit.setAttribute("x", (L - gx).toFixed(2)); it.hit.setAttribute("width", Math.max(0, R - L).toFixed(2));
+      const gx = pos[i] + off, [L, R] = spans[i];
+      it.g.setAttribute("transform", `translate(${gx.toFixed(2)} ${it.y})`);
+      it.hit.setAttribute("x", (L - pos[i]).toFixed(2)); it.hit.setAttribute("width", Math.max(0, R - L).toFixed(2));
       it.hit.setAttribute("y", y1.toFixed(2)); it.hit.setAttribute("height", (y2 - y1).toFixed(2));
     });
   }
@@ -203,27 +233,42 @@
     const go = () => {
       if (row.hot === hot) return;
       row.hot = hot;
+      if (!hot) {                                          // however the row was left, it always eases back to its home beside the station name
+        row.pin = null; if (pinRow === row) pinRow = null;
+        if (row.off) tween(row.off, 0, 220, v => { if (!row.pin) { row.off = v; layoutRow(row); } });
+      }
       tween(row.k, hot ? 1 : 0, 180, v => { row.k = v; row.items.forEach(it => it.render()); layoutRow(row); });
     };
     if (hot) go(); else row.cool = setTimeout(go, 160); // brief grace while moving between neighbours
   }
 
-  function marker(parent, key, cx, cy, align, vert, row) {
+  function marker(parent, key, cx, cy, align, vert, row, si) {
     const [name, col, kind] = L[key];
     const grow = align === "end" ? "left" : align === "start" ? "right" : "centre";
     if (row.k === undefined) { row.k = 0; row.hot = false; }
     const g = el("g", { class: "ix", tabindex: "0", role: "img", "aria-label": kind === "rail" ? "National Rail" : `${name} line`, transform: `translate(${cx} ${cy})` }, parent);
     const hit = el("rect", { class: "ix-hit" }, g);
+    if (si !== undefined) g.setAttribute("data-st", S[si].id);
+    if (GO_LINES.has(key) && si !== undefined) {           // tap to switch to that line from this station
+      g.classList.add("ix-go"); g.setAttribute("role", "button"); g.setAttribute("aria-label", `${name} line: switch to this line`);
+      let tapOpen = null;                                  // touch: was this icon already open when the finger went down?
+      g.addEventListener("pointerdown", e => { tapOpen = e.pointerType === "mouse" ? null : openIx === item; });
+      g.addEventListener("click", e => { e.stopPropagation(); if (tapOpen === false) return; switchLine(key, si); });
+      g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchLine(key, si); } });
+    }
     const item = { g, hit, x: cx, y: cy, extra: 0, k: 0, grow: kind === "rail" && grow === "centre" ? "right" : grow, ext: { x1: -7.5, x2: 7.5, y1: -7.5, y2: 7.5 } };
     row.items.push(item);
     const onHover = on => {
       if (on) {
         if (openIx && openIx !== item) openIx.set(false);
         openIx = item;
+        row.pin = ixPtr !== null ? { item } : null;         // keyboard focus doesn't pin
+        pinRow = row.pin ? row : pinRow;
         parent.appendChild(g);
         setRowHot(row, true);
       } else {
         if (openIx === item) openIx = null;
+        if (row.pin && row.pin.item === item) row.pin = null;
         if (!row.items.some(it => it === openIx)) setRowHot(row, false);
       }
       tween(item.k, on ? 1 : 0, 180, v => { item.k = v; item.render(); layoutRow(row); });
@@ -237,7 +282,7 @@
         const sc = 1 + (PILL_H / 15 - 1) * 0.85 * row.k;     // icon grows with the row
         const w = 15 * sc, grown = w - 15;
         const dx = left ? -grown / 2 : grown / 2;
-        const dy = vert === "up" ? -grown / 2 : vert === "down" ? grown / 2 : 0;
+        const dy = (vert === "up" ? -7 : vert === "down" ? 7 : 0) * row.k;   // same centre line as the round icons, which grow 7 units towards the label side
         inner.setAttribute("transform", `translate(${dx.toFixed(2)} ${dy.toFixed(2)}) scale(${sc.toFixed(3)})`);
         const edge = left ? 7.5 - w : -7.5 + w;
         const tw = label.getComputedTextLength();
@@ -265,9 +310,9 @@
       const k = item.k;
       const dr = d0 + ((ring ? PILL_H - 3 : PILL_H) - d0) * row.k;  // dot grows to pill height while the row is active
       const full = text.getComputedTextLength() + 24;
-      const w = dr + (Math.max(full, dr) - dr) * k, h = dr + (PILL_H - dr) * k;
+      const w = Math.max(0, dr + (Math.max(full, dr) - dr) * k), h = Math.max(0, dr + (PILL_H - dr) * k);   // never negative, even if a tween overshoots
       const x = item.grow === "right" ? -d0 / 2 : item.grow === "left" ? d0 / 2 - w : -w / 2;
-      const y = vert === "up" ? d0 / 2 - h : vert === "down" ? -d0 / 2 : -h / 2;
+      const y = (vert === "up" ? -7 : vert === "down" ? 7 : 0) * row.k - h / 2;   // every icon in the row shares one centre line
       shape.setAttribute("x", x.toFixed(2)); shape.setAttribute("width", w.toFixed(2));
       shape.setAttribute("y", y.toFixed(2)); shape.setAttribute("height", h.toFixed(2));
       shape.setAttribute("rx", (h / 2).toFixed(2));
@@ -282,13 +327,15 @@
     return g;
   }
   function hoverable(g, fn) {
-    let on = false;
+    let on = false, touch = false;
     const set = v => { if (v !== on) { on = v; fn(v); } };
+    const kind = e => { touch = e.pointerType !== "mouse"; };
+    g.addEventListener("pointerenter", kind); g.addEventListener("pointerdown", kind);
     g.addEventListener("mouseenter", () => set(true));
-    g.addEventListener("mouseleave", () => set(false));
+    g.addEventListener("mouseleave", () => { if (!touch) set(false); });   // on touch, tapping elsewhere (blur) closes it
     g.addEventListener("focus", () => set(true));
     g.addEventListener("blur", () => set(false));
-    g.addEventListener("click", () => set(!on));
+    g.addEventListener("click", () => set(touch ? true : !on));   // a tap opens it; tapping elsewhere closes it
     return set;
   }
 
@@ -401,7 +448,7 @@
       });
       const row = { items: [] };
       openIx = null;
-      best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row));
+      best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row, S.indexOf(s)));
       if (row.items.length) layoutRow(row);
     });
     fitView();
@@ -441,6 +488,7 @@
     const x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m), y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
     const pad = 56; // same clearance on every side
     view.base = { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
+    if (txBusy) return;                                    // the hand-over animation owns the view
     if (view.user) applyView(); else resetView();
   }
   // screen shape of the map area (on phones the map takes the line's own shape and the page scrolls)
@@ -530,12 +578,13 @@
     document.getElementById("zoom-fit").addEventListener("click", resetView);
     document.addEventListener("keydown", e => {
       if (e.target.closest && e.target.closest("input, select, textarea")) return;
+      if (txBusy) return;
       if (e.key === "+" || e.key === "=") zoomCentre(1 / 1.4);
       else if (e.key === "-" || e.key === "_") zoomCentre(1.4);
       else if (e.key === "0") resetView();
     });
   })();
-  if (window.ResizeObserver) new ResizeObserver(() => { if (view.base) (view.user ? applyView : resetView)(); }).observe(svg);
+  if (window.ResizeObserver) new ResizeObserver(() => { if (view.base && !txBusy) (view.user ? applyView : resetView)(); }).observe(svg);
 
   layout();
   if (document.fonts) {
@@ -1892,6 +1941,138 @@
     } catch (e) {}
   }
   setInterval(checkForUpdate, 5 * 60 * 1000);
+
+  /* ---------- Line switch hand-over (v2.8) ----------
+     Out: tap a line's interchange marker, zoom right in on the station, fade everything else and pull the track
+     back into the station, then load the new line with ?from=<station>.
+     In: the new line opens zoomed in on the same station at the same scale, grows its track out from behind the
+     station, fades the rest in and eases out to the whole line. Reduced motion skips straight to the new line. */
+  const TX_SCALE = 0.3;                                    // map units per screen pixel when zoomed in on the station
+  const txNow = () => (window.__sim && __sim.realNow ? __sim.realNow() : performance.now());
+  const easeIO = k => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+  const clamp01 = v => Math.max(0, Math.min(1, v));
+  const txFaders = si => [riverG, trainLayer, labelLayer, alertLayer, emptyMsg, ...stationNodes.filter((n, i) => i !== si),
+    ...document.querySelectorAll(".line-title, .status, .status-reason, .updated, .stats, #pop-sections, #pop-note, #facts")];
+  const setOpacity = (nodes, o) => nodes.forEach(n => { n.style.opacity = o === "" ? "" : o.toFixed(3); });
+  function txTimeline(ms, fn) {
+    return new Promise(done => {
+      const t0 = txNow();
+      const step = () => { const t = Math.min(ms, txNow() - t0); fn(t); if (t < ms) requestAnimationFrame(step); else done(); };
+      requestAnimationFrame(step);
+    });
+  }
+  // Where the station sits on screen: the middle of the map's visible part with the page scrolled to the top
+  // (on phones the map can be taller than the screen). Passed to the new line so the station doesn't jump.
+  function stationSpot() {
+    const r = svg.getBoundingClientRect(), top = r.top + window.scrollY;
+    return { px: r.width / 2, py: Math.max(20, Math.min(r.height, window.innerHeight - top)) / 2 };
+  }
+  // The view zoomed in on a station, at the same scale on every line so the station looks identical across the hand-over
+  function stationView(si, spot) {
+    const r = svg.getBoundingClientRect(), w = Math.max(r.width, 10) * TX_SCALE, h = Math.max(r.height, 10) * TX_SCALE;
+    const v = { x: S[si].x - spot.px * TX_SCALE, y: S[si].y - spot.py * TX_SCALE, w, h };
+    v.reach = Math.hypot(Math.max(spot.px, r.width - spot.px), Math.max(spot.py, r.height - spot.py)) * TX_SCALE + 20;  // track beyond this is off screen
+    return v;
+  }
+  function fitTarget() { const f = fitSize(), b = view.base; return { x: b.x + b.w / 2 - f.w / 2, y: b.y + b.h / 2 - f.h / 2, w: f.w, h: f.h }; }
+  function lerpView(a, b, e) {                             // zoom geometrically, pan in a straight line
+    const w = a.w * Math.pow(b.w / a.w, e), h = a.h * Math.pow(b.h / a.h, e);
+    const cx = a.x + a.w / 2 + (b.x + b.w / 2 - a.x - a.w / 2) * e, cy = a.y + a.h / 2 + (b.y + b.h / 2 - a.y - a.h / 2) * e;
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
+  }
+  function setView(v) {
+    Object.assign(view, v); view.user = true;
+    svg.setAttribute("viewBox", `${v.x.toFixed(1)} ${v.y.toFixed(1)} ${v.w.toFixed(1)} ${v.h.toFixed(1)}`);
+  }
+  // A copy of the track that can be drawn only up to a set distance (along the track) from one station.
+  // Each piece is drawn from both ends, so loops and rejoining branches retract and grow correctly.
+  function trackReach(si) {
+    const dist = S.map(() => Infinity), adj = S.map(() => []); dist[si] = 0;
+    TRACK_SEGS.forEach(([a, b]) => { const l = Math.hypot(S[a].x - S[b].x, S[a].y - S[b].y); adj[a].push([b, l]); adj[b].push([a, l]); });
+    const todo = new Set(S.keys());
+    while (todo.size) {
+      let u = -1; todo.forEach(i => { if (u < 0 || dist[i] < dist[u]) u = i; });
+      todo.delete(u); if (dist[u] === Infinity) break;
+      adj[u].forEach(([v, l]) => { if (dist[u] + l < dist[v]) dist[v] = dist[u] + l; });
+    }
+    const g = el("g", { "aria-hidden": "true" }); svg.insertBefore(g, trackPath.nextSibling);
+    const parts = [];
+    TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => {
+      if (dist[p] === Infinity) return;
+      const len = Math.hypot(S[p].x - S[q].x, S[p].y - S[q].y);
+      const path = el("path", { class: "track", d: `M ${S[p].x} ${S[p].y} L ${S[q].x} ${S[q].y}`, "stroke-dasharray": `${len.toFixed(1)} ${(len + 60).toFixed(1)}` }, g);
+      parts.push({ path, d0: dist[p], len });
+    }));
+    trackPath.style.opacity = 0;
+    return {
+      set(R) {
+        parts.forEach(p => {
+          const v = Math.max(0, Math.min(p.len, R - p.d0));
+          p.path.setAttribute("stroke-dashoffset", (p.len - v).toFixed(1));
+          p.path.style.visibility = v < 0.5 ? "hidden" : "";
+        });
+      },
+      done() { g.remove(); trackPath.style.opacity = ""; }
+    };
+  }
+  function switchLine(id, si) {
+    if (txBusy) return;
+    const q = new URLSearchParams(location.search); q.set("line", id); q.delete("from");
+    try { localStorage.setItem("line", id); } catch (e) {}
+    if (reduceMotionPref) { location.search = q.toString(); return; }
+    const spot = stationSpot();
+    txBusy = true; q.set("from", `${S[si].naptan}~${Math.round(spot.px)}~${Math.round(spot.py)}`);
+    hideTip(); if (openIx) openIx.set(false);
+    document.documentElement.classList.add("tx-busy");    // no taps, drags or hovers mid-animation
+    if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: "smooth" });
+    const from = { x: view.x, y: view.y, w: view.w, h: view.h }, to = stationView(si, spot);
+    const fade = txFaders(si), Rv = to.reach;
+    let reach = null, slideAt = null;
+    const edge = Math.min(spot.px, svg.getBoundingClientRect().width - spot.px) * TX_SCALE;   // the track must retract inside this before the side panels leave, or it shows cut off at the map's edge
+    const slideOut = t => { slideAt = t; document.documentElement.classList.add("tx-go", "tx-away"); };
+    // 0-0.7s zoom in on the station; 0.4-0.85s fade the rest; 0.85-1.7s track retreats into the station;
+    // the side panels slide off once the track has pulled clear of the map's edges
+    txTimeline(1700, t => {
+      setView(lerpView(from, to, easeIO(clamp01(t / 700))));
+      setOpacity(fade, 1 - clamp01((t - 400) / 450));
+      if (t >= 850) {
+        if (!reach) reach = trackReach(si);
+        const R = Rv * (1 - easeIO(clamp01((t - 850) / 850)));
+        reach.set(R);
+        if (slideAt === null && R <= edge * 0.85) slideOut(t);
+      }
+    }).then(() => {
+      if (slideAt === null) slideOut(1700);
+      setTimeout(() => { location.search = q.toString(); }, Math.max(0, slideAt + 450 - 1700));   // wait for the panels to be fully off screen
+    });
+  }
+  (function arrive() {
+    const root = document.documentElement;
+    const q = new URLSearchParams(location.search), from = q.get("from");
+    if (!from) return;
+    q.delete("from");
+    try { history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); } catch (e) {}
+    const [naptan, px, py] = from.split("~"), si = byNaptan[naptan];
+    if (si === undefined || reduceMotionPref || !view.base) { root.classList.remove("tx-in", "tx-away"); return; }
+    txBusy = true; root.classList.add("tx-busy");
+    const fade = txFaders(si);
+    setOpacity(fade, 0); root.classList.remove("tx-in");
+    const r = svg.getBoundingClientRect(), own = stationSpot();
+    const spot = isFinite(+px) && isFinite(+py) && px !== undefined ? { px: Math.max(0, Math.min(r.width, +px)), py: Math.max(0, Math.min(r.height, +py)) } : own;
+    const start = stationView(si, spot), Rv = start.reach;
+    setView(start);
+    const reach = trackReach(si); reach.set(0);
+    let grown = false, slidIn = false;
+    // 0-0.3s the page settles with the side panels still away; 0.3-1.1s the panels slide back in; 0.75-1.65s track grows out of the station
+    // (it only reaches the map's edges once the panels are back); 1.65-2.15s the rest fades in; 2.05-2.75s ease out to the whole line
+    txTimeline(2750, t => {
+      if (!slidIn && t >= 300) { slidIn = true; root.classList.add("tx-back"); void document.body.offsetWidth; root.classList.remove("tx-away"); }
+      if (t < 1650) reach.set(Rv * easeIO(clamp01((t - 750) / 900)));
+      else if (!grown) { grown = true; reach.done(); }
+      setOpacity(fade, clamp01((t - 1650) / 500));
+      if (t >= 2050) setView(lerpView(start, fitTarget(), easeIO(clamp01((t - 2050) / 700))));
+    }).then(() => { setOpacity(fade, ""); resetView(); txBusy = false; root.classList.remove("tx-busy", "tx-back", "tx-away"); });
+  })();
 
   /* ---------- Start ---------- */
   requestAnimationFrame(frame);

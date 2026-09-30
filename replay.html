@@ -4,10 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tube Live</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700;900&display=swap">
+<script>if (/[?&]from=/.test(location.search)) { document.documentElement.classList.add("tx-in", "tx-away"); setTimeout(function () { var c = document.documentElement.classList; if (c.contains("tx-in")) c.remove("tx-in", "tx-away"); }, 5000); }  /* arriving from another line: keep the panels hidden (slid off screen) from the very first paint */</script>
+<link rel="expect" href="#engine-ready" blocking="render">  <!-- do not paint the page until the map engine has run (Chrome): no blank frame between two pages -->
 <link rel="stylesheet" href="style.css">
 <style>
   /* Replay bar (test version only) */
@@ -42,7 +40,7 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype</p>
+        <p class="eyebrow">Replay test · v3.02-replay</p>
       </div>
       <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span><svg class="line-caret" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5.5 L7 9.5 L11 5.5"/></svg><select id="line-pick" class="line-pick" aria-label="Change line"></select></h1>
     </div>
@@ -66,7 +64,7 @@
       <ul class="legend">
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <path class="train-body legend-train" transform="scale(0.62)"/>
+            <path class="train-body legend-train" transform="scale(0.62)" d="M-12,-7 H10 L17,0 L10,7 H-12 A6 6 0 0 1 -18,1 V-1 A6 6 0 0 1 -12,-7 Z"/>
           </svg>
           <span>Train</span>
         </li>
@@ -93,7 +91,7 @@
         </li>
         <li>
           <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <g class="rail-icon"></g>
+            <g class="rail-icon"><g><rect class="ix-rail" x="-7.5" y="-7.5" width="15" height="15" rx="3"/><path class="ix-rail-glyph" d="M-4.5,-2.5 H4.5 M2,-5 L4.5,-2.5 L2,0 M4.5,2.5 H-4.5 M-2,0 L-4.5,2.5 L-2,5"/></g></g>
           </svg>
           <span>National Rail</span>
         </li>
@@ -135,6 +133,24 @@
       <div class="big-date" id="big-date">&nbsp;</div>
     </div>
   </aside>
+  <script>
+    /* Restore which side sections are open right here, before the first paint, so switching lines never flashes them open and shut */
+    try {
+      var v = localStorage.getItem("open-sec");
+      if (v !== null) document.querySelectorAll("details.sec").forEach(function (d) { d.open = d.id === v; });
+      var st = JSON.parse(localStorage.getItem("panels") || "{}"), w = document.querySelector(".wrap");
+      if (st.left === false) w.classList.add("left-closed");
+      if (st.right === false) w.classList.add("right-closed");
+    } catch (e) {}
+
+    /* Fill the clock and date now, so the panel never shows "--:--" before the engine runs */
+    try {
+      var n = new Date(), tp = {};
+      new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(n).forEach(function (x) { tp[x.type] = x.value; });
+      document.getElementById("big-time").innerHTML = tp.hour + ":" + tp.minute + '<span class="secs">' + tp.second + "</span>";
+      document.getElementById("big-date").textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(n);
+    } catch (e) {}
+  </script>
 
   <main class="map-wrap" id="map-wrap">
     <svg class="map" id="map" viewBox="0 0 1300 1400" role="img" aria-label="Live schematic map"></svg>
@@ -168,7 +184,7 @@
 </div>
 <div class="dimmer" id="dimmer" aria-hidden="true"></div>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "2.7-replay"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.02-replay"; -->
 <script>
 /* Simulation clock for replay. Everything that animates trains reads performance.now(),
    so in replay we swap it for a clock that can run faster, pause or jump. */
@@ -202,5 +218,6 @@
     document.write('<script src="lines/river.js' + bust + '"><\/script><script src="lines/' + id + '.js' + bust + '"><\/script><script src="engine-replay.js' + bust + '"><\/script>');
   })();
 </script>
+<div id="engine-ready" hidden></div>
 </body>
 </html>
