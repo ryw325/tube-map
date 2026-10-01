@@ -2,6 +2,7 @@
 window.UNDERCURRENT_LINES = [
   { id: "bakerloo", name: "Bakerloo" },
   { id: "central", name: "Central" },
+  { id: "district", name: "District" },
   { id: "hammersmith", name: "Hammersmith & City" },
   { id: "jubilee", name: "Jubilee" },
   { id: "northern", name: "Northern" },

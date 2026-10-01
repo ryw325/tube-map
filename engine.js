@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.06: District line (60 stations, seven routes over five branches).
    v3.05: Hammersmith & City line (29 stations, shares track with the Circle and District).
    v3.04: Waterloo & City line (first two-station line). Per-line "emptyAt" places the no-service message; long line names wrap in the side panel.
    v3.03: adds the menu (landing page and a line page drawn as a cross-section of London), replacing the line dropdown.
@@ -30,7 +31,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.05";
+  const VERSION = "3.06";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
