@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.11: Metropolitan line (34 stations, four branches).
    v3.10: District: Gloucester Road moved twice as far from Earl's Court.
    v3.09: Line page redrawn as a 7 x 4 tile board: every category and line is a tile, each category is a block with a train circling it; line tiles are grey until hovered. Layout comes from UNDERCURRENT_GRID in lines/index.js.
    v3.08: District map redrawn to save width (folded trunk, longer Earl's Court spurs).
@@ -35,7 +36,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.10";
+  const VERSION = "3.11";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
