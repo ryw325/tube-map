@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.10: District: Gloucester Road moved twice as far from Earl's Court.
+   v3.09: Line page redrawn as a 7 x 4 tile board: every category and line is a tile, each category is a block with a train circling it; line tiles are grey until hovered. Layout comes from UNDERCURRENT_GRID in lines/index.js.
    v3.08: District map redrawn to save width (folded trunk, longer Earl's Court spurs).
    v3.07: District line card switched on in the menu.
    v3.06: District line (60 stations, seven routes over five branches).
@@ -33,7 +35,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.08";
+  const VERSION = "3.10";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -251,32 +253,128 @@
     const mx = pts[pts.length - 1][0] || 1;
     return pts.map(([a, b]) => `${(a * 92 / mx + 10).toFixed(1)},${b.toFixed(1)}`).join(" ");
   }
-  const DARK_BANDS = new Set(["sub", "deep"]);
   const clockHTML = '<div class="menu-clock" aria-hidden="true"></div>';
   const backIcon = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 L8 12 L15 19"/></svg>';
+  const LOGO = '<svg viewBox="0 0 120 80" aria-hidden="true"><circle cx="60" cy="40" r="34" fill="#15110E" stroke="#CDBFA9" stroke-width="5" stroke-dasharray="9 4"/><rect x="30" y="26" width="60" height="30" rx="15" fill="#E32017"/><rect x="30" y="40" width="60" height="4" fill="#F4B3AE"/>' + win(38, 31, 4, 9, 7, 5) + '<circle cx="46" cy="62" r="3" fill="#CDBFA9"/><circle cx="74" cy="62" r="3" fill="#CDBFA9"/></svg>';
+  const CAT_COL = { light: "#00AFAD", over: "#EF7B10", hybrid: "#6950A1", sub: "#00782A", deep: "#E32017" };
+  // The Line page: a 7 x 4 board. Every category and every line is one equal tile; each category is a block of tiles with a train circling it.
+  // The layout (surface at the top, deep level at the bottom) comes from UNDERCURRENT_GRID in lines/index.js: 28 slots read left to right, top to bottom.
+  let gridTiles = [];   // [{ id, cat }] in slot order, used to draw the tracks
+  function buildGrid() {
+    const menu = window.UNDERCURRENT_MENU || [], by = {};
+    menu.forEach(c => { by["c-" + c.id] = { type: "cat", cat: c.id, c }; c.lines.forEach(l => { by[l.id] = { type: "line", cat: c.id, l }; }); });
+    by.menu = { type: "menu" }; by.logo = { type: "logo" };
+    const grid = (window.UNDERCURRENT_GRID || []).slice(0, 28);
+    gridTiles = grid.map(id => ({ id, cat: by[id] && by[id].cat }));
+    return grid.map((id, i) => {
+      const t = by[id]; if (!t) return "";
+      const xy = `left:${(i % 7) * 100 / 7}%;top:${Math.floor(i / 7) * 25}%;`;
+      if (t.type === "menu") return `<button type="button" class="gt gmenu" data-go="land" style="${xy}" aria-label="Back to the menu"><span class="face">${backIcon}<span class="nm">Menu</span></span></button>`;
+      if (t.type === "logo") return `<div class="gt glogo" style="${xy}" aria-hidden="true"><span class="face">${LOGO}<span class="wm">Undercurrent</span></span></div>`;
+      if (t.type === "cat") return `<div class="gt gcat" style="--cc:${CAT_COL[t.cat] || "#888"};${xy}"><span class="face"><svg viewBox="0 0 200 64" aria-hidden="true">${BAND_ICON[t.cat] || ""}</svg><span class="nm">${esc(t.c.name)}</span><span class="sub">${esc(t.c.sub)}</span></span></div>`;
+      const l = t.l;
+      if (!l.built || !knownLine(l.id)) return `<div class="gt gline off" style="${xy}"><span class="face"><svg viewBox="0 0 112 58" aria-hidden="true"><polyline points="${placeholder(l.name)}" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.1 7" opacity="0.7"/></svg><span class="nm">${esc(l.name)}</span></span></div>`;
+      const ends = l.ends.map(([x, y]) => `<circle class="e" cx="${x}" cy="${y}" r="3.2" stroke-width="2"/>`).join("");
+      return `<button type="button" class="gt gline live" data-line="${l.id}" style="--lc:${l.colour};${xy}"><span class="face"><svg viewBox="0 0 112 58" aria-hidden="true"><path class="s" d="${l.d}" fill="none" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>${ends}</svg><span class="nm">${esc(l.name)}</span></span></button>`;
+    }).join("");
+  }
   function buildMenu() {
     const tiles = TILES.map(t => t.live
       ? `<button type="button" class="tile" data-go="lines"><div class="tile-top"><svg width="72" height="72" ${SVGNS}>${t.icon}</svg><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 H19 M13 6 L19 12 L13 18"/></svg></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`
       : `<button type="button" class="tile" disabled aria-label="${t.name}, coming soon"><div class="tile-top"><svg width="72" height="72" ${SVGNS} style="opacity:.75">${t.icon}</svg><span class="soon">Coming soon</span></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`).join("");
-    const bands = (window.UNDERCURRENT_MENU || []).map(b => {
-      const cards = b.lines.map(l => {
-        if (!l.built || !knownLine(l.id)) return `<button type="button" class="lcard off" disabled aria-label="${esc(l.name)}, not built yet"><svg viewBox="0 0 112 58" aria-hidden="true"><polyline points="${placeholder(l.name)}" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.1 7" opacity="0.7"/></svg><span class="n">${esc(l.name)}</span></button>`;
-        const ends = l.ends.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.2" fill="var(--bg)" stroke="${l.colour}" stroke-width="2"/>`).join("");
-        return `<button type="button" class="lcard live" data-line="${l.id}"><svg viewBox="0 0 112 58" aria-hidden="true"><path d="${l.d}" fill="none" stroke="${l.colour}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>${ends}</svg><span class="n">${esc(l.name)}</span></button>`;
-      }).join("");
-      return `<div class="band" data-dk="${DARK_BANDS.has(b.id) ? 1 : 0}"><div class="band-id"><svg viewBox="0 0 200 64" aria-hidden="true">${BAND_ICON[b.id] || ""}</svg><div class="band-name">${esc(b.name)}</div><div class="band-sub">${esc(b.sub)}</div></div><div class="band-cards">${cards}</div></div>`;
-    }).join("");
     menuEl.innerHTML =
       `<div class="menu-view menu-land" data-view="land"><div class="menu-top"><div class="menu-eyebrow">Project Undercurrent</div>${clockHTML}</div>` +
       `<h2 class="menu-h1">What would you like to see?</h2><p>Choose a way to explore the live network.</p><div class="tiles">${tiles}</div>` +
       `<button type="button" class="menu-ghost menu-back" data-go="close">${backIcon}Back to the map</button></div>` +
-      `<div class="menu-view menu-lines" data-view="lines" hidden><div class="menu-top"><button type="button" class="menu-ghost" data-go="land">${backIcon}Menu</button><h2 class="menu-h1">Choose a line</h2>${clockHTML}</div><div class="strata">${bands}</div></div>`;
+      `<div class="menu-view menu-lines" data-view="lines" hidden><div class="gboard" id="gboard" role="group" aria-label="Choose a line">${buildGrid()}<svg class="gfx" id="gfx" aria-hidden="true"></svg></div></div>`;
   }
+  /* Tracks: the boundary of each category's tiles, pulled in a little so it sits in the gap, corners rounded, one train per loop. */
+  const gSVG = "http://www.w3.org/2000/svg";
+  let gTrains = [], gRaf = 0, gLast = 0, gSized = "";
+  function gLoops(cells) {
+    const set = new Set(cells.map(c => c[0] + "," + c[1])), has = (x, y) => set.has(x + "," + y), edges = [];
+    cells.forEach(([x, y]) => {
+      if (!has(x, y - 1)) edges.push([x, y, x + 1, y]);
+      if (!has(x + 1, y)) edges.push([x + 1, y, x + 1, y + 1]);
+      if (!has(x, y + 1)) edges.push([x + 1, y + 1, x, y + 1]);
+      if (!has(x - 1, y)) edges.push([x, y + 1, x, y]);
+    });
+    const from = {}; edges.forEach((e, i) => { e.i = i; (from[e[0] + "," + e[1]] = from[e[0] + "," + e[1]] || []).push(e); });
+    const used = new Set(), loops = [];
+    edges.forEach(e0 => {
+      if (used.has(e0.i)) return;
+      const loop = []; let e = e0;
+      while (e && !used.has(e.i)) { used.add(e.i); loop.push(e); e = (from[e[2] + "," + e[3]] || []).find(n => !used.has(n.i)); }
+      loops.push(loop);
+    });
+    return loops;
+  }
+  function gPath(loop, cw, ch, m) {
+    const D = m * 0.04, R = m * 0.16, v = [], n = loop.length;
+    for (let i = 0; i < n; i++) {
+      const a = loop[(i + n - 1) % n], b = loop[i], da = [a[2] - a[0], a[3] - a[1]], db = [b[2] - b[0], b[3] - b[1]];
+      if (da[0] === db[0] && da[1] === db[1]) continue;
+      v.push([b[0] * cw + (-da[1] - db[1]) * D, b[1] * ch + (da[0] + db[0]) * D]);
+    }
+    let d = "";
+    v.forEach((p, i) => {
+      const pr = v[(i + v.length - 1) % v.length], nx = v[(i + 1) % v.length];
+      const l1 = Math.hypot(pr[0] - p[0], pr[1] - p[1]), l2 = Math.hypot(nx[0] - p[0], nx[1] - p[1]), r = Math.min(R, l1 / 2, l2 / 2);
+      const A = [p[0] + (pr[0] - p[0]) / l1 * r, p[1] + (pr[1] - p[1]) / l1 * r], B = [p[0] + (nx[0] - p[0]) / l2 * r, p[1] + (nx[1] - p[1]) / l2 * r];
+      d += `${i ? "L" : "M"}${A[0].toFixed(1)} ${A[1].toFixed(1)}Q${p[0].toFixed(1)} ${p[1].toFixed(1)} ${B[0].toFixed(1)} ${B[1].toFixed(1)}`;
+    });
+    return d + "Z";
+  }
+  function gEl(tag, attrs) { const e = document.createElementNS(gSVG, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+  function drawTracks() {
+    const fx = document.getElementById("gfx"), board = document.getElementById("gboard");
+    if (!fx || !board) return;
+    const W = board.clientWidth, H = board.clientHeight; if (!W || !H) return;
+    const cw = W / 7, ch = H / 4, m = Math.min(cw, ch), keep = {};
+    gTrains.forEach(t => { keep[t.key] = t.s / (t.L || 1); });
+    fx.setAttribute("viewBox", `0 0 ${W} ${H}`); fx.textContent = ""; gTrains = [];
+    Object.keys(CAT_COL).forEach(cat => {
+      const cells = []; gridTiles.forEach((t, i) => { if (t.cat === cat) cells.push([i % 7, Math.floor(i / 7)]); });
+      gLoops(cells).forEach((loop, li) => {
+        const d = gPath(loop, cw, ch, m), col = CAT_COL[cat];
+        fx.appendChild(gEl("path", { d, fill: "none", stroke: col, "stroke-width": m * 0.024, "stroke-linejoin": "round", opacity: 0.85 }));
+        fx.appendChild(gEl("path", { d, fill: "none", stroke: "#fff", "stroke-width": m * 0.012, "stroke-dasharray": `${m * .015} ${m * .06}`, "stroke-linecap": "round", opacity: 0.85 }));
+        const path = gEl("path", { d, fill: "none", stroke: "none" }); fx.appendChild(path);
+        const g = gEl("g", {}), k = m / 100;
+        g.appendChild(gEl("rect", { x: -13 * k, y: -3.6 * k, width: 26 * k, height: 7.2 * k, rx: 3.6 * k, fill: col, stroke: "#fff", "stroke-width": 1.3 * k }));
+        [-7, -1, 5].forEach(x => g.appendChild(gEl("rect", { x: x * k, y: -1.6 * k, width: 4 * k, height: 2.6 * k, rx: 0.8 * k, fill: "#fff" })));
+        fx.appendChild(g);
+        const L = path.getTotalLength(), key = cat + li;
+        gTrains.push({ g, path, L, key, s: (keep[key] || 0) * L, v: (46 + li * 6) * k });
+      });
+    });
+    gStep(0);
+  }
+  function gStep(dt) {
+    gTrains.forEach(t => {
+      t.s = (t.s + t.v * dt) % t.L;
+      const p = t.path.getPointAtLength(t.s), q = t.path.getPointAtLength((t.s + 2) % t.L);
+      t.g.setAttribute("transform", `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) rotate(${(Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI).toFixed(1)})`);
+    });
+  }
+  function gFrame(ts) {
+    gRaf = 0;
+    if (!menuOpen || menuEl.querySelector('.menu-view[data-view="lines"]').hidden) return;
+    if (!document.hidden) gStep(Math.min(0.1, (ts - gLast) / 1000));
+    gLast = ts; gRaf = requestAnimationFrame(gFrame);
+  }
+  function gStart() {                       // runs only while the Line page is on screen
+    drawTracks();
+    if (!reduceMotionPref && !gRaf) { gLast = performance.now(); gRaf = requestAnimationFrame(gFrame); }
+  }
+  function gStop() { if (gRaf) { cancelAnimationFrame(gRaf); gRaf = 0; } }
+  window.addEventListener("resize", () => { if (menuOpen && !menuEl.querySelector('.menu-view[data-view="lines"]').hidden) drawTracks(); });
   let menuFrom = null, menuFade = 0;
   function showView(v) {
     menuEl.querySelectorAll(".menu-view").forEach(n => { n.hidden = n.dataset.view !== v; });
-    const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".lcard.cur, .lcard.live" : ".tile:not([disabled])"}`);
+    const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".gline.cur, .gline.live" : ".tile:not([disabled])"}`);
     if (first) first.focus({ preventScroll: true });
+    if (v === "lines") gStart(); else gStop();
     updateClock();
   }
   function openMenu() {
@@ -291,7 +389,7 @@
   }
   function closeMenu(then) {
     if (!menuOpen) return;
-    menuOpen = false; menuEl.classList.remove("in");
+    menuOpen = false; menuEl.classList.remove("in"); gStop();
     clearTimeout(menuFade);
     menuFade = setTimeout(() => { menuEl.hidden = true; root.classList.remove("menu-on"); if (then) then(); }, reduceMotionPref ? 0 : 260);
     if (!then && menuFrom && menuFrom.focus) menuFrom.focus({ preventScroll: true });
@@ -311,7 +409,7 @@
   document.getElementById("menu-open").addEventListener("click", openMenu);
   document.getElementById("menu-fab").addEventListener("click", openMenu);
   function tickPicker(id) {
-    menuEl.querySelectorAll(".lcard.live").forEach(c => {
+    menuEl.querySelectorAll(".gline.live").forEach(c => {
       const on = c.dataset.line === id;
       c.classList.toggle("cur", on);
       if (on) c.setAttribute("aria-current", "true"); else c.removeAttribute("aria-current");
