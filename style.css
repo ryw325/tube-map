@@ -124,6 +124,7 @@
 
   .river { fill: none; stroke: var(--river); stroke-width: 46; stroke-linejoin: round; stroke-linecap: butt; }
   .river-label { fill: var(--river-ink); font-family: var(--sans); font-size: 15px; font-weight: 500; letter-spacing: 0.3em; text-transform: uppercase; }
+  .share { fill: none; stroke: var(--oc); stroke-width: 7; stroke-linejoin: round; stroke-linecap: butt; }
   .track { fill: none; stroke: var(--line); stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; }
   .station { fill: var(--station-fill); stroke: var(--ink); stroke-width: 5; }
   .label { fill: var(--ink); font-family: var(--sans); font-size: 20px; font-weight: 500; }
@@ -202,6 +203,7 @@
   .ix-rail-text { font-family: var(--sans); font-size: 17px; font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
   [hidden] { display: none !important; }
   /* ---------- Departure board ---------- */
+  .ghost-link { stroke: var(--ink); stroke-width: 4.5; stroke-dasharray: 0.1 8; stroke-linecap: round; fill: none; pointer-events: none; }
   .station-hit { fill: transparent; cursor: pointer; }
   .station-link { cursor: pointer; outline: none; }
   .station-link:focus-visible .station, .station-link:hover .station { stroke: var(--line); }

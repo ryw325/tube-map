@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.15: Context stripes: where a line shares track with another, that line runs beside it and fades out where the sharing ends (lines/shared.js from tools/shared_track.js; Circle and Hammersmith & City only for now).
+   v3.14: Circle: new layout (45 degree turns only, loop stretched, labels moved), and a route's second visit to a station now has its own icon with a dotted link to the real station and no label.
    v3.13: Circle line. Engine: a route may visit a station twice (hidden "ghost" copies, remapRaw), and a station may have extra naptans (alias).
    v3.12: Metropolitan: Watford branch straight on from Northwood, Moor Park and Amersham branches turned anticlockwise.
    v3.11: Metropolitan line (34 stations, four branches).
@@ -38,7 +40,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.13";
+  const VERSION = "3.15";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -492,8 +494,8 @@
     const byNaptan = Object.fromEntries(S.map((s, i) => [s.naptan, i]).filter(([, i]) => !S[i].of));
     S.forEach((s, i) => (s.alias || []).forEach(n => { byNaptan[n] = i; }));   // other naptans of the same station (e.g. the two Paddington stops)
     const byId = Object.fromEntries(S.map((s, i) => [s.id, i]));
-    // A station a route passes twice (the Circle's Paddington and Edgware Road): its later visits are hidden "ghost" copies at the same
-    // spot ({ of: "<id>" }). Predictions name the real station, so remapRaw() works out which visit each one belongs to.
+    // A station a route passes twice (the Circle's Paddington and Edgware Road): its later visits are second icons (no label, dotted link
+    // to the real station, tapping one opens the real station) placed beside it ({ of: "<id>" }). Predictions name the real station, so remapRaw() works out which visit each one belongs to.
     const ALT = {};
     S.forEach((s, i) => { if (s.of) (ALT[byId[s.of]] = ALT[byId[s.of]] || []).push(i); });
     const HAS_ALT = Object.keys(ALT).length > 0;
@@ -554,22 +556,68 @@
       }
     }
 
+    /* ---------- Context: other lines that run on the same track, beside this one, fading out where the track stops being shared ---------- */
+    const SHARE_OFF = [12, -12, 48, -48];   // ranks 0-3: either side of the track inside the train lanes, then outside them
+    const shareSegs = [];                   // far-out stripes also count as track for label placement
+    (function buildShare() {
+      const SH = window.UNDERCURRENT_SHARED, runs = (SH && SH.runs && SH.runs[LINE.id]) || [];
+      if (!runs.length || LINE.noShare) return;
+      const ovG = el("g", { class: "share-layer", "pointer-events": "none" });
+      const defs = el("defs", {}, ovG);
+      const used = new Set();
+      runs.forEach((run, n) => {
+        if (run.rank > 1) return;               // only two stripes fit beside the track, inside the train lanes
+        const sc = p => ({ x: p[0] * SPACING, y: p[1] * SPACING });
+        const P = [...(run.tailA ? [sc(run.tailA)] : []), ...run.pts.map(sc), ...(run.tailB ? [sc(run.tailB)] : [])];
+        if (P.length < 2) return;
+        const d = SHARE_OFF[run.rank % 4] * (LINE.shareSide || 1);
+        const u = P.slice(1).map((q, i) => { const dx = q.x - P[i].x, dy = q.y - P[i].y, l = Math.hypot(dx, dy) || 1; return { x: dx / l, y: dy / l }; });
+        const nr = u.map(v => ({ x: -v.y, y: v.x }));                      // right-hand side of the direction of travel
+        const O = P.map((q, i) => {
+          if (i === 0) return { x: q.x + nr[0].x * d, y: q.y + nr[0].y * d };
+          if (i === P.length - 1) return { x: q.x + nr[i - 1].x * d, y: q.y + nr[i - 1].y * d };
+          const a = nr[i - 1], b = nr[i], k = d / (1 + a.x * b.x + a.y * b.y);   // mitre join
+          return { x: q.x + (a.x + b.x) * k, y: q.y + (a.y + b.y) * k };
+        });
+        used.add(run.with);
+        const a0 = run.tailA ? 1 : 0, b0 = P.length - 1 - (run.tailB ? 1 : 0);
+        const pathOf = pts => "M " + pts.map(q => q.x.toFixed(1) + " " + q.y.toFixed(1)).join(" L ");
+        el("path", { class: `share ov-${run.with}`, d: pathOf(O.slice(a0, b0 + 1)) }, ovG);
+        const fade = (from, to, gi) => {
+          const id = `ovg-${LINE.id}-${n}-${gi}`;
+          const g = el("linearGradient", { id, gradientUnits: "userSpaceOnUse", x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: `ov-${run.with}` }, defs);
+          el("stop", { offset: "0", style: "stop-color: var(--oc)" }, g);
+          el("stop", { offset: "1", style: "stop-color: var(--oc); stop-opacity: 0" }, g);
+          el("path", { class: "share", d: pathOf([from, to]), style: `stroke: url(#${id})` }, ovG);
+        };
+        if (run.tailA) fade(O[a0], O[0], "a");
+        if (run.tailB) fade(O[b0], O[b0 + 1], "b");
+        if (Math.abs(d) > 30) O.slice(1).forEach((q, i) => shareSegs.push([O[i], q]));
+      });
+      lineStyle.textContent += [...used].map(id => { const c = SH.colours[id]; return c ? `
+        .ov-${id} { --oc: ${c.light}; }
+        @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ov-${id} { --oc: ${c.dark}; } }
+        :root[data-theme="dark"] .ov-${id} { --oc: ${c.dark}; }` : ""; }).join("");
+    })();
+
     const trackD = ROUTE_LISTS.map(r => "M " + r.map(i => S[i].x + " " + S[i].y).join(" L ")).join(" ");
     const trackPath = el("path", { class: "track", d: trackD });   // track under the trains
     const trainLayer = el("g", {});
     const content = el("g", {});                           // stations and labels, drawn above trains
     el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
+    const linkLayer = el("g", {}, content);                // dotted links from a second icon to its real station
     const stationLayer = el("g", {}, content);
     const labelLayer = el("g", {}, content);
     const stationNodes = [];
     S.forEach((s, i) => {
-      if (s.of) { stationNodes[i] = el("g", {}, stationLayer); return; }   // ghost visit: nothing to draw
+      const home = s.of ? byId[s.of] : i;   // a second icon opens the board of its real station
+      if (s.of) el("line", { class: "ghost-link", x1: S[home].x, y1: S[home].y, x2: s.x, y2: s.y }, linkLayer);
       const g = el("g", { class: "station-link", tabindex: "0", role: "button", "aria-label": `${s.name}: show departures` }, stationLayer);
       stationNodes[i] = g;
       el("circle", { class: "station-hit", cx: s.x, cy: s.y, r: 24 }, g);
       el("circle", { class: "station", cx: s.x, cy: s.y, r: 11 }, g);
-      g.addEventListener("click", () => openBoard(i));
-      g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openBoard(i); } });
+      g.addEventListener("click", () => openBoard(home));
+      g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openBoard(home); } });
     });
     const emptyMsg = el("text", { class: "empty-msg", "text-anchor": "middle", x: (LINE.emptyAt || [520, 900])[0], y: (LINE.emptyAt || [520, 900])[1] });
     emptyMsg.setAttribute("visibility", "hidden");
@@ -845,6 +893,7 @@
         const d = segRectDist(a, b, c.rect);
         if (d < CLEAR) bad += (CLEAR - d) * 10;
       });
+      shareSegs.forEach(([a, b]) => { const d = segRectDist(a, b, c.rect); if (d < 12) bad += (12 - d) * 10; });
       placed.forEach(p => { if (overlap(c.rect, p.rect, 8)) bad += 500; });
       return bad;
     }
@@ -852,6 +901,7 @@
     function layout() {
       while (labelLayer.firstChild) labelLayer.firstChild.remove();
       const placed = [];
+      S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
       S.forEach(s => {
         if (s.of) return;
         const order = [s.pref, ...DIRS.filter(d => d !== s.pref)];
