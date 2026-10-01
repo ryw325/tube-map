@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.13: Circle line. Engine: a route may visit a station twice (hidden "ghost" copies, remapRaw), and a station may have extra naptans (alias).
    v3.12: Metropolitan: Watford branch straight on from Northwood, Moor Park and Amersham branches turned anticlockwise.
    v3.11: Metropolitan line (34 stations, four branches).
    v3.10: District: Gloucester Road moved twice as far from Earl's Court.
@@ -37,7 +38,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.12";
+  const VERSION = "3.13";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -471,7 +472,7 @@
       document.title = `${LINE.name} Line Live`;
       document.querySelector(".eyebrow").textContent = `Live prototype · v${VERSION}`;
       document.getElementById("line-name").textContent = `${LINE.name} Line`;
-      document.getElementById("stat-stations").textContent = LINE.stations.length;
+      document.getElementById("stat-stations").textContent = LINE.stations.filter(s => !s.of).length;
       ["stat-trains", "stat-nb", "stat-sb"].forEach(id => { document.getElementById(id).textContent = "–"; });
       document.getElementById("dir-n").textContent = LINE.dirs.N.stat || LINE.dirs.N.label;
       document.getElementById("dir-s").textContent = LINE.dirs.S.stat || LINE.dirs.S.label;
@@ -488,8 +489,15 @@
     })();
     const SPACING = LINE.spacing || 1.25;
     S.forEach(s => { s.x *= SPACING; s.y *= SPACING; });
-    const byNaptan = Object.fromEntries(S.map((s, i) => [s.naptan, i]));
+    const byNaptan = Object.fromEntries(S.map((s, i) => [s.naptan, i]).filter(([, i]) => !S[i].of));
+    S.forEach((s, i) => (s.alias || []).forEach(n => { byNaptan[n] = i; }));   // other naptans of the same station (e.g. the two Paddington stops)
     const byId = Object.fromEntries(S.map((s, i) => [s.id, i]));
+    // A station a route passes twice (the Circle's Paddington and Edgware Road): its later visits are hidden "ghost" copies at the same
+    // spot ({ of: "<id>" }). Predictions name the real station, so remapRaw() works out which visit each one belongs to.
+    const ALT = {};
+    S.forEach((s, i) => { if (s.of) (ALT[byId[s.of]] = ALT[byId[s.of]] || []).push(i); });
+    const HAS_ALT = Object.keys(ALT).length > 0;
+    const candOn = (R, g) => [g, ...(ALT[g] || [])].filter(x => R.pos[x] !== undefined).sort((a, b) => R.pos[a] - R.pos[b]);
 
     // Routes: each is one unbranched run of stations, all written in the same direction (first station = the "N" end).
     // A simple line has one route; a branching line lists every end-to-end combination. Trains follow one route at a time.
@@ -555,6 +563,7 @@
     const labelLayer = el("g", {}, content);
     const stationNodes = [];
     S.forEach((s, i) => {
+      if (s.of) { stationNodes[i] = el("g", {}, stationLayer); return; }   // ghost visit: nothing to draw
       const g = el("g", { class: "station-link", tabindex: "0", role: "button", "aria-label": `${s.name}: show departures` }, stationLayer);
       stationNodes[i] = g;
       el("circle", { class: "station-hit", cx: s.x, cy: s.y, r: 24 }, g);
@@ -844,6 +853,7 @@
       while (labelLayer.firstChild) labelLayer.firstChild.remove();
       const placed = [];
       S.forEach(s => {
+        if (s.of) return;
         const order = [s.pref, ...DIRS.filter(d => d !== s.pref)];
         let best = null, bestCost = Infinity;
         outer:
@@ -1119,7 +1129,9 @@
 
     // Direction of a prediction along route R: "S" = towards the route's last station, "N" = towards its first
     function directionOn(R, g, destG, platform) {
-      const k = R.pos[g], d = destG === undefined ? undefined : R.pos[destG];
+      const k = R.pos[g];
+      let d = destG === undefined ? undefined : R.pos[destG];
+      if (HAS_ALT && destG !== undefined && ALT[destG]) d = Math.max(...candOn(R, destG).map(c => R.pos[c]));   // a destination the route reaches twice: the far one
       if (k !== undefined && d !== undefined && d !== k) return d > k ? "S" : "N";
       if (d !== undefined && d === R.LAST) return "S";
       if (d !== undefined && d === 0) return "N";
@@ -1135,11 +1147,41 @@
       return R ? directionOn(R, g, destG, platform) : null;
     }
 
+    // Routes that pass a station twice: give each prediction the visit it belongs to, by matching the vehicle's whole list of stops
+    // against the route in each direction (the match that explains most of them wins; ties go to the stop nearest the train).
+    function remapRaw(R, raw, t) {
+      if (!raw.some(p => candOn(R, p.g).length > 1 || (p.dest !== undefined && candOn(R, p.dest).length > 1))) return raw;
+      const hint = directionOn(R, raw[0].g, raw[0].dest, raw[0].plat);
+      let best = null;
+      for (const s of [1, -1]) {
+        for (const c0 of candOn(R, raw[0].g)) {
+          let prev = R.pos[c0], hits = 1; const m = [c0];
+          for (let i = 1; i < raw.length; i++) {
+            const cs = candOn(R, raw[i].g); let pick = null;
+            for (const c of (s > 0 ? cs : cs.slice().reverse())) if (s * (R.pos[c] - prev) > 0) { pick = c; break; }
+            if (pick === null) { m.push(null); continue; }
+            m.push(pick); prev = R.pos[pick]; hits++;
+          }
+          let tie;
+          if (t && t.r === R && t.D !== null && t.D !== undefined) { const ahead = s * (R.cum[R.pos[c0]] - t.D); tie = (s === sgn(t.dir) ? 2e6 : 0) + (ahead >= -60 ? -ahead : -1e6); }
+          else tie = (hint ? ((hint === "S") === (s > 0) ? 1e3 : 0) : 0) - s * R.pos[c0] * 0.001;
+          const key = hits * 1e9 + tie;
+          if (!best || key > best.key) best = { key, s, m };
+        }
+      }
+      return raw.map((p, i) => {
+        let dest = p.dest;
+        if (dest !== undefined) { const cs = candOn(R, dest); if (cs.length > 1) dest = best.s > 0 ? cs[cs.length - 1] : cs[0]; }
+        return { ...p, g: best.m[i] !== null ? best.m[i] : p.g, dest };
+      });
+    }
+
     // Pick the route that best explains a vehicle's predictions (and, if given, starts from station mustG)
-    function chooseRoute(raw, t, mustG) {
+    function chooseRoute(raw0, t, mustG) {
       let best = null;
       ROUTES.forEach(R => {
         if (mustG != null && R.pos[mustG] === undefined) return;
+        const raw = HAS_ALT ? remapRaw(R, raw0, t) : raw0;
         const first = raw[0];
         if (R.pos[first.g] === undefined) return;
         const dir = directionOn(R, first.g, first.dest, first.plat);
@@ -1171,11 +1213,11 @@
           const km = R.pos[mustG];
           if (s * (k0 - km) <= 0) score -= 10;
         }
-        if (!best || score > best.score) best = { R, dir, score };
+        if (!best || score > best.score) best = { R, dir, score, raw };
       });
       if (!best) return null;
       const R = best.R;
-      const preds = raw.filter(p => R.pos[p.g] !== undefined).map(p => ({
+      const preds = best.raw.filter(p => R.pos[p.g] !== undefined).map(p => ({
         idx: R.pos[p.g], dir: directionOn(R, p.g, p.dest, p.plat) || best.dir, tts: p.tts, loc: p.loc, dest: p.dest, pdir: p.pdir, towards: p.towards, shown: p.shown
       }));
       return { R, preds };
