@@ -1,4 +1,7 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.05: Hammersmith & City line (29 stations, shares track with the Circle and District).
+   v3.04: Waterloo & City line (first two-station line). Per-line "emptyAt" places the no-service message; long line names wrap in the side panel.
+   v3.03: adds the menu (landing page and a line page drawn as a cross-section of London), replacing the line dropdown.
    v3.02: the page loads once. The shell (clock, preferences, side panels, zoom buttons) is wired once; each line is
    mounted into it and fully unmounted before the next, so switching lines never reloads the page. */
 (function () {
@@ -27,11 +30,12 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.02";
+  const VERSION = "3.05";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
   const svg = document.getElementById("map");
+  let menuOpen = false;                                   // v3.03: the menu overlay is showing
   let txBusy = false;                                      // true while a line hand-over is running (spans both lines)
   let cur = null;                                          // the mounted line: { id, LINE, scope, api }
 
@@ -98,6 +102,7 @@
     const p = Object.fromEntries(timeFmt.formatToParts(now).map(x => [x.type, x.value]));
     bigTime.innerHTML = `${p.hour}:${p.minute}<span class="secs">${p.second}</span>`;
     bigDate.textContent = dateFmt.format(now);
+    if (menuOpen) document.querySelectorAll(".menu-view:not([hidden]) .menu-clock").forEach(n => { n.innerHTML = `${p.hour}:${p.minute}<small>${p.second}</small>`; });
   }
   updateClock();
   setInterval(updateClock, 1000);
@@ -216,24 +221,98 @@
     apply();
   })();
 
-  /* ---------- Line picker: built once, the tick follows the mounted line ---------- */
-  const pick = document.getElementById("line-pick");
-  (function picker() {
-    const head = document.createElement("option");
-    head.value = ""; head.textContent = "Change line"; head.disabled = true; head.selected = true; head.hidden = true;
-    pick.appendChild(head);
-    (window.UNDERCURRENT_LINES || [{ id: window.UNDERCURRENT_LINE.id, name: window.UNDERCURRENT_LINE.name }]).forEach(l => {
-      const o = document.createElement("option"); o.value = l.id; o.dataset.name = `${l.name} line`; o.textContent = o.dataset.name;
-      pick.appendChild(o);
-    });
-    pick.addEventListener("change", () => {
-      const id = pick.value; pick.value = "";
-      if (id && cur && id !== cur.id) plainSwitch(id);
-    });
-  })();
+  /* ---------- Menu (v3.03): built once, kept in the page; opening it never touches the mounted line ---------- */
+  const menuEl = document.getElementById("menu");
+  const SVGNS = 'viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+  const TILES = [
+    { id: "line", name: "Line", sub: "One line, every train", live: true, icon: '<path d="M8 44 H28 L40 20 H56"/><circle cx="8" cy="44" r="5"/><circle cx="30" cy="44" r="5"/><circle cx="40" cy="20" r="5"/><circle cx="56" cy="20" r="5"/>' },
+    { id: "station", name: "Station", sub: "One station, every arrival and departure", icon: '<circle cx="32" cy="32" r="9"/><path d="M6 32 H21 M43 32 H58 M14 24 L6 32 L14 40 M50 24 L58 32 L50 40"/>' },
+    { id: "region", name: "Region", sub: "A part of the live network", icon: '<rect x="6" y="10" width="52" height="44" rx="8"/><path d="M6 40 H24 L34 26 H58 M28 10 V26"/><circle cx="24" cy="40" r="4"/><circle cx="34" cy="26" r="4"/>' },
+    { id: "full", name: "Full Map", sub: "The whole network at once", icon: '<path d="M6 20 H30 L44 34 H58 M10 50 L26 34 H58 M32 6 V58 M6 42 H26"/><circle cx="32" cy="20" r="4"/><circle cx="26" cy="34" r="4"/><circle cx="44" cy="34" r="4"/>' }
+  ];
+  const win = (x, y, n, w, h, g) => Array.from({ length: n }, (_, i) => `<rect x="${x + i * (w + g)}" y="${y}" width="${w}" height="${h}" rx="1.5" fill="#F4F1EA"/>`).join("");
+  const BAND_ICON = {
+    light: '<path d="M6 8 H194" stroke="#6F6A5F" stroke-width="1.6"/><path d="M84 8 L92 22 M116 8 L108 22" stroke="#6F6A5F" stroke-width="2" fill="none"/><path d="M84 22 H116" stroke="#6F6A5F" stroke-width="3" stroke-linecap="round"/><rect x="42" y="24" width="116" height="22" rx="7" fill="#00AFAD"/><rect x="42" y="38" width="116" height="4" fill="#E8494B"/>' + win(50, 28, 6, 12, 7, 6) + '<rect x="6" y="48" width="188" height="5" fill="#8B939A"/><path d="M40 53 V62 M100 53 V62 M160 53 V62" stroke="#8B939A" stroke-width="6"/>',
+    over: '<rect x="46" y="14" width="108" height="20" rx="5" fill="#EF7B10"/><rect x="46" y="27" width="108" height="3" fill="#F6C48F"/>' + win(52, 18, 6, 12, 7, 5) + '<path d="M46 35 H154" stroke="#6E6A66" stroke-width="3"/><rect x="18" y="38" width="164" height="24" fill="#B5623E"/><path d="M30 62 V52 A14 14 0 0 1 58 52 V62 M66 62 V52 A14 14 0 0 1 94 52 V62 M102 62 V52 A14 14 0 0 1 130 52 V62 M138 62 V52 A14 14 0 0 1 166 52 V62" fill="#7A3F27"/>',
+    hybrid: '<path d="M104 62 V32 Q104 6 148 6 Q192 6 192 32 V62 Z" fill="#2B2622" stroke="#8E8478" stroke-width="4"/><rect x="14" y="30" width="146" height="24" rx="7" fill="#6950A1"/><rect x="14" y="44" width="146" height="4" fill="#B7A9DC"/>' + win(22, 34, 8, 12, 7, 5) + '<path d="M6 58 H194" stroke="#6E6A66" stroke-width="3"/>',
+    sub: '<rect x="14" y="8" width="172" height="52" rx="5" fill="#3A322B" stroke="#CDBFA9" stroke-width="3"/><rect x="28" y="22" width="144" height="28" rx="7" fill="#00782A"/><rect x="28" y="38" width="144" height="4" fill="#F0E8D5"/>' + win(38, 27, 9, 11, 8, 5) + '<path d="M22 54 H178" stroke="#8A7E70" stroke-width="2"/>',
+    deep: '<circle cx="100" cy="32" r="29" fill="#2B2622" stroke="#CDBFA9" stroke-width="5" stroke-dasharray="7 3"/><rect x="62" y="17" width="76" height="30" rx="15" fill="#E32017"/><rect x="62" y="31" width="76" height="4" fill="#F4B3AE"/>' + win(72, 22, 5, 9, 7, 5) + '<path d="M70 50 H130" stroke="#8A7E70" stroke-width="2"/>'
+  };
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  // A faint made-up squiggle for lines not built yet, the same every time for a given name
+  function placeholder(name) {
+    let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    const rnd = () => ((h = (h * 1103515245 + 12345) >>> 0) / 4294967296);
+    const n = 4 + Math.floor(rnd() * 3), pts = []; let x = 0;
+    for (let i = 0; i < n; i++) { pts.push([x, 12 + rnd() * 34]); x += 0.8 + rnd() * 0.4; }
+    const mx = pts[pts.length - 1][0] || 1;
+    return pts.map(([a, b]) => `${(a * 92 / mx + 10).toFixed(1)},${b.toFixed(1)}`).join(" ");
+  }
+  const DARK_BANDS = new Set(["sub", "deep"]);
+  const clockHTML = '<div class="menu-clock" aria-hidden="true"></div>';
+  const backIcon = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 L8 12 L15 19"/></svg>';
+  function buildMenu() {
+    const tiles = TILES.map(t => t.live
+      ? `<button type="button" class="tile" data-go="lines"><div class="tile-top"><svg width="72" height="72" ${SVGNS}>${t.icon}</svg><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 H19 M13 6 L19 12 L13 18"/></svg></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`
+      : `<button type="button" class="tile" disabled aria-label="${t.name}, coming soon"><div class="tile-top"><svg width="72" height="72" ${SVGNS} style="opacity:.75">${t.icon}</svg><span class="soon">Coming soon</span></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`).join("");
+    const bands = (window.UNDERCURRENT_MENU || []).map(b => {
+      const cards = b.lines.map(l => {
+        if (!l.built || !knownLine(l.id)) return `<button type="button" class="lcard off" disabled aria-label="${esc(l.name)}, not built yet"><svg viewBox="0 0 112 58" aria-hidden="true"><polyline points="${placeholder(l.name)}" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.1 7" opacity="0.7"/></svg><span class="n">${esc(l.name)}</span></button>`;
+        const ends = l.ends.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="3.2" fill="var(--bg)" stroke="${l.colour}" stroke-width="2"/>`).join("");
+        return `<button type="button" class="lcard live" data-line="${l.id}"><svg viewBox="0 0 112 58" aria-hidden="true"><path d="${l.d}" fill="none" stroke="${l.colour}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>${ends}</svg><span class="n">${esc(l.name)}</span></button>`;
+      }).join("");
+      return `<div class="band" data-dk="${DARK_BANDS.has(b.id) ? 1 : 0}"><div class="band-id"><svg viewBox="0 0 200 64" aria-hidden="true">${BAND_ICON[b.id] || ""}</svg><div class="band-name">${esc(b.name)}</div><div class="band-sub">${esc(b.sub)}</div></div><div class="band-cards">${cards}</div></div>`;
+    }).join("");
+    menuEl.innerHTML =
+      `<div class="menu-view menu-land" data-view="land"><div class="menu-top"><div class="menu-eyebrow">Project Undercurrent</div>${clockHTML}</div>` +
+      `<h2 class="menu-h1">What would you like to see?</h2><p>Choose a way to explore the live network.</p><div class="tiles">${tiles}</div>` +
+      `<button type="button" class="menu-ghost menu-back" data-go="close">${backIcon}Back to the map</button></div>` +
+      `<div class="menu-view menu-lines" data-view="lines" hidden><div class="menu-top"><button type="button" class="menu-ghost" data-go="land">${backIcon}Menu</button><h2 class="menu-h1">Choose a line</h2>${clockHTML}</div><div class="strata">${bands}</div></div>`;
+  }
+  let menuFrom = null, menuFade = 0;
+  function showView(v) {
+    menuEl.querySelectorAll(".menu-view").forEach(n => { n.hidden = n.dataset.view !== v; });
+    const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".lcard.cur, .lcard.live" : ".tile:not([disabled])"}`);
+    if (first) first.focus({ preventScroll: true });
+    updateClock();
+  }
+  function openMenu() {
+    if (menuOpen || txBusy) return;
+    if (!menuEl.firstChild) buildMenu();
+    tickPicker(cur && cur.id);
+    menuOpen = true; menuFrom = document.activeElement;
+    clearTimeout(menuFade);
+    menuEl.hidden = false; root.classList.add("menu-on");
+    showView("land");
+    void menuEl.offsetWidth; menuEl.classList.add("in");
+  }
+  function closeMenu(then) {
+    if (!menuOpen) return;
+    menuOpen = false; menuEl.classList.remove("in");
+    clearTimeout(menuFade);
+    menuFade = setTimeout(() => { menuEl.hidden = true; root.classList.remove("menu-on"); if (then) then(); }, reduceMotionPref ? 0 : 260);
+    if (!then && menuFrom && menuFrom.focus) menuFrom.focus({ preventScroll: true });
+  }
+  menuEl.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b || b.disabled) return;
+    if (b.dataset.line) { const id = b.dataset.line; closeMenu(() => { if (cur && id !== cur.id) plainSwitch(id); }); return; }
+    const go = b.dataset.go;
+    if (go === "close") closeMenu(); else if (go) showView(go);
+  });
+  document.addEventListener("keydown", e => {
+    if (!menuOpen || e.key !== "Escape") return;
+    const onLines = !menuEl.querySelector('.menu-view[data-view="lines"]').hidden;
+    if (onLines) showView("land"); else closeMenu();
+  });
+  document.getElementById("menu-open").addEventListener("click", openMenu);
+  document.getElementById("menu-fab").addEventListener("click", openMenu);
   function tickPicker(id) {
-    pick.querySelectorAll("option[data-name]").forEach(o => { o.textContent = (o.value === id ? "✓ " : "") + o.dataset.name; });
-    pick.value = "";
+    menuEl.querySelectorAll(".lcard.live").forEach(c => {
+      const on = c.dataset.line === id;
+      c.classList.toggle("cur", on);
+      if (on) c.setAttribute("aria-current", "true"); else c.removeAttribute("aria-current");
+    });
   }
 
   // The line's colours, one style element reused by every line
@@ -380,7 +459,7 @@
       g.addEventListener("click", () => openBoard(i));
       g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openBoard(i); } });
     });
-    const emptyMsg = el("text", { class: "empty-msg", "text-anchor": "middle", x: 520, y: 900 });
+    const emptyMsg = el("text", { class: "empty-msg", "text-anchor": "middle", x: (LINE.emptyAt || [520, 900])[0], y: (LINE.emptyAt || [520, 900])[1] });
     emptyMsg.setAttribute("visibility", "hidden");
 
     /* ---------- Labels and interchange markers, placed clear of the train lanes ---------- */

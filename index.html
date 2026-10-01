@@ -12,9 +12,10 @@
   <aside class="panel">
     <div>
       <div class="panel-top">
-        <p class="eyebrow">Live prototype · v3.02</p>
+        <p class="eyebrow">Live prototype · v3.05</p>
       </div>
-      <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span><svg class="line-caret" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5.5 L7 9.5 L11 5.5"/></svg><select id="line-pick" class="line-pick" aria-label="Change line"></select></h1>
+      <button type="button" class="menu-btn" id="menu-open" aria-haspopup="dialog"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Menu</button>
+      <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span></h1>
     </div>
 
     <div>
@@ -105,7 +106,7 @@
       <div class="big-date" id="big-date">&nbsp;</div>
     </div>
   </aside>
-  <script>
+<script>
     /* Restore which side sections are open right here, before the first paint, so switching lines never flashes them open and shut */
     try {
       var v = localStorage.getItem("open-sec");
@@ -155,8 +156,10 @@
   </aside>
 </div>
 <div class="dimmer" id="dimmer" aria-hidden="true"></div>
+<button type="button" class="menu-btn menu-fab" id="menu-fab" aria-label="Menu"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Menu</button>
+<div id="menu" class="menu" role="dialog" aria-modal="true" aria-label="Menu" hidden></div>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.02"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.05"; -->
 <script src="lines/index.js"></script>
 <script>
   /* Pick the line (?line=… or the last one viewed), then load its data and the shared engine in order */
