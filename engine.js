@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.08: District map redrawn to save width (folded trunk, longer Earl's Court spurs).
    v3.07: District line card switched on in the menu.
    v3.06: District line (60 stations, seven routes over five branches).
    v3.05: Hammersmith & City line (29 stations, shares track with the Circle and District).
@@ -32,7 +33,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.07";
+  const VERSION = "3.08";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
