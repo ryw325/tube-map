@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.17: Stripes sit closer to the line, run a third of the way to the next station, then peel away from the line (never towards it).
    v3.16: Context stripes only where the rails are really shared (rules in tools/shared_track.js), peeling away and fading at the ends, on every line that has any.
    v3.15: Context stripes: where a line shares track with another, that line runs beside it and fades out where the sharing ends (lines/shared.js from tools/shared_track.js; Circle and Hammersmith & City only for now).
    v3.14: Circle: new layout (45 degree turns only, loop stretched, labels moved), and a route's second visit to a station now has its own icon with a dotted link to the real station and no label.
@@ -41,7 +42,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.16";
+  const VERSION = "3.17";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -558,7 +559,7 @@
     }
 
     /* ---------- Context: other lines that run on the same track, beside this one, fading out where the track stops being shared ---------- */
-    const SHARE_OFF = [12, -12, 48, -48];   // ranks 0-3: either side of the track inside the train lanes, then outside them
+    const SHARE_OFF = [10, -10, 48, -48];   // ranks 0-3: either side of the track inside the train lanes, then outside them
     const shareSegs = [];                   // far-out stripes also count as track for label placement
     (function buildShare() {
       const SH = window.UNDERCURRENT_SHARED, runs = (SH && SH.runs && SH.runs[LINE.id]) || [];
@@ -581,22 +582,23 @@
           return { x: q.x + (a.x + b.x) * k, y: q.y + (a.y + b.y) * k };
         });
         used.add(run.with);
-        const a0 = run.tailA ? 1 : 0, b0 = P.length - 1 - (run.tailB ? 1 : 0);
         const pathOf = pts => "M " + pts.map(q => q.x.toFixed(1) + " " + q.y.toFixed(1)).join(" L ");
-        el("path", { class: `share ov-${run.with}`, d: pathOf(O.slice(a0, b0 + 1)) }, ovG);
-        // The end of a shared stretch: the stripe peels away from the main line (curving out to its own side) and fades out
-        const PEEL = 28, side = { x: nr[0].x * Math.sign(d), y: nr[0].y * Math.sign(d) };
-        const peel = (from, to, dir, gi) => {
-          const E = { x: to.x + side.x * PEEL, y: to.y + side.y * PEEL }, len = Math.hypot(E.x - from.x, E.y - from.y);
-          const C = { x: from.x + dir.x * len * 0.6, y: from.y + dir.y * len * 0.6 };
+        el("path", { class: `share ov-${run.with}`, d: pathOf(O) }, ovG);   // the stripe, including the straight third towards the next station
+        // Then it peels away from the main line (always out to its own side, never across it) and fades
+        const PEEL = 24, sg = Math.sign(d);
+        const peel = (from, dir, dist, nrm, gi) => {
+          const side = { x: nrm.x * sg, y: nrm.y * sg };
+          const E = { x: from.x + dir.x * dist + side.x * PEEL, y: from.y + dir.y * dist + side.y * PEEL };
+          const C = { x: from.x + dir.x * dist * 0.7, y: from.y + dir.y * dist * 0.7 };
           const id = `ovg-${LINE.id}-${n}-${gi}`;
           const g = el("linearGradient", { id, gradientUnits: "userSpaceOnUse", x1: from.x, y1: from.y, x2: E.x, y2: E.y, class: `ov-${run.with}` }, defs);
           el("stop", { offset: "0", style: "stop-color: var(--oc)" }, g);
           el("stop", { offset: "1", style: "stop-color: var(--oc); stop-opacity: 0" }, g);
           el("path", { class: "share", d: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} Q ${C.x.toFixed(1)} ${C.y.toFixed(1)} ${E.x.toFixed(1)} ${E.y.toFixed(1)}`, style: `stroke: url(#${id})` }, ovG);
         };
-        if (run.tailA) peel(O[a0], O[0], { x: -u[0].x, y: -u[0].y }, "a");
-        if (run.tailB) peel(O[b0], O[b0 + 1], u[u.length - 1], "b");
+        const last = P.length - 1;
+        if (run.tailA) peel(O[0], { x: -u[0].x, y: -u[0].y }, Math.hypot(P[1].x - P[0].x, P[1].y - P[0].y), nr[0], "a");
+        if (run.tailB) peel(O[last], u[last - 1], Math.hypot(P[last].x - P[last - 1].x, P[last].y - P[last - 1].y), nr[last - 1], "b");
         if (Math.abs(d) > 30) O.slice(1).forEach((q, i) => shareSegs.push([O[i], q]));
       });
       lineStyle.textContent += [...used].map(id => { const c = SH.colours[id]; return c ? `
