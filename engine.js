@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.16: Context stripes only where the rails are really shared (rules in tools/shared_track.js), peeling away and fading at the ends, on every line that has any.
    v3.15: Context stripes: where a line shares track with another, that line runs beside it and fades out where the sharing ends (lines/shared.js from tools/shared_track.js; Circle and Hammersmith & City only for now).
    v3.14: Circle: new layout (45 degree turns only, loop stretched, labels moved), and a route's second visit to a station now has its own icon with a dotted link to the real station and no label.
    v3.13: Circle line. Engine: a route may visit a station twice (hidden "ghost" copies, remapRaw), and a station may have extra naptans (alias).
@@ -40,7 +41,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.15";
+  const VERSION = "3.16";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -583,15 +584,19 @@
         const a0 = run.tailA ? 1 : 0, b0 = P.length - 1 - (run.tailB ? 1 : 0);
         const pathOf = pts => "M " + pts.map(q => q.x.toFixed(1) + " " + q.y.toFixed(1)).join(" L ");
         el("path", { class: `share ov-${run.with}`, d: pathOf(O.slice(a0, b0 + 1)) }, ovG);
-        const fade = (from, to, gi) => {
+        // The end of a shared stretch: the stripe peels away from the main line (curving out to its own side) and fades out
+        const PEEL = 28, side = { x: nr[0].x * Math.sign(d), y: nr[0].y * Math.sign(d) };
+        const peel = (from, to, dir, gi) => {
+          const E = { x: to.x + side.x * PEEL, y: to.y + side.y * PEEL }, len = Math.hypot(E.x - from.x, E.y - from.y);
+          const C = { x: from.x + dir.x * len * 0.6, y: from.y + dir.y * len * 0.6 };
           const id = `ovg-${LINE.id}-${n}-${gi}`;
-          const g = el("linearGradient", { id, gradientUnits: "userSpaceOnUse", x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: `ov-${run.with}` }, defs);
+          const g = el("linearGradient", { id, gradientUnits: "userSpaceOnUse", x1: from.x, y1: from.y, x2: E.x, y2: E.y, class: `ov-${run.with}` }, defs);
           el("stop", { offset: "0", style: "stop-color: var(--oc)" }, g);
           el("stop", { offset: "1", style: "stop-color: var(--oc); stop-opacity: 0" }, g);
-          el("path", { class: "share", d: pathOf([from, to]), style: `stroke: url(#${id})` }, ovG);
+          el("path", { class: "share", d: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} Q ${C.x.toFixed(1)} ${C.y.toFixed(1)} ${E.x.toFixed(1)} ${E.y.toFixed(1)}`, style: `stroke: url(#${id})` }, ovG);
         };
-        if (run.tailA) fade(O[a0], O[0], "a");
-        if (run.tailB) fade(O[b0], O[b0 + 1], "b");
+        if (run.tailA) peel(O[a0], O[0], { x: -u[0].x, y: -u[0].y }, "a");
+        if (run.tailB) peel(O[b0], O[b0 + 1], u[u.length - 1], "b");
         if (Math.abs(d) > 30) O.slice(1).forEach((q, i) => shareSegs.push([O[i], q]));
       });
       lineStyle.textContent += [...used].map(id => { const c = SH.colours[id]; return c ? `
