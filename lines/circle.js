@@ -10,6 +10,7 @@ window.UNDERCURRENT_LINE = {
   "N": {"label": "Anticlockwise", "stat": "Anticlockwise", "platform": ["westbound", "inner rail"]}
  },
  "spacing": 1.3,
+ "labelFromDir": true,
  "stations": [
   {"id": "ERC", "naptan": "940GZZLUERC", "code": "ERD", "name": "Edgware Road", "x": 96.7, "y": 0, "pref": "top", "lines": ["Edgware", "Road"]},
   {"id": "BST", "naptan": "940GZZLUBST", "code": "BST", "name": "Baker Street", "x": 193.3, "y": 0, "pref": "top", "lines": ["Baker", "Street"]},

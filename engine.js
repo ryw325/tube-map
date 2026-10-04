@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.19: Audit fixes: direction from the order of the next stops when the feed has no usable destination (or a direction word on any prediction), turn-round lists cut at the repeated station, Circle shows Clockwise/Anticlockwise instead of platform words.
    v3.18: Circle: tapping a second Paddington or Edgware Road icon lights both icons of the station. Tapping a station or train opens the right panel if it was collapsed (it never closes by itself).
    v3.17: Stripes sit closer to the line, run a third of the way to the next station, then peel away from the line (never towards it).
    v3.16: Context stripes only where the rails are really shared (rules in tools/shared_track.js), peeling away and fading at the ends, on every line that has any.
@@ -43,7 +44,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.18";
+  const VERSION = "3.19";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -471,7 +472,7 @@
     const dirLabel = d => LINE.dirs[d].label;
     // "Northbound" / "Eastbound" etc. from the platform name, used where the direction word changes along a line
     const platformWord = name => { const m = /^(\w+bound)\b/i.exec(name || ""); return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : ""; };
-    const dirText = t => t.pdir || dirLabel(t.dir);
+    const dirText = t => (!LINE.labelFromDir && t.pdir) || dirLabel(t.dir);   // labelFromDir (Circle): always name the drawn direction, never the platform word
 
     /* ---------- Page set-up for this line (every panel field is reset, so nothing carries over from the last line) ---------- */
     (function setUpPage() {
@@ -1188,13 +1189,14 @@
     }
 
     // Direction of a prediction along route R: "S" = towards the route's last station, "N" = towards its first
-    function directionOn(R, g, destG, platform) {
+    function directionOn(R, g, destG, platform, fb) {
       const k = R.pos[g];
       let d = destG === undefined ? undefined : R.pos[destG];
       if (HAS_ALT && destG !== undefined && ALT[destG]) d = Math.max(...candOn(R, destG).map(c => R.pos[c]));   // a destination the route reaches twice: the far one
       if (k !== undefined && d !== undefined && d !== k) return d > k ? "S" : "N";
       if (d !== undefined && d === R.LAST) return "S";
       if (d !== undefined && d === 0) return "N";
+      if (fb) return fb;                       // no usable destination: the order of the next stops along the route
       const plat = (platform || "").toLowerCase();
       if (LINE.dirs.S.platform.some(w => plat.startsWith(w))) return "S";
       if (LINE.dirs.N.platform.some(w => plat.startsWith(w))) return "N";
@@ -1236,6 +1238,31 @@
       });
     }
 
+    // Which way a vehicle is heading along route R, from the order of its next stops (up to four different stations, stopping at the first repeat)
+    function orderDir(R, raw) {
+      const seen = new Set(); const ks = [];
+      for (const p of raw) { if (seen.has(p.g)) break; seen.add(p.g); if (R.pos[p.g] !== undefined) ks.push(R.pos[p.g]); if (ks.length >= 4) break; }
+      let sum = 0; for (let i = 1; i < ks.length; i++) sum += Math.sign(ks[i] - ks[i - 1]);
+      return sum > 0 ? "S" : sum < 0 ? "N" : null;
+    }
+    // A direction word on any of the vehicle's predictions (a train terminating mid-line may only name it on a later one)
+    function platDirAny(raw) {
+      for (const p of (raw.all || raw)) {
+        const plat = (p.plat || "").toLowerCase();
+        if (LINE.dirs.S.platform.some(w => plat.startsWith(w))) return "S";
+        if (LINE.dirs.N.platform.some(w => plat.startsWith(w))) return "N";
+      }
+      return null;
+    }
+    // A turn-round lists the arrival and then the return trip: keep only the trip in progress (not on lines whose route passes a station twice)
+    const CUT_REPEATS = !HAS_ALT && !Object.keys(LINE.loopTo || {}).length;
+    function cutAtRepeat(raw) {
+      const seen = new Set(), out = [];
+      for (const p of raw) { if (seen.has(p.g)) break; seen.add(p.g); out.push(p); }
+      out.all = raw;
+      return out;
+    }
+
     // Pick the route that best explains a vehicle's predictions (and, if given, starts from station mustG)
     function chooseRoute(raw0, t, mustG) {
       let best = null;
@@ -1244,7 +1271,8 @@
         const raw = HAS_ALT ? remapRaw(R, raw0, t) : raw0;
         const first = raw[0];
         if (R.pos[first.g] === undefined) return;
-        const dir = directionOn(R, first.g, first.dest, first.plat);
+        const fb = orderDir(R, raw);
+        const dir = directionOn(R, first.g, first.dest, first.plat, fb) || platDirAny(raw);
         if (!dir) return;
         const s = sgn(dir), k0 = R.pos[first.g];
         let score = 0;
@@ -1273,12 +1301,12 @@
           const km = R.pos[mustG];
           if (s * (k0 - km) <= 0) score -= 10;
         }
-        if (!best || score > best.score) best = { R, dir, score, raw };
+        if (!best || score > best.score) best = { R, dir, score, raw, fb };
       });
       if (!best) return null;
       const R = best.R;
       const preds = best.raw.filter(p => R.pos[p.g] !== undefined).map(p => ({
-        idx: R.pos[p.g], dir: directionOn(R, p.g, p.dest, p.plat) || best.dir, tts: p.tts, loc: p.loc, dest: p.dest, pdir: p.pdir, towards: p.towards, shown: p.shown
+        idx: R.pos[p.g], dir: directionOn(R, p.g, p.dest, p.plat, best.fb) || best.dir, tts: p.tts, loc: p.loc, dest: p.dest, pdir: p.pdir, towards: p.towards, shown: p.shown
       }));
       return { R, preds };
     }
@@ -1336,6 +1364,7 @@
 
       groups.forEach((raw, v) => {
         raw.sort((a, b) => a.tts - b.tts);
+        if (CUT_REPEATS) raw = cutAtRepeat(raw);
         let t = trains.get(v);
         if (t) seen.add(v);
         const waitingG = t && t.waiting !== null && t.waiting !== undefined ? t.waiting : null;
@@ -2057,7 +2086,7 @@
           const rows = pool.sort((a, b) => a.left - b.left).slice(0, 3);
           const plat = (rows.find(r => r.platform) || {}).platform || "";
           const word = (rows.find(r => r.pdir) || {}).pdir;
-          const label = (!isTerminus && word ? word : dirLabel(dir)) + (plat && !isTerminus ? ` · ${plat}` : "");
+          const label = (!isTerminus && word && !LINE.labelFromDir ? word : dirLabel(dir)) + (plat && !isTerminus ? ` · ${plat}` : "");
           const cells = rows.length ? rows.map((p, i) => ledRow([
             [String(i + 1)],
             [(p.dest !== undefined && p.dest !== k ? S[p.dest].name : p.destName || "Check front of train") + boardVia(k, p), "dest"],
