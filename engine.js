@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.18: Circle: tapping a second Paddington or Edgware Road icon lights both icons of the station. Tapping a station or train opens the right panel if it was collapsed (it never closes by itself).
    v3.17: Stripes sit closer to the line, run a third of the way to the next station, then peel away from the line (never towards it).
    v3.16: Context stripes only where the rails are really shared (rules in tools/shared_track.js), peeling away and fading at the ends, on every line that has any.
    v3.15: Context stripes: where a line shares track with another, that line runs beside it and fades out where the sharing ends (lines/shared.js from tools/shared_track.js; Circle and Hammersmith & City only for now).
@@ -42,7 +43,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.17";
+  const VERSION = "3.18";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -211,7 +212,7 @@
   setInterval(checkForUpdate, 5 * 60 * 1000);
 
   /* ---------- Collapsible side panels (remembered on this screen) ---------- */
-  (function panels() {
+  const panelsApi = (function panels() {
     const wrap = document.querySelector(".wrap"), mw = document.getElementById("map-wrap");
     let state = { left: true, right: true };
     try { state = Object.assign(state, JSON.parse(localStorage.getItem("panels") || "{}")); } catch (e) {}
@@ -231,6 +232,8 @@
       btn.left.setAttribute("aria-expanded", state.left); btn.right.setAttribute("aria-expanded", state.right);
     }
     apply();
+    // Opening for a tap on a station or train is temporary: it is not saved, and nothing here ever closes the panel.
+    return { openRight() { if (!state.right) { state.right = true; apply(); } } };
   })();
 
   /* ---------- Menu (v3.03): built once, kept in the page; opening it never touches the mounted line ---------- */
@@ -1811,7 +1814,7 @@
           : `Vehicle ID ${t.v}, ${dirText(t).toLowerCase()} to ${destFull(t)}, ${t.loc || "location not reported"}`);
         drawAlert(t, now, dt);
       });
-      gone.forEach(t => { t.node && t.node.remove(); t.alert && t.alert.remove(); trains.delete(t.v); if (selected === t.node) closePop(); });
+      gone.forEach(t => { t.node && t.node.remove(); t.alert && t.alert.remove(); trains.delete(t.v); if (selected.includes(t.node)) closePop(); });
 
       scope.frame(frame);
     }
@@ -1937,7 +1940,7 @@
     const popTitle = document.getElementById("pop-title");
     const popSections = document.getElementById("pop-sections");
     const popNote = document.getElementById("pop-note");
-    let popRender = null, popTimer = null, selected = null;
+    let popRender = null, popTimer = null, selected = [];
     const clockFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
     function whenText(sec) {
@@ -1991,9 +1994,9 @@
       led.appendChild(c);
     }
     function setSelected(node) {
-      if (selected) selected.classList.remove("selected");
-      selected = node || null;
-      if (selected) selected.classList.add("selected");
+      selected.forEach(n => n.classList.remove("selected"));
+      selected = node ? [].concat(node) : [];     // a station with a second icon (Circle) lights every icon
+      selected.forEach(n => n.classList.add("selected"));
     }
     function ledTitle(text) {
       const h = document.createElement("p"); h.className = "led-title"; h.textContent = text;
@@ -2008,6 +2011,7 @@
     }
     function openPop(title, node, render) {
       popRender = render;
+      panelsApi.openRight();
       setSelected(node);
       render();
       scope.stopEvery(popTimer);
@@ -2039,7 +2043,7 @@
     }
     // Station departures: next three each way
     function openBoard(k) {
-      openPop(S[k].name, stationNodes[k], () => {
+      openPop(S[k].name, [stationNodes[k], ...(ALT[k] || []).map(i => stationNodes[i])], () => {
         const now = performance.now();
         const preds = (boardData.get(k) || []).map(p => ({ ...p, left: p.tts - (now - p.fetchedAt) / 1000 })).filter(p => p.left > -20);
         const isTerminus = isTermG(k);
