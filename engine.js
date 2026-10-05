@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.20: Data-age correction: TfL's replies are cached (median about 40 s old), so "time to station" is measured from the reply's timestamp (age = Date header minus timestamp), not from when it arrives. Stops already passed are dropped. ?noage turns it off.
    v3.19: Audit fixes: direction from the order of the next stops when the feed has no usable destination (or a direction word on any prediction), turn-round lists cut at the repeated station, Circle shows Clockwise/Anticlockwise instead of platform words.
    v3.18: Circle: tapping a second Paddington or Edgware Road icon lights both icons of the station. Tapping a station or train opens the right panel if it was collapsed (it never closes by itself).
    v3.17: Stripes sit closer to the line, run a third of the way to the next station, then peel away from the line (never towards it).
@@ -44,8 +45,9 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.19";
+  const VERSION = "3.20";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
+  const AGE_FIX = !/[?&]noage\b/.test(location.search);   // ?noage turns the data-age correction off (for comparing)
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
   const svg = document.getElementById("map");
@@ -1326,8 +1328,18 @@
     const boardData = new Map(); // station index -> predictions at that station
     const orderStrikes = new Map(); // "front>back" -> updates in a row the data has had them the other way round
     const opp = d => d === "S" ? "N" : "S";
-    function ingest(data) {
+    function ingest(data, serverDate) {
       const now = performance.now();
+      // TfL's reply is cached and carries the time it was generated (one timestamp for every prediction); "time to station" counts from then,
+      // not from now. Age = TfL's own clock (the Date header) minus that timestamp, so a wrong clock on this device does not matter.
+      let ageS = 0;
+      if (AGE_FIX && data.length) {
+        const gen = Math.max(...data.map(p => Date.parse(p.timestamp)).filter(Number.isFinite)), ref = serverDate ? Date.parse(serverDate) : Date.now();
+        const a = (ref - gen) / 1000;
+        if (Number.isFinite(a) && a >= 0 && a <= 180) ageS = a;
+      }
+      if (DEBUG) DEBUG.ageS = ageS;
+      const ttsOf = p => p.timeToStation - ageS;
       const groups = new Map();
       boardData.clear();
       data.forEach(p => {
@@ -1339,9 +1351,9 @@
         const list = boardData.get(idx) || boardData.set(idx, []).get(idx);
         const key = (p.vehicleId || "").trim() || p.id;
         const existing = list.find(x => x.key === key && x.dir === dir);
-        if (existing && existing.tts <= p.timeToStation) return;
+        if (existing && existing.tts <= ttsOf(p)) return;
         if (existing) list.splice(list.indexOf(existing), 1);
-        list.push({ key, dir, tts: p.timeToStation, fetchedAt: now,
+        list.push({ key, dir, tts: ttsOf(p), fetchedAt: now,
           dest: destG, destName: (p.destinationName || "").replace(/ Underground Station$/, ""),
           pdir: platformWord(p.platformName), towards: p.towards || "",
           platform: (p.platformName || "").replace(/^\w+bound\s*-\s*/i, "") });
@@ -1353,7 +1365,7 @@
         let dg = byNaptan[p.destinationNaptanId], shown;
         if (dg !== undefined && LOOP_TO[dg] !== undefined) { shown = dg; dg = LOOP_TO[dg]; }
         (groups.get(v) || groups.set(v, []).get(v)).push({
-          g, tts: p.timeToStation, loc: p.currentLocation || "", dest: dg, shown,
+          g, tts: ttsOf(p), loc: p.currentLocation || "", dest: dg, shown,
           plat: p.platformName || "", pdir: platformWord(p.platformName), towards: p.towards || ""
         });
       });
@@ -1364,6 +1376,7 @@
 
       groups.forEach((raw, v) => {
         raw.sort((a, b) => a.tts - b.tts);
+        if (AGE_FIX) { const live = raw.filter(p => p.tts >= -20); raw = live.length ? live : [raw[raw.length - 1]]; }   // stops already passed (the train has arrived at its last one)
         if (CUT_REPEATS) raw = cutAtRepeat(raw);
         let t = trains.get(v);
         if (t) seen.add(v);
@@ -1885,7 +1898,7 @@
         if (!res.ok) throw new Error(`TfL returned an error (${res.status}). Retrying in 30 seconds.`);
         const data = await res.json();
         if (scope.dead) return;                              // the line was switched while this reply was on its way
-        ingest(Array.isArray(data) ? data : []);
+        ingest(Array.isArray(data) ? data : [], res.headers.get("date"));
         everLoaded = true; lastOk = Date.now(); fetchError = null;
       } catch (err) {
         if (scope.dead) return;
