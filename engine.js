@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.23: In-site recorder (recorder.js): the Record button records train positions every 3 s and every TfL Arrivals reply for chosen lines into a .json.gz file. Each line runs in a hidden copy of the page (?recframe), which reports its feed replies and exposes window.__ucLive; no reloads while recording.
+   v3.22: style.css is now loaded as style.css?v=<version>, so a new version never runs with an old cached stylesheet (v3.21 showed stacked, overlapping buttons and pop-ups that did not appear). Panel items never shrink or overlap; buttons scale with screen height.
    v3.21: Left panel redesign: line name at the top, Menu, Key, Prefs and Record (disabled, coming soon) as big buttons; Key and Preferences open as pop-ups; Warmth and Brightness snap to five steps.
    v3.20: Data-age correction: TfL's replies are cached (median about 40 s old), so "time to station" is measured from the reply's timestamp (age = Date header minus timestamp), not from when it arrives. Stops already passed are dropped. ?noage turns it off.
    v3.19: Audit fixes: direction from the order of the next stops when the feed has no usable destination (or a direction word on any prediction), turn-round lists cut at the repeated station, Circle shows Clockwise/Anticlockwise instead of platform words.
@@ -46,8 +48,11 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.21";
+  const VERSION = "3.23";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
+  const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
+  const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
+  function recFeed(...a) { try { const R = window.parent.UndercurrentRecorder; if (R && R.feed) R.feed(...a); } catch (e) {} }
   const AGE_FIX = !/[?&]noage\b/.test(location.search);   // ?noage turns the data-age correction off (for comparing)
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const root = document.documentElement;
@@ -189,7 +194,7 @@
   /* ---------- Stay up to date: reload when a newer version is published ---------- */
   const ENGINE_FILE = "engine.js";
   async function checkForUpdate() {
-    if (location.protocol === "file:") return;
+    if (location.protocol === "file:" || RECFRAME || recBusy()) return;   // never reload under a recording
     try {
       const res = await fetch(ENGINE_FILE + "?v=" + Date.now(), { cache: "no-store" });
       const html = await res.text();
@@ -470,7 +475,7 @@
   const PAGE_START = Date.now();
   const hourFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", hour12: false });
   setInterval(() => {
-    if (txBusy || Date.now() - PAGE_START < 2 * 3600e3) return;
+    if (txBusy || RECFRAME || recBusy() || Date.now() - PAGE_START < 2 * 3600e3) return;
     if (+hourFmt.format(new Date()) === 4) location.reload();
   }, 60000);
 
@@ -1907,10 +1912,12 @@
         if (res.status === 401 || res.status === 403) throw new Error("TfL rejected the API key. Check it under TfL API key.");
         if (!res.ok) throw new Error(`TfL returned an error (${res.status}). Retrying in 30 seconds.`);
         const data = await res.json();
+        if (RECFRAME) recFeed(LINE.id, res.status, data, res.headers.get("date"));
         if (scope.dead) return;                              // the line was switched while this reply was on its way
         ingest(Array.isArray(data) ? data : [], res.headers.get("date"));
         everLoaded = true; lastOk = Date.now(); fetchError = null;
       } catch (err) {
+        if (RECFRAME) recFeed(LINE.id, 0, null, null, String((err && err.message) || err));
         if (scope.dead) return;
         fetchError = err && err.message && !/fetch|network/i.test(err.message)
           ? err.message
@@ -1985,6 +1992,7 @@
     function hideTip() { tip.hidden = true; tipFor = null; }
     scope.on(document, "scroll", hideTip, { passive: true });
 
+    if (RECFRAME) window.__ucLive = { id: LINE.id, trains, S, now: () => performance.now(), age: () => performance.now() - lastFrame };
     if (DEBUG_ON) window.__undercurrent = { DEBUG, trains, S, ROUTES, LANES: R0.LANES, poseAtL: R0.poseAtL, cum: R0.cum, segLen: R0.segLen, TRAIN_SCALE };
 
     /* ---------- Departure board (fixed in the right panel) ---------- */
