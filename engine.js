@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.21: Left panel redesign: line name at the top, Menu, Key, Prefs and Record (disabled, coming soon) as big buttons; Key and Preferences open as pop-ups; Warmth and Brightness snap to five steps.
    v3.20: Data-age correction: TfL's replies are cached (median about 40 s old), so "time to station" is measured from the reply's timestamp (age = Date header minus timestamp), not from when it arrives. Stops already passed are dropped. ?noage turns it off.
    v3.19: Audit fixes: direction from the order of the next stops when the feed has no usable destination (or a direction word on any prediction), turn-round lists cut at the repeated station, Circle shows Clockwise/Anticlockwise instead of platform words.
    v3.18: Circle: tapping a second Paddington or Edgware Road icon lights both icons of the station. Tapping a station or train opens the right panel if it was collapsed (it never closes by itself).
@@ -45,7 +46,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.20";
+  const VERSION = "3.21";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const AGE_FIX = !/[?&]noage\b/.test(location.search);   // ?noage turns the data-age correction off (for comparing)
   const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -123,33 +124,8 @@
   updateClock();
   setInterval(updateClock, 1000);
 
-  // Key and Preferences work as an accordion (one open at a time) so the panel always fits the screen
-  const secs = [...document.querySelectorAll("details.sec")];
-  try { const v = localStorage.getItem("open-sec"); if (v !== null) secs.forEach(d => { d.open = d.id === v; }); } catch (e) {}
-  let secBusy = false;
-  function animateBody(d, opening) {
-    const body = d.querySelector(".sec-body");
-    if (reduceMotionPref || !body.animate) { d.open = opening; return Promise.resolve(); }
-    if (opening) d.open = true;
-    const h = body.scrollHeight;
-    const anim = body.animate(opening ? [{ height: "0px", opacity: 0 }, { height: h + "px", opacity: 1 }]
-                                      : [{ height: h + "px", opacity: 1 }, { height: "0px", opacity: 0 }],
-                             { duration: 200, easing: "ease-in-out" });
-    return anim.finished.then(() => { if (!opening) d.open = false; });
-  }
-  secs.forEach(d => d.querySelector("summary").addEventListener("click", async e => {
-    e.preventDefault();
-    if (secBusy) return;
-    secBusy = true;
-    if (d.open) { await animateBody(d, false); }
-    else {
-      const other = secs.find(o => o !== d && o.open);
-      if (other) await animateBody(other, false);   // close the previous one first
-      await animateBody(d, true);
-    }
-    secBusy = false;
-    try { localStorage.setItem("open-sec", (secs.find(o => o.open) || { id: "" }).id); } catch (e) {}
-  }));
+  // v3.21: Key and Preferences moved to pop-ups (below); forget the old accordion state
+  try { localStorage.removeItem("open-sec"); } catch (e) {}
 
   /* ---------- Appearance: auto / light / dark ---------- */
   function applyTheme(v) {
@@ -181,7 +157,8 @@
   };
   const mixC = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
   function applyDisplay() {
-    const w = +warmth.value / 100, b = +bright.value / 100;
+    const ws = +warmth.value, bs = +bright.value;           // v3.21: five steps each (0 to 4)
+    const w = ws * 0.25, b = 0.2 + bs * 0.2;
     const tone = TONES[isDark() ? "dark" : "light"];
     const c = w < 0.5 ? mixC(tone.cool, tone.neutral, w / 0.5) : mixC(tone.neutral, tone.warm, (w - 0.5) / 0.5);
     const rgb = `rgb(${c.join(",")})`;
@@ -190,11 +167,19 @@
     if (isDark()) { root.setProperty("--station-fill", rgb); root.setProperty("--ring-fill", rgb); }
     else { root.removeProperty("--station-fill"); root.removeProperty("--ring-fill"); }
     dimmer.style.opacity = ((1 - b) * 0.9).toFixed(3);
-    document.getElementById("warmth-out").textContent = w < 0.4 ? "Cool" : w > 0.6 ? "Warm" : "Neutral";
+    document.getElementById("warmth-out").textContent = WARMTH_NAMES[ws];
     document.getElementById("brightness-out").textContent = Math.round(b * 100) + "%";
-    try { localStorage.setItem("display", JSON.stringify({ w: warmth.value, b: bright.value })); } catch (e) {}
+    [warmth, bright].forEach(inp => {
+      const v = +inp.value;
+      inp.closest(".step-ctl").style.setProperty("--p", v / 4);
+      inp.closest(".step-track").querySelectorAll(".step-dots i").forEach((d, i) => d.classList.toggle("on", i <= v));
+    });
+    // Saved in the same units as before (warmth 0 to 100, brightness 20 to 100), so older saved values still load
+    try { localStorage.setItem("display", JSON.stringify({ w: ws * 25, b: 20 + bs * 20 })); } catch (e) {}
   }
-  try { const d = JSON.parse(localStorage.getItem("display") || "null"); if (d) { warmth.value = d.w; bright.value = d.b; } } catch (e) {}
+  const WARMTH_NAMES = ["Cool", "Fresh", "Neutral", "Warm", "Amber"];
+  const snap = (v, lo, def) => { v = Math.round((+v - lo) / ((100 - lo) / 4)); return Number.isFinite(v) ? Math.min(4, Math.max(0, v)) : def; };
+  try { const d = JSON.parse(localStorage.getItem("display") || "null"); if (d) { warmth.value = snap(d.w, 0, 2); bright.value = snap(d.b, 20, 4); } } catch (e) {}
   warmth.addEventListener("input", applyDisplay);
   bright.addEventListener("input", applyDisplay);
   if (darkQuery && darkQuery.addEventListener) darkQuery.addEventListener("change", applyDisplay);
@@ -421,6 +406,31 @@
   });
   document.getElementById("menu-open").addEventListener("click", openMenu);
   document.getElementById("menu-fab").addEventListener("click", openMenu);
+
+  /* ---------- Key and Preferences pop-ups (v3.21) ---------- */
+  const sheetScrim = document.getElementById("sheet-scrim");
+  let sheetEl = null, sheetFrom = null;
+  function openSheet(id) {
+    const el = document.getElementById(id);
+    if (!el || menuOpen) return;
+    if (sheetEl) closeSheet(true);
+    sheetFrom = document.activeElement; sheetEl = el;
+    sheetScrim.hidden = false; el.hidden = false;
+    void el.offsetWidth; sheetScrim.classList.add("in"); el.classList.add("in");
+    el.querySelector(".sheet-x").focus({ preventScroll: true });
+  }
+  function closeSheet(now) {
+    if (!sheetEl) return;
+    const el = sheetEl; sheetEl = null;
+    el.classList.remove("in"); sheetScrim.classList.remove("in");
+    const done = () => { if (el !== sheetEl) el.hidden = true; if (!sheetEl) sheetScrim.hidden = true; };
+    if (now === true || reduceMotionPref) done(); else setTimeout(done, 220);
+    if (now !== true && sheetFrom && sheetFrom.focus) sheetFrom.focus({ preventScroll: true });
+  }
+  document.querySelectorAll("[data-sheet]").forEach(b => b.addEventListener("click", () => openSheet(b.dataset.sheet)));
+  document.querySelectorAll(".sheet [data-close]").forEach(b => b.addEventListener("click", () => closeSheet()));
+  sheetScrim.addEventListener("click", () => closeSheet());
+  document.addEventListener("keydown", e => { if (sheetEl && e.key === "Escape") closeSheet(); });
   function tickPicker(id) {
     menuEl.querySelectorAll(".gline.live").forEach(c => {
       const on = c.dataset.line === id;

@@ -10,12 +10,9 @@
 <body>
 <div class="wrap">
   <aside class="panel">
-    <div>
-      <div class="panel-top">
-        <p class="eyebrow">Live prototype · v3.20</p>
-      </div>
-      <button type="button" class="menu-btn" id="menu-open" aria-haspopup="dialog"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Menu</button>
+    <div class="panel-head">
       <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span></h1>
+      <p class="eyebrow">Live prototype · v3.21</p>
     </div>
 
     <div>
@@ -31,75 +28,16 @@
       <div><dt id="dir-s">Southbound</dt><dd id="stat-sb">–</dd></div>
     </dl>
 
-    <details class="sec" id="sec-key" open>
-      <summary>Key</summary>
-      <div class="sec-body">
-      <ul class="legend">
-        <li>
-          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <path class="train-body legend-train" transform="scale(0.62)" d="M-12,-7 H10 L17,0 L10,7 H-12 A6 6 0 0 1 -18,1 V-1 A6 6 0 0 1 -12,-7 Z"/>
-          </svg>
-          <span>Train</span>
-        </li>
-        <li>
-          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <circle class="station" cx="0" cy="0" r="6" style="stroke-width:3"/>
-          </svg>
-          <span>Station</span>
-        </li>
-      </ul>
-      <p class="sub-label">Interchanges</p>
-      <ul class="legend">
-        <li>
-          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <circle class="ix-dot" cx="-4" cy="0" r="6" fill="#003688"/><circle class="ix-dot" cx="6" cy="0" r="6" fill="#A0A5A9"/>
-          </svg>
-          <span>Tube line</span>
-        </li>
-        <li>
-          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <circle class="ix-ring" cx="-6" cy="0" r="5" stroke="#972861"/><circle class="ix-ring" cx="6" cy="0" r="5" stroke="#6950A1"/>
-          </svg>
-          <span>Overground or Elizabeth line</span>
-        </li>
-        <li>
-          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
-            <g class="rail-icon"><g><rect class="ix-rail" x="-7.5" y="-7.5" width="15" height="15" rx="3"/><path class="ix-rail-glyph" d="M-4.5,-2.5 H4.5 M2,-5 L4.5,-2.5 L2,0 M4.5,2.5 H-4.5 M-2,0 L-4.5,2.5 L-2,5"/></g></g>
-          </svg>
-          <span>National Rail</span>
-        </li>
-      </ul>
-      </div>
-    </details>
 
-    <details class="sec" id="sec-prefs">
-      <summary>Preferences</summary>
-      <div class="sec-body">
-      <p class="sub-label">Appearance</p>
-      <div class="seg seg3" role="radiogroup" aria-label="Appearance">
-        <input type="radio" name="theme" id="th-auto" value="auto" checked><label for="th-auto">Auto</label>
-        <input type="radio" name="theme" id="th-light" value="light"><label for="th-light">Light</label>
-        <input type="radio" name="theme" id="th-dark" value="dark"><label for="th-dark">Dark</label>
+    <div class="panel-btns">
+      <button type="button" class="menu-btn" id="menu-open" aria-haspopup="dialog"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Menu</button>
+      <div class="pbtn-row">
+        <button type="button" class="menu-btn pbtn" id="key-open" data-sheet="sheet-key" aria-haspopup="dialog"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>Key</button>
+        <button type="button" class="menu-btn pbtn" id="prefs-open" data-sheet="sheet-prefs" aria-haspopup="dialog" aria-label="Preferences"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg>Prefs</button>
       </div>
-      <p class="sub-label">Carriage label</p>
-      <div class="seg" role="radiogroup" aria-label="Carriage label">
-        <input type="radio" name="lbl" id="lbl-dest" value="dest" checked><label for="lbl-dest">Destination</label>
-        <input type="radio" name="lbl" id="lbl-num" value="num"><label for="lbl-num">Vehicle ID</label>
-      </div>
-      <div class="controls inline">
-        <label for="warmth">Warmth</label><input type="range" id="warmth" min="0" max="100" step="1" value="50"><output id="warmth-out">Neutral</output>
-        <label for="brightness">Brightness</label><input type="range" id="brightness" min="20" max="100" step="1" value="100"><output id="brightness-out">100%</output>
-      </div>
-      <details class="apikey">
-        <summary>TfL API key</summary>
-        <form class="key-row" id="key-form">
-          <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your app key" aria-label="TfL API key">
-          <button type="submit" id="key-save">Save</button>
-        </form>
-        <small class="key-note" id="key-note">Optional. Saved only in this browser.</small>
-      </details>
-      </div>
-    </details>
+      <button type="button" class="menu-btn pbtn rec-btn" id="rec-btn" disabled aria-describedby="rec-note"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>Record</button>
+      <p class="rec-note" id="rec-note">Recording, coming soon</p>
+    </div>
 
     <div class="clock-block">
       <div class="big-time" id="big-time">--:--</div>
@@ -107,10 +45,8 @@
     </div>
   </aside>
 <script>
-    /* Restore which side sections are open right here, before the first paint, so switching lines never flashes them open and shut */
+    /* Restore the panels' open or closed state before the first paint */
     try {
-      var v = localStorage.getItem("open-sec");
-      if (v !== null) document.querySelectorAll("details.sec").forEach(function (d) { d.open = d.id === v; });
       var st = JSON.parse(localStorage.getItem("panels") || "{}"), w = document.querySelector(".wrap");
       if (st.left === false) w.classList.add("left-closed");
       if (st.right === false) w.classList.add("right-closed");
@@ -158,8 +94,83 @@
 <div class="dimmer" id="dimmer" aria-hidden="true"></div>
 <button type="button" class="menu-btn menu-fab" id="menu-fab" aria-label="Menu"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Menu</button>
 <div id="menu" class="menu" role="dialog" aria-modal="true" aria-label="Menu" hidden></div>
+<div class="sheet-scrim" id="sheet-scrim" hidden></div>
+<section class="sheet" id="sheet-key" role="dialog" aria-modal="true" aria-labelledby="sheet-key-h" hidden>
+  <div class="sheet-head"><h2 id="sheet-key-h">Key</h2><button type="button" class="sheet-x" data-close aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="sheet-body">
+      <ul class="legend">
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <path class="train-body legend-train" transform="scale(0.62)" d="M-12,-7 H10 L17,0 L10,7 H-12 A6 6 0 0 1 -18,1 V-1 A6 6 0 0 1 -12,-7 Z"/>
+          </svg>
+          <span>Train</span>
+        </li>
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <circle class="station" cx="0" cy="0" r="6" style="stroke-width:3"/>
+          </svg>
+          <span>Station</span>
+        </li>
+      </ul>
+      <p class="sub-label">Interchanges</p>
+      <ul class="legend">
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <circle class="ix-dot" cx="-4" cy="0" r="6" fill="#003688"/><circle class="ix-dot" cx="6" cy="0" r="6" fill="#A0A5A9"/>
+          </svg>
+          <span>Tube line</span>
+        </li>
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <circle class="ix-ring" cx="-6" cy="0" r="5" stroke="#972861"/><circle class="ix-ring" cx="6" cy="0" r="5" stroke="#6950A1"/>
+          </svg>
+          <span>Overground or Elizabeth line</span>
+        </li>
+        <li>
+          <svg width="28" height="24" viewBox="-14 -12 28 24" aria-hidden="true">
+            <g class="rail-icon"><g><rect class="ix-rail" x="-7.5" y="-7.5" width="15" height="15" rx="3"/><path class="ix-rail-glyph" d="M-4.5,-2.5 H4.5 M2,-5 L4.5,-2.5 L2,0 M4.5,2.5 H-4.5 M-2,0 L-4.5,2.5 L-2,5"/></g></g>
+          </svg>
+          <span>National Rail</span>
+        </li>
+      </ul>
+  </div>
+</section>
+<section class="sheet" id="sheet-prefs" role="dialog" aria-modal="true" aria-labelledby="sheet-prefs-h" hidden>
+  <div class="sheet-head"><h2 id="sheet-prefs-h">Preferences</h2><button type="button" class="sheet-x" data-close aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="sheet-body">
+      <p class="sub-label">Appearance</p>
+      <div class="seg seg3" role="radiogroup" aria-label="Appearance">
+        <input type="radio" name="theme" id="th-auto" value="auto" checked><label for="th-auto">Auto</label>
+        <input type="radio" name="theme" id="th-light" value="light"><label for="th-light">Light</label>
+        <input type="radio" name="theme" id="th-dark" value="dark"><label for="th-dark">Dark</label>
+      </div>
+      <p class="sub-label">Carriage label</p>
+      <div class="seg" role="radiogroup" aria-label="Carriage label">
+        <input type="radio" name="lbl" id="lbl-dest" value="dest" checked><label for="lbl-dest">Destination</label>
+        <input type="radio" name="lbl" id="lbl-num" value="num"><label for="lbl-num">Vehicle ID</label>
+      </div>
+      <div class="step-ctl">
+        <div class="step-head"><label for="warmth">Warmth</label><output id="warmth-out">Neutral</output></div>
+        <div class="step-track"><div class="step-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><input type="range" id="warmth" min="0" max="4" step="1" value="2"></div>
+        <div class="step-labels" aria-hidden="true"><span>Cool</span><span>Fresh</span><span>Neutral</span><span>Warm</span><span>Amber</span></div>
+      </div>
+      <div class="step-ctl">
+        <div class="step-head"><label for="brightness">Brightness</label><output id="brightness-out">100%</output></div>
+        <div class="step-track"><div class="step-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><input type="range" id="brightness" min="0" max="4" step="1" value="4"></div>
+        <div class="step-labels" aria-hidden="true"><span>20%</span><span>40%</span><span>60%</span><span>80%</span><span>100%</span></div>
+      </div>
+      <details class="apikey">
+        <summary>TfL API key</summary>
+        <form class="key-row" id="key-form">
+          <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your app key" aria-label="TfL API key">
+          <button type="submit" id="key-save">Save</button>
+        </form>
+        <small class="key-note" id="key-note">Optional. Saved only in this browser.</small>
+      </details>
+  </div>
+</section>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.20"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.21"; -->
 <script src="lines/index.js"></script>
 <script src="lines/shared.js"></script>
 <script>
