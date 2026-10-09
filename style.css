@@ -574,3 +574,29 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .rec-frames { position: fixed; left: 0; top: 0; width: 900px; height: 640px; opacity: 0; pointer-events: none; z-index: -1; overflow: hidden; }
 .rec-frames iframe { position: absolute; inset: 0; width: 900px; height: 640px; border: 0; }
 @media (prefers-reduced-motion: reduce) { .rec-dot, .rec-btn.on svg circle:last-child { animation: none; } }
+
+/* ---------- v3.24 station page ---------- */
+.stn-scene .stn-track { fill: none; stroke-width: 7; stroke-linejoin: round; stroke-linecap: round; }
+.stn-scene .stn-track.c0 { stroke: var(--stn-0); }
+.stn-scene .stn-track.c1 { stroke: var(--stn-1); }
+.stn-scene .stn-station { fill: var(--station-fill); stroke: var(--ink); stroke-width: 15; }
+.stn-scene .stn-title { fill: var(--ink); font-family: var(--sans); font-size: 26px; font-weight: 500; }
+.stn-scene .stn-dir { font-family: var(--sans); font-size: 14px; font-weight: 500; }
+.stn-scene .stn-dir.c0 { fill: var(--stn-0); }
+.stn-scene .stn-dir.c1 { fill: var(--stn-1); }
+.stn-scene .train { cursor: pointer; outline: none; }
+.stn-scene .train.stn-t0 .train-body { fill: var(--stn-t0); stroke: var(--stn-t0); }
+.stn-scene .train.stn-t1 .train-body { fill: var(--stn-t1); stroke: var(--stn-t1); }
+.stn-scene .train-num { text-anchor: middle; dominant-baseline: central; }
+.stn-scene .train:hover .train-body, .stn-scene .train:focus-visible .train-body { stroke: var(--ink); stroke-width: 3; }
+.stn-scene .train.selected .train-body { stroke: #FFA41C; stroke-width: 3.5; }
+.led-row.stn { grid-template-columns: 1.2em minmax(0, 1fr) auto; }
+.led-row .sub { grid-column: 2 / -1; display: flex; justify-content: space-between; gap: 0.6em; min-width: 0; font-size: 0.76em; line-height: 1.1; opacity: 0.8; }
+.led-row .sub-l { overflow: hidden; text-overflow: ellipsis; }
+.led-row .sub-r { flex: none; }
+.led-row.stn { row-gap: 0; }
+.led-row.stn + .led-row.stn { margin-top: 0.15em; }
+.stn-scene .stn-mark circle { fill: var(--station-fill); stroke: var(--ink); stroke-width: 1.4; }
+.stn-scene .stn-mark text { fill: var(--ink); font-family: var(--sans); font-size: 8.5px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+/* v3.25 phone board: the board keeps one constant size here too, just tall enough for 2 trains each way */
+@media (max-width: 860px) { html.stn-page .rpanel .board { min-height: 340px; } }

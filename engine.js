@@ -1,4 +1,9 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.28: Recorder records stations too (Stations row in the Record pop-up; the station page ticks itself). The recording is saved into the browser's storage as it goes, so reloading or changing page mid-recording carries straight on (no leave prompt); a recording left by a closed tab is saved as a file the next time the site opens. File format 2 adds station rows (fields.stationTrain), kinds, resumes and gaps.
+   v3.27: Station page: trains no longer park at a marker; inside its gap a train moves steadily over the time it should take (its time to Hammersmith shared over the stops left). Piccadilly trains running through Turnham Green don't count it as a stop. Zoom is smooth (3 to 5 stops): markers close up and the next one slides in from the fade, and trains, markers, track and lanes shrink as you zoom out. Thinner track and marker rings, smaller markers and trains by default.
+   v3.26: Station page looks more like a live map: smaller trains and a thinner track give the trains more ground to cover, the stops-away markers are numbered station-style circles on the track (1 to 3 by default, zoom out to 5 with the zoom buttons, + and - keys or the wheel), and the edge fade starts just after the last stop shown so it fits any screen width and zoom.
+   v3.25: Station page: board rows have two lines (destination, then line name and stops away; board stays its fixed size). Stops-away markers (1, 2, 3 stops) sit on each track on the approach side; trains are spaced by stops, with time setting the position inside each gap and the feed's location text keeping each train in the right gap. Stops away is counted along the train's own route to Hammersmith and hidden when it can't be worked out. Train labels now sit inside the train and turn with it, as on the line pages.
+   v3.24: Station page (station.js, lines/station-<id>.js): ?station=hsd shows one station (Hammersmith, District and Piccadilly) with the same side panels as a line page. Each line is one track pinching round the station icon, trains run in lanes either side (eastbound above, westbound below), lines and trains fade at the page edges, and the board lists the next trains each way. Menu Station card switched on.
    v3.23: In-site recorder (recorder.js): the Record button records train positions every 3 s and every TfL Arrivals reply for chosen lines into a .json.gz file. Each line runs in a hidden copy of the page (?recframe), which reports its feed replies and exposes window.__ucLive; no reloads while recording.
    v3.22: style.css is now loaded as style.css?v=<version>, so a new version never runs with an old cached stylesheet (v3.21 showed stacked, overlapping buttons and pop-ups that did not appear). Panel items never shrink or overlap; buttons scale with screen height.
    v3.21: Left panel redesign: line name at the top, Menu, Key, Prefs and Record (disabled, coming soon) as big buttons; Key and Preferences open as pop-ups; Warmth and Brightness snap to five steps.
@@ -48,7 +53,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.23";
+  const VERSION = "3.28";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -234,7 +239,7 @@
   const SVGNS = 'viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
   const TILES = [
     { id: "line", name: "Line", sub: "One line, every train", live: true, icon: '<path d="M8 44 H28 L40 20 H56"/><circle cx="8" cy="44" r="5"/><circle cx="30" cy="44" r="5"/><circle cx="40" cy="20" r="5"/><circle cx="56" cy="20" r="5"/>' },
-    { id: "station", name: "Station", sub: "One station, every arrival and departure", icon: '<circle cx="32" cy="32" r="9"/><path d="M6 32 H21 M43 32 H58 M14 24 L6 32 L14 40 M50 24 L58 32 L50 40"/>' },
+    { id: "station", name: "Station", sub: "One station, every arrival and departure", live: true, go: "station", icon: '<circle cx="32" cy="32" r="9"/><path d="M6 32 H21 M43 32 H58 M14 24 L6 32 L14 40 M50 24 L58 32 L50 40"/>' },
     { id: "region", name: "Region", sub: "A part of the live network", icon: '<rect x="6" y="10" width="52" height="44" rx="8"/><path d="M6 40 H24 L34 26 H58 M28 10 V26"/><circle cx="24" cy="40" r="4"/><circle cx="34" cy="26" r="4"/>' },
     { id: "full", name: "Full Map", sub: "The whole network at once", icon: '<path d="M6 20 H30 L44 34 H58 M10 50 L26 34 H58 M32 6 V58 M6 42 H26"/><circle cx="32" cy="20" r="4"/><circle cx="26" cy="34" r="4"/><circle cx="44" cy="34" r="4"/>' }
   ];
@@ -283,7 +288,7 @@
   }
   function buildMenu() {
     const tiles = TILES.map(t => t.live
-      ? `<button type="button" class="tile" data-go="lines"><div class="tile-top"><svg width="72" height="72" ${SVGNS}>${t.icon}</svg><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 H19 M13 6 L19 12 L13 18"/></svg></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`
+      ? `<button type="button" class="tile" data-go="${t.go || 'lines'}"><div class="tile-top"><svg width="72" height="72" ${SVGNS}>${t.icon}</svg><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 H19 M13 6 L19 12 L13 18"/></svg></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`
       : `<button type="button" class="tile" disabled aria-label="${t.name}, coming soon"><div class="tile-top"><svg width="72" height="72" ${SVGNS} style="opacity:.75">${t.icon}</svg><span class="soon">Coming soon</span></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`).join("");
     menuEl.innerHTML =
       `<div class="menu-view menu-land" data-view="land"><div class="menu-top"><div class="menu-eyebrow">Project Undercurrent</div>${clockHTML}</div>` +
@@ -402,6 +407,7 @@
     if (!b || b.disabled) return;
     if (b.dataset.line) { const id = b.dataset.line; closeMenu(() => { if (cur && id !== cur.id) plainSwitch(id); }); return; }
     const go = b.dataset.go;
+    if (go === "station") { closeMenu(() => { location.assign(location.pathname + "?station=hsd"); }); return; }
     if (go === "close") closeMenu(); else if (go) showView(go);
   });
   document.addEventListener("keydown", e => {
@@ -2374,14 +2380,20 @@
   /* ---------- Mount and unmount ---------- */
   const FADE_SEL = ".line-title, .status, .status-reason, .updated, .stats, #pop-sections, #pop-note, #facts";
   const popSections = document.getElementById("pop-sections");
+  // v3.24: a station page is mounted by station.js into the same shell
+  function mountStation(STN, scope) {
+    if (!window.UndercurrentStation) throw new Error("station.js did not load");
+    return window.UndercurrentStation.mount(STN, scope, { svg, panelsApi, updateClock, lineStyle, factBar, tickPicker, VERSION, reduceMotion: reduceMotionPref, debug: DEBUG_ON });
+  }
   function mount(LINE, arrival) {
     const gen = ++guard.mounts, scope = makeScope(gen);
     const prev = guard.gen; guard.gen = gen;                // timers started while building are stamped with this line
-    try { cur = { id: LINE.id, LINE, scope, api: null }; cur.api = mountLine(LINE, scope, arrival); }
+    try { cur = { id: LINE.id, LINE, scope, api: null }; cur.api = LINE.kind === "station" ? mountStation(LINE, scope) : mountLine(LINE, scope, arrival); }
     finally { guard.gen = prev; }
     // self-check: every line runs the same number of repeating timers as the first one did
     const n = guard.intervals.size;
-    if (guard.baseIntervals === null) guard.baseIntervals = n;
+    if (LINE.kind === "station") { /* a station page runs its own set of timers */ }
+    else if (guard.baseIntervals === null) guard.baseIntervals = n;
     else if (n !== guard.baseIntervals) guard.problems.push(`${n} repeating timers after mount ${gen} (the first line had ${guard.baseIntervals})`);
   }
   function unmount() {
@@ -2406,7 +2418,7 @@
 
   /* ---------- Switching lines without reloading ---------- */
   function lineURL(id, arrival) {
-    const q = new URLSearchParams(location.search); q.set("line", id); q.delete("from");
+    const q = new URLSearchParams(location.search); q.set("line", id); q.delete("from"); q.delete("station");
     if (arrival) q.set("from", `${arrival.naptan}~${Math.round(arrival.px)}~${Math.round(arrival.py)}`);
     return location.pathname + "?" + q + location.hash;
   }
@@ -2455,6 +2467,7 @@
   }
   let pendingURL = false;
   function followURL() {
+    if (new URLSearchParams(location.search).get("station") && cur && cur.LINE.kind !== "station") { location.reload(); return; }   // back to a station page: load it fresh
     const id = new URLSearchParams(location.search).get("line");
     if (knownLine(id) && cur && id !== cur.id) plainSwitch(id, false);
   }
@@ -2466,7 +2479,7 @@
     const why = guard.problems[0] || `${guard.strays} timer callback(s) from a closed line`;
     if (DEBUG_ON) { if (!guard.reported) { guard.reported = true; console.warn("Undercurrent leak check:", why); } return; }
     console.warn("Undercurrent: reloading cleanly:", why);
-    location.replace(lineURL(cur ? cur.id : new URLSearchParams(location.search).get("line") || ""));
+    location.replace(cur && cur.LINE.kind === "station" ? location.href : lineURL(cur ? cur.id : new URLSearchParams(location.search).get("line") || ""));
   }, 5000);
 
   /* ---------- Debug readout (?debug) ---------- */

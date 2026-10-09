@@ -17,3 +17,5 @@ window.UNDERCURRENT_MENU = [{"id":"light","name":"Light rail","sub":"DLR and Lon
 // Line page board: 7 columns x 4 rows, read left to right, top to bottom. "c-<category>" is a category tile; every other id is a line.
 // Categories form connected blocks (a train circles each block), surface at the top, deep level at the bottom. Move a tile by swapping two ids.
 window.UNDERCURRENT_GRID = ["menu","c-light","trams","liberty","lioness","mildmay","c-over","thameslink","dlr","hammersmith","circle","weaver","windrush","suffragette","c-hybrid","elizabeth","c-sub","metropolitan","district","central","victoria","c-deep","bakerloo","jubilee","northern","waterloo","piccadilly","logo"];
+// Stations that have their own page (?station=<id>; data in lines/station-<id>.js)
+window.UNDERCURRENT_STATIONS = [{ id: "hsd", name: "Hammersmith" }];

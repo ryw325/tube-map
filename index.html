@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tube Live</title>
 <script>if (/[?&]from=/.test(location.search)) { document.documentElement.classList.add("tx-in", "tx-away"); setTimeout(function () { var c = document.documentElement.classList; if (c.contains("tx-in")) c.remove("tx-in", "tx-away"); }, 5000); }  /* only used if a line ever has to switch by a full page load (the fallback): keep the panels slid off screen from the first paint */</script>
-<link rel="stylesheet" href="style.css?v=3.23">
+<link rel="stylesheet" href="style.css?v=3.28">
 </head>
 <body>
 <div class="wrap">
   <aside class="panel">
     <div class="panel-head">
       <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span></h1>
-      <p class="eyebrow">Live prototype · v3.23</p>
+      <p class="eyebrow">Live prototype · v3.28</p>
     </div>
 
     <div>
@@ -101,16 +101,18 @@
     <div id="rec-setup">
       <p class="sub-label">Lines</p>
       <div class="rec-lines" id="rec-lines"></div>
+      <p class="sub-label">Stations</p>
+      <div class="rec-lines" id="rec-stations"></div>
       <p class="sub-label">Length</p>
       <div class="seg rec-len" role="radiogroup" aria-label="Recording length"><input type="radio" name="rec-len" id="rl-0" value="0" checked><label for="rl-0">Until I stop</label><input type="radio" name="rec-len" id="rl-30" value="30"><label for="rl-30">30 min</label><input type="radio" name="rec-len" id="rl-60" value="60"><label for="rl-60">1 hour</label><input type="radio" name="rec-len" id="rl-120" value="120"><label for="rl-120">2 hours</label></div>
-      <p class="rec-hint">Every 3 seconds, records where each train icon is, plus every TfL reply. Keep this tab open and in front; the screen stays awake. Saves a .json.gz file to your Downloads.</p>
+      <p class="rec-hint">Every 3 seconds, records where each train icon is, plus every TfL reply. Keep this tab open and in front; the screen stays awake. Changing line or station, or reloading, carries on recording. Saves a .json.gz file to your Downloads.</p>
       <button type="button" class="menu-btn rec-go" id="rec-start">Start recording <span id="rec-start-n">1 line</span></button>
       <p class="rec-hint" id="rec-last" hidden>Last file: <span id="rec-last-name"></span> <button type="button" class="rec-link" id="rec-again">Download again</button></p>
     </div>
     <div id="rec-live" hidden>
       <div class="rec-live-head"><span class="rec-dot" aria-hidden="true"></span><span class="rec-elapsed" id="rec-elapsed">0:00</span><span class="rec-left" id="rec-left"></span></div>
       <dl class="rec-stats">
-        <div><dt>Lines</dt><dd id="rec-what"></dd></div>
+        <div><dt>Recording</dt><dd id="rec-what"></dd></div>
         <div><dt>Samples</dt><dd id="rec-nsamples">0</dd></div>
         <div><dt>TfL replies</dt><dd id="rec-nfeeds">0</dd></div>
       </dl>
@@ -194,12 +196,19 @@
   </div>
 </section>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.23"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.28"; -->
 <script src="lines/index.js"></script>
 <script src="lines/shared.js"></script>
 <script>
   /* Pick the line (?line=… or the last one viewed), then load its data and the shared engine in order */
   (function () {
+    /* v3.24: ?station=<id> opens a station page (data from lines/station-<id>.js, drawn by station.js) */
+    const sid = new URLSearchParams(location.search).get("station");
+    if (sid && (window.UNDERCURRENT_STATIONS || []).some(s => s.id === sid)) {
+      const b = "?b=" + Date.now();
+      document.write('<script src="lines/river.js' + b + '"><\/script><script src="lines/station-' + sid + '.js' + b + '"><\/script><script src="station.js' + b + '"><\/script><script src="engine.js' + b + '"><\/script><script src="recorder.js' + b + '"><\/script>');
+      return;
+    }
     const lines = window.UNDERCURRENT_LINES || [];
     let id = new URLSearchParams(location.search).get("line");
     try { if (!id) id = localStorage.getItem("line"); } catch (e) {}
