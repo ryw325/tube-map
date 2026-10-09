@@ -19,6 +19,11 @@
   // v3.29: how drawn positions absorb TfL's revisions (in gaps between stops, so they don't depend on the zoom)
   const CATCH_UP = 0.05;      // fastest a train may catch up when TfL brings its arrival forward: a whole gap in 20 s
   const BACK_LIMIT = 1.2;     // a train is never drawn moving backwards unless it is more than this many gaps out of place
+  // v3.30: the page reads the per-train line feed (every train's own list of next stops and times), the same source as the line maps
+  const SPAWN_S = 1800;       // draw trains up to 30 minutes out, so distant ones come in from the edge rather than appearing mid-screen
+  const MISS_POLLS = 4;       // a train missing from this many replies in a row (about 2 minutes) fades out...
+  const FADE_MS = 4000;       // ...over this long
+  const Q_FWD = 6, Q_BACK = 4;   // drawn-position limits in map units per second, so queuing in a lane is never a jump (zooming is exempt)
   const SHOW_TITLE = false;   // the left panel already carries the station name, as on the line pages
 
   /* ---------- Geometry ---------- */
@@ -169,7 +174,7 @@
       maskRect.setAttribute("x", -cx); maskRect.setAttribute("y", -cy); maskRect.setAttribute("width", VW); maskRect.setAttribute("height", VH);
       if (titleEl) { titleEl.setAttribute("x", 0); titleEl.setAttribute("y", 54 - cy); }
       dirEls.forEach(([we, ee]) => { we.setAttribute("x", -cx + 24); ee.setAttribute("x", cx - 24); });
-      placeMarks();
+      placeMarks(); snapUntil = performance.now() + 250;
     }
     // marker 1 sits just past the pinch (X1) and marker z at XK, 72% of the way to the screen edge, so zooming out closes the markers up and the next
     // one slides in from the fade (fading in as it arrives). The fade starts just after XK and ends at the edge, whatever the width of the screen.
@@ -193,7 +198,8 @@
         });
       }));
     }
-    function applyZoom() { zf = zScale(z); buildLanes(); placeMarks(); }
+    let snapUntil = 0;                                       // while zooming or resizing, drawn positions jump straight to where they belong
+    function applyZoom() { zf = zScale(z); buildLanes(); placeMarks(); snapUntil = performance.now() + 250; }
     const zoomFit = document.getElementById("zoom-fit");
     function zoomTo(v) {
       zTarget = Math.max(STOPS_MIN, Math.min(STOPS_MAX, v));
@@ -257,7 +263,7 @@
       const tts = (o.eta - now) / 1000;
       let t = trains.get(o.key);
       if (!t) {
-        if (tts > 700 || tts < -DWELL - 60) return;
+        if (tts > SPAWN_S || tts < -DWELL - 60) return;
         t = makeTrain(o); t.eta = t.deta = o.eta; t.born = now; trains.set(o.key, t);
       } else {
         const cur = (t.deta - now) / 1000;
@@ -265,7 +271,9 @@
         else if (cur >= 0) t.eta = o.eta;
         t.dest = o.dest;
       }
-      t.seen = now; t.loc = o.loc;
+      if (o.plan) firstGap(t, o.plan, o.loc, now);
+      t.seen = now; t.loc = o.loc; t.plan = o.plan || null; t.n = o.plan ? o.plan.length : null; if (o.calls) t.calls = o.calls;
+      if (t.fadeAt && now - t.fadeAt < FADE_MS) t.fadeAt = 0;          // back in the feed before it had gone: carry on
       const si = stopInfo({ line: o.line, dir: o.dir, loc: o.loc }), g = t.gap;
       if (!si) t.gap = null;
       else if (!g || g.n !== si.n || g.at !== si.at) {
@@ -279,12 +287,48 @@
         t.gap = { n: si.n, at: si.at, e0: tts, e1: tts * Math.max(0, si.n - 1) / Math.max(1, si.n), f0 };
       }
     }
+    // The feed has no time for the stop a train has just left, so when its first gap changes, work out when it left: just now if it has just
+    // passed a stop; at a typical gap's length before its next stop if TfL says it is standing "At" that stop; otherwise (first seen on the
+    // move) as if it is 40% of the way through the gap, or a typical gap's length, whichever is longer
+    function firstGap(t, plan, loc, now) {
+      const key = plan.length + "|" + plan[0].name;
+      if (t.planKey === key) return;
+      const prev = t.planKey; t.planKey = key; t.dep0At = false;
+      const left = Math.max(0, (plan[0].eta - now) / 1000), gaps = [];
+      for (let i = 1; i < plan.length; i++) gaps.push((plan[i].eta - plan[i - 1].eta) / 1000);
+      const typ = Math.max(30, Math.min(150, 0.8 * (gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : TAU_STOP)));
+      if (prev && +prev.split("|")[0] === plan.length + 1) t.dep0 = now;
+      else if (/^at\s/i.test(loc || "") && !/^at\s+(hammersmith|platform)/i.test(loc)) { t.dep0 = plan[0].eta - Math.min(left, typ) * 1000; t.dep0At = true; }
+      else t.dep0 = now - (Math.max(left / 0.6, typ) - left) * 1000;
+    }
     function dropTrain(t) { if (sel === t) clearSel(); t.g.remove(); trains.delete(t.key); }
     let lastFrame = performance.now();
     // how many stops out a train is (fractional). The feed's location picks the gap; inside it the train moves steadily from the far marker to
     // the near one over the time it should take (its time to Hammersmith shared evenly over the stops left), easing in to the platform
     const gF = e => e <= 0 ? 0 : e >= TDEC ? e - TDEC / 2 : e * e / (2 * TDEC);
+    // v3.30: with the train's own stop list, marker m (m stops out) is due at the predicted time of that stop; the train waits there for a
+    // short dwell, then runs to the next marker by that stop's predicted time. Only a train TfL lists with Hammersmith alone falls back to
+    // the location text (below)
+    function planQ(t, now) {
+      const P = t.plan, n = P.length;
+      const T = m => P[n - 1 - m].eta;                          // marker m's predicted arrival (marker 0 is Hammersmith)
+      const gaps = []; for (let m = 1; m < n; m++) gaps.push((T(m - 1) - T(m)) / 1000);
+      const typ = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : TAU_STOP;
+      t.atStop = false;
+      for (let m = n; m >= 1; m--) {
+        const arrNext = T(m - 1);
+        if (now >= arrNext) continue;
+        const dwell = m < n ? Math.min(20000, 0.25 * (arrNext - T(m))) : 0;
+        const dep = m < n ? T(m) + dwell : (t.dep0 || arrNext - Math.max(30, Math.min(150, typ * 0.8)) * 1000);   // first gap: see firstGap()
+        if (now <= dep) { t.atStop = m < n ? now >= T(m) : !!t.dep0At; return m; }
+        const left = (arrNext - now) / 1000, span = (arrNext - dep) / 1000;
+        const f = m === 1 ? gF(left) / Math.max(1, gF(span)) : left / Math.max(1, span);
+        return m - 1 + Math.max(0, Math.min(1, f));
+      }
+      return 0;
+    }
     function qOf(t) {
+      if (t.plan && (t.plan.length > 1 || !t.gap || t.gap.n <= 1)) return planQ(t, Date.now());
       const g = t.gap, e = t.tts;
       if (!g) return gF(e) / TAU_STOP;                           // no location: time alone
       if (g.n <= 0) return 0;
@@ -321,13 +365,22 @@
         const L = byLane[k].sort((a, b) => a.tts - b.tts);
         const gap = GAP * zf;
         for (let i = 1; i < L.length; i++) if (L[i].s > L[i-1].s - gap) L[i].s = L[i-1].s - gap;
+        // v3.30: the drawn position follows within speed limits, so a train held up behind another slows to a stop rather than being shoved back,
+        // and pulls away smoothly when the one in front moves on or leaves (zooming and resizing move everything at once)
+        const snap = performance.now() < snapUntil;
+        for (const t of L) {
+          if (t.sd === undefined || snap) { t.sd = t.s; continue; }
+          const d = t.s - t.sd;
+          t.sd += d > 0 ? Math.min(d, Q_FWD * zf * dt) : Math.max(d, -Q_BACK * zf * dt);
+          t.s = t.sd;
+        }
       }
       const mode = (document.querySelector('input[name="lbl"]:checked') || { value: "dest" }).value;
       for (const t of Array.from(trains.values())) {
         const p = pose(LANES[t.line + t.dir], t.s);
-        if ((t.tts < 0 && Math.abs(p.x) > half) || (t.fadeAt && now - t.fadeAt > 1500)) { dropTrain(t); continue; }
+        if ((t.tts < 0 && Math.abs(p.x) > half) || (t.fadeAt && now - t.fadeAt > FADE_MS)) { dropTrain(t); continue; }
         let op = Math.min(1, (now - t.born) / 1000);
-        if (t.fadeAt) op = Math.min(op, Math.max(0, 1 - (now - t.fadeAt) / 1500));
+        if (t.fadeAt) op = Math.min(op, Math.max(0, 1 - (now - t.fadeAt) / FADE_MS));
         const o = Math.abs(p.x) < half + 60 ? op.toFixed(2) : "0";
         const deg = p.ang * 180 / Math.PI, a = ((deg % 360) + 360) % 360, flip = a > 90 && a < 270;   // label turns with the train and is never upside down, as on the line pages
         t.g.setAttribute("transform", `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${deg.toFixed(1)}) scale(${(SC * zf).toFixed(3)})`);
@@ -345,19 +398,44 @@
       try { key = localStorage.getItem("tfl-app-key") || ""; } catch (e) {}
       return API + path + (key ? (path.includes("?") ? "&" : "?") + "app_key=" + encodeURIComponent(key) : "");
     }
+    // v3.30: the line feed lists every train's next stops. Group the predictions by train; a train whose list includes Hammersmith is on its
+    // way here, and the stops before Hammersmith (in time order) are the stops it still makes. TfL only predicts stops a train calls at, so
+    // stations it runs through never count. Its whole list is also its calling points for the board.
+    let SIDE = null;                                           // station name -> side of Hammersmith it lies on, per line, from the approach lists (built on first use)
+    function buildSide() { SIDE = {}; IDS.forEach(id => { SIDE[id] = {}; ["E", "W"].forEach(d => (APPROACH[id][d] || []).forEach(q => q.forEach(n => { if (n !== nrm(STN.name)) SIDE[id][n] = d; }))); }); }
+    const blankVid = v => !v || /^0+$/.test(v);
     function ingest(data) {
-      const now = Date.now(), list = [];
+      const now = Date.now(), list = [], groups = new Map();
+      if (!SIDE) buildSide();
       for (const a of data) {
         if (!LINES[a.lineId]) continue;
         const eta = Date.parse(a.expectedArrival);
         if (!isFinite(eta)) continue;
-        const dir = dirOf(a);
-        list.push({ line: a.lineId, dir, dest: a.destinationName, destName: nameOf(a.destinationName), eta, vid: a.vehicleId, platform: a.platformName, loc: a.currentLocation });
-        upsert({ key: a.lineId + dir + a.vehicleId, line: a.lineId, dir, dest: a.destinationName, vid: a.vehicleId, eta, loc: a.currentLocation }, now);
+        const here = a.naptanId === STN.naptan;
+        // trains TfL gives no vehicle number can't be grouped safely: each Hammersmith prediction stands alone
+        const k = a.lineId + "|" + (blankVid(a.vehicleId) ? (here ? "x" + a.vehicleId + a.destinationName + a.platformName : null) : a.vehicleId);
+        if (k.endsWith("|null")) continue;
+        (groups.get(k) || groups.set(k, []).get(k)).push({ a, eta, here, name: nameOf(a.stationName), nap: a.naptanId });
+      }
+      for (const preds of groups.values()) {
+        preds.sort((x, y) => x.eta - y.eta);
+        const hi = preds.findIndex(p => p.here);
+        if (hi < 0) continue;                                    // not on its way to Hammersmith (or already past it)
+        const h = preds[hi], a = h.a, line = a.lineId;
+        const seen = new Set(), before = [];
+        for (const p of preds.slice(0, hi)) if (!seen.has(p.nap)) { seen.add(p.nap); before.push(p); }
+        let dir = null;                                          // which side it is coming from, by the stops it calls at first
+        for (const p of before) { const sd = SIDE[line][nrm(p.name)]; if (sd) { dir = sd; break; } }
+        if (!dir) dir = dirOf(a);
+        const plan = before.map(p => ({ name: p.name, eta: p.eta })).concat({ name: STN.name, eta: h.eta });
+        const calls = preds.filter((p, i) => i === preds.findIndex(q => q.nap === p.nap)).map(p => ({ name: p.name, at: p.eta }));
+        const vid = a.vehicleId;
+        list.push({ line, dir, dest: a.destinationName, destName: nameOf(a.destinationName), eta: h.eta, vid, platform: a.platformName, loc: a.currentLocation, n: plan.length });
+        upsert({ key: line + dir + (blankVid(vid) ? "x" + vid + a.destinationName : vid), line, dir, dest: a.destinationName, vid, eta: h.eta, loc: a.currentLocation, plan, calls }, now);
       }
       board = list;
       for (const t of trains.values()) {
-        if (t.seen < now) { t.missed++; if (t.missed >= 2 && (t.deta - now) / 1000 > 5 && !t.fadeAt) t.fadeAt = now; } else t.missed = 0;
+        if (t.seen < now) { t.missed++; if (t.missed >= MISS_POLLS && (t.deta - now) / 1000 > 5 && !t.fadeAt) t.fadeAt = now; } else t.missed = 0;
       }
     }
     // v3.28: in a recorder's hidden copy, every TfL reply goes to the recorder in the page that owns it
@@ -365,7 +443,7 @@
     const recFeed = (...a) => { try { const R = window.parent.UndercurrentRecorder; if (R && R.feed) R.feed(...a); } catch (e) {} };
     async function poll() {
       try {
-        const res = await scope.fetch(apiUrl(`/StopPoint/${STN.naptan}/Arrivals`), { cache: "no-store" });
+        const res = await scope.fetch(apiUrl(`/Line/${IDS.join(",")}/Arrivals`), { cache: "no-store" });
         if (RECFRAME && !res.ok) recFeed(STN.id, res.status, null, res.headers.get("date"), "HTTP " + res.status);
         if (res.status === 429) throw new Error("TfL is limiting requests. Add an API key below, or wait a minute.");
         if (res.status === 401 || res.status === 403) throw new Error("TfL rejected the API key. Check it under TfL API key.");
@@ -440,7 +518,9 @@
       return best === null ? null : { n: best, at: bestAt, approach: bestAp };
     }
     function stopsText(p) {
-      const n = stopsAway(p);
+      let n = p.n != null && p.n > 1 ? p.n : stopsAway(p);
+      if (n === null && p.n === 1) n = 1;
+      if (n === 1 && /^at\s+(hammersmith|platform)/i.test(p.loc || "")) n = 0;
       if (ctx.debug) locSeen.set(p.line + " | " + p.dir + " | " + p.loc, n);
       return n === null || n > STOPS_CAP ? "" : n === 0 ? "At platform" : n === 1 ? "1 stop away" : n + " stops away";
     }
@@ -528,7 +608,7 @@
     function openTrain(t) {
       panelsApi.openRight();
       setSel(t); t.stops = null;
-      loadStops(t);
+      if (t.calls && t.calls.length) { t.stops = t.calls; vehFetched = Date.now(); } else loadStops(t);
       popRender = () => {
         if (sel !== t || !trains.has(t.key)) { clearSel(); return; }
         const now = Date.now();
@@ -539,7 +619,7 @@
           : [ledRow([[t.stops ? "No stops predicted" : "Loading…", "dest"], ["", "when"]], "stop led-empty")];
         addClock(screen("Calling at", rows));
         popNote.textContent = t.loc ? `Now: ${t.loc}` : ""; popNote.hidden = !t.loc;
-        if (Date.now() - vehFetched > 20000) loadStops(t);
+        if (t.calls && t.calls.length) t.stops = t.calls; else if (Date.now() - vehFetched > 20000) loadStops(t);
       };
       popRender();
     }
@@ -605,7 +685,7 @@
                        approach: Object.fromEntries(IDS.map(id => [id, LINES[id].approach || null])), skip: Object.fromEntries(IDS.map(id => [id, LINES[id].skip || []])) }),
         sample: () => Array.from(trains.values()).filter(t => typeof t.s === "number").map(t => {
           const p = pose(LANES[t.line + t.dir], t.s);
-          return [t.vid, t.line, t.dir, n1(p.x), n1(p.y), n1(t.s), n2(t.tts >= 0 ? qOf(t) : 0), t.gap ? t.gap.n : null, t.gap ? !!t.gap.at : null, n1(t.tts), nameOf(t.dest), t.loc || "", n2(t.op)];
+          return [t.vid, t.line, t.dir, n1(p.x), n1(p.y), n1(t.s), n2(t.tts >= 0 ? qOf(t) : 0), t.n != null && (t.n > 1 || !t.gap) ? t.n : t.gap ? t.gap.n : null, t.plan ? !!t.atStop : t.gap ? !!t.gap.at : null, n1(t.tts), nameOf(t.dest), t.loc || "", n2(t.op)];
         })
       };
     }
