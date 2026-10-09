@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.29: Station page smoothing (from Ryan's 9 Oct 5pm recording): trains first seen part-way through a gap start where their time puts them; each lane keeps arrival order (no swaps); an approaching train is never drawn moving backwards when TfL pushes its arrival later (it holds), and catches up at most a gap per 20 s when TfL brings it forward; Piccadilly runs through Stamford Brook and Ravenscourt Park as well as Turnham Green. tools/station_replay.js replays a recording's TfL replies on a fake clock.
    v3.28: Recorder records stations too (Stations row in the Record pop-up; the station page ticks itself). The recording is saved into the browser's storage as it goes, so reloading or changing page mid-recording carries straight on (no leave prompt); a recording left by a closed tab is saved as a file the next time the site opens. File format 2 adds station rows (fields.stationTrain), kinds, resumes and gaps.
    v3.27: Station page: trains no longer park at a marker; inside its gap a train moves steadily over the time it should take (its time to Hammersmith shared over the stops left). Piccadilly trains running through Turnham Green don't count it as a stop. Zoom is smooth (3 to 5 stops): markers close up and the next one slides in from the fade, and trains, markers, track and lanes shrink as you zoom out. Thinner track and marker rings, smaller markers and trains by default.
    v3.26: Station page looks more like a live map: smaller trains and a thinner track give the trains more ground to cover, the stops-away markers are numbered station-style circles on the track (1 to 3 by default, zoom out to 5 with the zoom buttons, + and - keys or the wheel), and the edge fade starts just after the last stop shown so it fits any screen width and zoom.
@@ -53,7 +54,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.28";
+  const VERSION = "3.29";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

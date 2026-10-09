@@ -39,6 +39,9 @@ window.UNDERCURRENT_LINE = {
     ],
     "W": [
      [
+      "Temple",
+      "Embankment",
+      "Westminster",
       "St. James's Park",
       "Victoria",
       "Sloane Square",
@@ -77,6 +80,7 @@ window.UNDERCURRENT_LINE = {
    "approach": {
     "E": [
      [
+      "Hounslow West",
       "Hounslow Central",
       "Hounslow East",
       "Osterley",
@@ -85,9 +89,12 @@ window.UNDERCURRENT_LINE = {
       "South Ealing",
       "Acton Town",
       "Turnham Green",
+      "Stamford Brook",
+      "Ravenscourt Park",
       "Hammersmith"
      ],
      [
+      "South Harrow",
       "Sudbury Hill",
       "Sudbury Town",
       "Alperton",
@@ -96,11 +103,16 @@ window.UNDERCURRENT_LINE = {
       "Ealing Common",
       "Acton Town",
       "Turnham Green",
+      "Stamford Brook",
+      "Ravenscourt Park",
       "Hammersmith"
      ]
     ],
     "W": [
      [
+      "Holborn",
+      "Covent Garden",
+      "Leicester Square",
       "Piccadilly Circus",
       "Green Park",
       "Hyde Park Corner",
@@ -115,7 +127,9 @@ window.UNDERCURRENT_LINE = {
    },
    "short": "PIC",
    "skip": [
-    "Turnham Green"
+    "Turnham Green",
+    "Stamford Brook",
+    "Ravenscourt Park"
    ]
   }
  },

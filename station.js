@@ -16,6 +16,9 @@
   const STOPS_MIN = 3, STOPS_MAX = 5;   // stops away shown on each side of the station: 3 by default, zooming smoothly out to 5
   const TAU_STOP = 100;       // typical seconds between stops, used only for trains the feed gives no location for
   const TAU_DEP = 60;         // a leaving train crosses the first gap in about this long
+  // v3.29: how drawn positions absorb TfL's revisions (in gaps between stops, so they don't depend on the zoom)
+  const CATCH_UP = 0.05;      // fastest a train may catch up when TfL brings its arrival forward: a whole gap in 20 s
+  const BACK_LIMIT = 1.2;     // a train is never drawn moving backwards unless it is more than this many gaps out of place
   const SHOW_TITLE = false;   // the left panel already carries the station name, as on the line pages
 
   /* ---------- Geometry ---------- */
@@ -258,7 +261,7 @@
         t = makeTrain(o); t.eta = t.deta = o.eta; t.born = now; trains.set(o.key, t);
       } else {
         const cur = (t.deta - now) / 1000;
-        if (cur < 0 && tts > 90) { t.eta = t.deta = o.eta; t.born = now; t.fadeAt = 0; }      // same vehicle, new trip
+        if (cur < 0 && tts > 90) { t.eta = t.deta = o.eta; t.born = now; t.fadeAt = 0; t.qs = undefined; t.gap = null; }      // same vehicle, new trip
         else if (cur >= 0) t.eta = o.eta;
         t.dest = o.dest;
       }
@@ -268,8 +271,12 @@
       else if (!g || g.n !== si.n || g.at !== si.at) {
         // a new gap: it runs from marker n to marker n - 1. Entered from its far marker (just left a stop, or passed one) the train starts at
         // the marker; first seen part-way through, it starts in the middle (or near the end when "approaching")
+        // (v3.29: first seen part-way through, it starts where its time to Hammersmith puts it, not at a fixed point, so two trains in one
+        // gap with very different times don't start on top of each other)
         const fromMarker = !!g && (g.at || g.n > si.n);
-        t.gap = { n: si.n, at: si.at, e0: tts, e1: tts * Math.max(0, si.n - 1) / Math.max(1, si.n), f0: fromMarker ? 1 : si.approach ? 0.3 : 0.6 };
+        let f0 = 1;
+        if (!fromMarker) { f0 = Math.max(0.05, Math.min(1, gF(tts) / TAU_STOP - (si.n - 1))); if (si.approach) f0 = Math.min(f0, 0.35); }
+        t.gap = { n: si.n, at: si.at, e0: tts, e1: tts * Math.max(0, si.n - 1) / Math.max(1, si.n), f0 };
       }
     }
     function dropTrain(t) { if (sel === t) clearSel(); t.g.remove(); trains.delete(t.key); }
@@ -292,18 +299,26 @@
       const now = Date.now(), half = VW / 2 + 70;
       const byLane = {};
       for (const t of trains.values()) {
-        t.deta += (t.eta - t.deta) * (1 - Math.exp(-dt / 0.8));
+        t.deta = t.eta;                                          // the drawn position (below) does the smoothing now
         t.tts = (t.deta - now) / 1000;
         const L = LANES[t.line + t.dir];
-        let target;
-        if (t.tts < 0) target = sOf(t.tts) * (qToD(L, 1) / (SPEED * TAU_DEP));           // leaving
-        else target = -qToD(L, qOf(t));
-        t.sm = t.sm === undefined ? target : t.sm + (target - t.sm) * (1 - Math.exp(-dt / 0.8));
-        t.s = t.sm;
+        // where the train should be, in gaps out from the station (negative once it has left)
+        const tq = t.tts < 0 ? -sOf(t.tts) / (SPEED * TAU_DEP) : qOf(t);
+        if (t.qs === undefined) t.qs = tq;
+        else {
+          const d = tq - t.qs;
+          if (d < 0) {                                           // forwards: ease towards it, but never faster than CATCH_UP (faster once at or past the platform)
+            const cap = (t.tts < 0 ? 4 : 1) * CATCH_UP * dt;
+            t.qs -= Math.min(cap, -d * (1 - Math.exp(-dt / 1.5)) + 0.004 * dt);
+            if (t.qs < tq) t.qs = tq;
+          } else if (d > BACK_LIMIT) t.qs += Math.min(d, CATCH_UP * dt);   // badly out of place: drift back slowly
+          // otherwise TfL has pushed the arrival later: hold still until the train's time catches up
+        }
+        t.s = t.qs >= 0 ? -qToD(L, t.qs) : -t.qs * qToD(L, 1);
         (byLane[t.line + t.dir] = byLane[t.line + t.dir] || []).push(t);
       }
-      for (const k in byLane) {                                // trains in one lane never overlap: later ones queue nose to tail
-        const L = byLane[k].sort((a, b) => b.s - a.s);
+      for (const k in byLane) {                                // trains in one lane keep their arrival order and queue nose to tail (v3.29: ordered by arrival time, so they never swap)
+        const L = byLane[k].sort((a, b) => a.tts - b.tts);
         const gap = GAP * zf;
         for (let i = 1; i < L.length; i++) if (L[i].s > L[i-1].s - gap) L[i].s = L[i-1].s - gap;
       }
