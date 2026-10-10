@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.35: Linear 2 for station pages. No station rings: each track ramps in to a short straight section at the middle, with grey pill separators at the two ends and between each pair of tracks. Direction words sit at the line ends.
    v3.34: Radial layout for station pages, picked with a switch in the map's top-left corner (remembered on this device). Every track runs straight through one central ring at roughly its real angle (angles per station from tools/make_station.py), the stops-away markers sit on circles, the fade is round, and each track end is named by its next station. Trains move exactly as in the Linear layout (the same lanes, turned). The stacked Linear layout keeps clear of the switch.
    v3.33: King's Cross St Pancras station page (?station=kxc): six lines on four tracks, stacked across the map, each with its own station ring, the rings linked like an interchange on the Tube map. Euston is on the left of every track, and each track is labelled with its own direction words (from each line's data). With three or more tracks the departures board shows two tracks at a time, moving on every 8 seconds or when tapped, and the side panel counts tracks and platforms.
    v3.32: Barbican station page (?station=bbn): Circle, Hammersmith & City and Metropolitan share one track, drawn as a ribbon of three stripes, and share its lanes (STN.tracks groups lines that share rails; lines that don't share rails keep a track each). A single track runs straight through the station and its lanes bow out round the station icon. Destination codes moved to one shared file (lines/codes.js), so each station file is about 4.6 KB instead of 11 KB. Station line keys are TfL's line ids.
@@ -59,7 +60,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.34";
+  const VERSION = "3.35";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

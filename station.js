@@ -10,7 +10,11 @@
    v3.34: a second layout, Radial. Every track runs straight through one central station ring at its own angle (STN.angles, roughly the real
    direction of the line), the stops-away markers sit on a circle, the fade is round, and each track end is named by its next station. The
    lanes, markers and trains are worked out exactly as for a straight track and then turned by the track's angle, so the train movement is
-   the same in both layouts. A switch in the map's top-left corner picks the layout; the choice is remembered on this device. */
+   the same in both layouts. A switch in the map's top-left corner picks the layout; the choice is remembered on this device.
+   v3.35: Linear 2. No station rings. Each track runs flat at its outer level, ramps in at 34 degrees to a short straight section (about two
+   trains long) at the middle, and ramps out again. Grey pill separators (as on the Tube map) mark the middle: one beyond the first track, one
+   beyond the last, and one between each pair of tracks, so stations with more than two tracks get a separator between each. Direction words
+   sit at the two line ends on the outer side of their track. */
 (function () {
   "use strict";
   const NS = "http://www.w3.org/2000/svg";
@@ -34,10 +38,31 @@
   const SHOW_TITLE = false;   // the left panel already carries the station name, as on the line pages
 
   /* ---------- Geometry ---------- */
-  const PINCH = {   // track centre lines, west to east, relative to the station; vertex 3 sits level with the station
-    top:    [[-6000,-110],[-70,-110],[-32,-72],[0,-72],[32,-72],[70,-110],[6000,-110]],
-    bottom: [[-6000, 110],[-70, 110],[-32, 72],[0, 72],[32, 72],[70, 110],[6000, 110]]
-  };
+  // v3.35 Linear 2: a track is flat at its outer level, ramps in at RAMP to a short straight section of 2 * HALF at the middle, and ramps out;
+  // corners are rounded by cutting CUT off each side. SPC is the distance between the straight sections, RISE how far a track ramps outwards
+  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 14, SEP_GAP = 23, SEP_BOX = 34;
+  const SEP_END = "M6,7 H10.57 A7 7 0 0 1 17.5,1 H18.5 A7 7 0 0 1 25.43,7 H30 A5 5 0 0 1 35,12 A5 5 0 0 1 30,17 H6 A5 5 0 0 1 1,12 A5 5 0 0 1 6,7 Z";   // 36 x 18, bump at the top
+  const SEP_MID = "M6,1 H30 A5 5 0 0 1 35,6 A5 5 0 0 1 30,11 H25.5 V23 H30 A5 5 0 0 1 35,28 A5 5 0 0 1 30,33 H6 A5 5 0 0 1 1,28 A5 5 0 0 1 6,23 H10.5 V11 H6 A5 5 0 0 1 1,6 A5 5 0 0 1 6,1 Z";   // 36 x 34
+  // a rounded polyline through V (a vertex marked with a third entry is where the station is: its index comes back as idx)
+  function roundPoly(V, R) {
+    const out = []; let idx = 0;
+    V.forEach((P, i) => {
+      if (i === 0 || i === V.length - 1) { out.push([P[0], P[1]]); if (P[2]) idx = out.length - 1; return; }
+      const a = V[i - 1], c = V[i + 1], l1 = Math.hypot(P[0] - a[0], P[1] - a[1]), l2 = Math.hypot(c[0] - P[0], c[1] - P[1]);
+      const d1 = [(P[0] - a[0]) / l1, (P[1] - a[1]) / l1], d2 = [(c[0] - P[0]) / l2, (c[1] - P[1]) / l2];
+      if (Math.abs(d1[0] * d2[1] - d1[1] * d2[0]) < 1e-6) { out.push([P[0], P[1]]); if (P[2]) idx = out.length - 1; return; }
+      const r = Math.min(R, 0.45 * l1, 0.45 * l2), p1 = [P[0] - d1[0] * r, P[1] - d1[1] * r], p2 = [P[0] + d2[0] * r, P[1] + d2[1] * r];
+      for (let k = 0; k <= 12; k++) { const t = k / 12, q0 = (1 - t) * (1 - t), q1 = 2 * (1 - t) * t, q2 = t * t; out.push([q0 * p1[0] + q1 * P[0] + q2 * p2[0], q0 * p1[1] + q1 * P[1] + q2 * p2[1]]); }
+    });
+    return { pts: out, idx };
+  }
+  function linearTrack(yc, yo) {
+    const rise = Math.abs(yo - yc), X = 6000;
+    if (rise < 0.5) return roundPoly([[-X, yc], [0, yc, 1], [X, yc]], CUT);
+    const dx = rise / Math.tan(RAMP);
+    return roundPoly([[-X, yo], [-(HALF + dx), yo], [-HALF, yc], [0, yc, 1], [HALF, yc], [HALF + dx, yo], [X, yo]], CUT);
+  }
+  const yAtX = (P, x) => { let i = 1; while (i < P.length - 1 && P[i][0] < x) i++; const a = P[i - 1], b = P[i], u = b[0] === a[0] ? 0 : (x - a[0]) / (b[0] - a[0]); return a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, u)); };
   function offsetPoly(P, d) {
     const n = P.length, segs = [];
     for (let i = 0; i < n - 1; i++) {
@@ -56,13 +81,13 @@
     out.push([P[n-1][0] + l.n[0] * d, P[n-1][1] + l.n[1] * d]);
     return out;
   }
-  function mkLane(pts) {
+  function mkLane(pts, idx) {
     const cum = [0], ang = [];
     for (let i = 1; i < pts.length; i++) {
       const dx = pts[i][0] - pts[i-1][0], dy = pts[i][1] - pts[i-1][1];
       cum.push(cum[i-1] + Math.hypot(dx, dy)); ang.push(Math.atan2(dy, dx));
     }
-    return { pts, cum, ang, total: cum[cum.length-1], s0: cum[3] };
+    return { pts, cum, ang, total: cum[cum.length-1], s0: cum[idx === undefined ? 3 : idx] };
   }
   const wrap = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
   function pose(L, s) {
@@ -138,11 +163,12 @@
     const mask = el("mask", { id: "stn-fade", maskUnits: "userSpaceOnUse", x: -6000, y: -6000, width: 12000, height: 12000 }, defs);
     const maskRect = el("rect", { fill: "url(#stn-fg)" }, mask);
     const scene = el("g", { class: "stn-scene" });
+    const sepG = el("g", { "aria-hidden": "true" }, scene);
     const fadeG = el("g", { mask: "url(#stn-fade)" }, scene);
     const poly = a => a.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
     /* v3.32: tracks. Lines that share rails share one track, drawn as a ribbon of thin stripes (one per line, as on the TfL map), and their trains
-       share its lanes. STN.tracks lists the groups (default: one track per line). Two tracks pinch round the station, one above and one below;
-       a single track runs straight through the station and its lanes bow out round the station icon */
+       share its lanes. STN.tracks lists the groups (default: one track per line). In Linear the tracks are stacked and each ramps in to the middle (v3.35);
+       in Radial every track runs straight through the one ring */
     const GROUPS = (STN.tracks || IDS.map(id => [id])).map(g => g.filter(id => LINES[id])).filter(g => g.length).slice(0, 4);
     const GK = GROUPS.map(g => g.join("+")), GROUP_OF = {};
     GROUPS.forEach((g, i) => g.forEach(id => { GROUP_OF[id] = GK[i]; }));
@@ -155,14 +181,18 @@
     const ANG = GROUPS.map((g, i) => { const a = (STN.angles || [])[i]; return (typeof a === "number" ? a : NG === 1 ? -12 : -60 + i * 120 / (NG - 1)) * Math.PI / 180; });
     const ROT = {};                                            // per track: its turn in the layout on screen (0 in Linear)
     const rp = (k, x, y) => { const a = ROT[k]; if (!a) return [x, y]; const c = Math.cos(a), sn = Math.sin(a); return [x * c - y * sn, x * sn + y * c]; };
-    const BASE = {};
-    let SP = 130, OFF = 0;                                     // stacked tracks: the distance between them and the stack's shift up or down (fitted in layout())
-    const stackY = i => OFF + (i - (NG - 1) / 2) * SP;
+    const BASE = {}, IDX0 = {};
+    let SEPS = null;
+    let SPC = 78, RISE = 52, OFF = 0;                          // Linear: the distance between the straight sections, how far a track ramps outwards, and the stack's shift (fitted in layout())
+    const stackY = i => OFF + (i - (NG - 1) / 2) * SPC;
+    const outward = i => i < (NG - 1) / 2 ? -1 : i > (NG - 1) / 2 ? 1 : 0;   // which way a track opens out: up in the top half, down in the bottom, straight in the middle
     function setBase() {
-      GK.forEach((k, i) => { ROT[k] = RADIAL ? ANG[i] : 0; });
-      if (ONE || RADIAL) GK.forEach(k => { BASE[k] = [[-6000, 0], [6000, 0]]; });
-      else if (STACK) GK.forEach((k, i) => { BASE[k] = [[-6000, stackY(i)], [6000, stackY(i)]]; });
-      else { BASE[GK[0]] = PINCH.top; BASE[GK[1]] = PINCH.bottom; }
+      GK.forEach((k, i) => {
+        ROT[k] = RADIAL ? ANG[i] : 0;
+        if (RADIAL) { BASE[k] = [[-6000, 0], [6000, 0]]; IDX0[k] = 0; return; }
+        const T = linearTrack(stackY(i), stackY(i) + outward(i) * RISE);
+        BASE[k] = T.pts; IDX0[k] = T.idx;
+      });
     }
     setBase();
     const LANES = {}, TRACKS = [];
@@ -177,21 +207,23 @@
     const zScale = v => Math.pow(STOPS_MIN / v, 0.75);
     function buildLanes() {
       GK.forEach(k => {
-        let E, W;
-        if (ONE || STACK || RADIAL) {                            // straight track: lanes bow out round the station icon (vertex 3 is level with the station)
-          const L = LANE * zf, H = Math.max(0, (RADIAL ? 44 : 36) - L), B = RADIAL ? 34 : 26, y0 = BASE[k][0][1];
+        let E, W, iE = 3, iW = 3;
+        if (RADIAL) {                                            // straight track: lanes bow out round the station ring (vertex 3 is level with the station)
+          const L = LANE * zf, H = Math.max(0, 44 - L), B = 34, y0 = BASE[k][0][1];
           E = [[-6000, -L], [-(B + H), -L], [-B, -L - H], [0, -L - H], [B, -L - H], [B + H, -L], [6000, -L]].map(p => [p[0], p[1] + y0]);
           W = [[6000, L], [B + H, L], [B, L + H], [0, L + H], [-B, L + H], [-(B + H), L], [-6000, L]].map(p => [p[0], p[1] + y0]);
-        } else { E = offsetPoly(BASE[k], LANE * zf); W = offsetPoly(BASE[k].slice().reverse(), LANE * zf); }
-        LANES[k + "E"] = Object.assign(LANES[k + "E"] || {}, mkLane(E));
-        LANES[k + "W"] = Object.assign(LANES[k + "W"] || {}, mkLane(W));
+        } else {                                                 // Linear: lanes run alongside the track, eastbound above it and westbound below
+          E = offsetPoly(BASE[k], LIN_LANE * zf); W = offsetPoly(BASE[k].slice().reverse(), LIN_LANE * zf);
+          iE = IDX0[k]; iW = BASE[k].length - 1 - IDX0[k];
+        }
+        LANES[k + "E"] = Object.assign(LANES[k + "E"] || {}, mkLane(E, iE));
+        LANES[k + "W"] = Object.assign(LANES[k + "W"] || {}, mkLane(W, iW));
       });
+      if (!RADIAL && SEPS) placeSeps();
       TRACKS.forEach(t => { t.el.setAttribute("points", poly((t.off ? offsetPoly(BASE[t.k], t.off * zf) : BASE[t.k]).map(p => rp(t.k, p[0], p[1])))); t.el.style.strokeWidth = (t.w * zf).toFixed(2); });
     }
     buildLanes();
     /* stops-away markers: a small station-style circle with the number, on the track, on the side trains approach from (west for eastbound, east for westbound) */
-    // stacked tracks: the rings are linked by a bar, as interchanges are on the Tube map (under the trains, so one at a platform stays visible)
-    const link = STACK ? [el("line", { class: "stn-link", x1: 0, x2: 0 }, fadeG), el("line", { class: "stn-link-core", x1: 0, x2: 0 }, fadeG)] : [];
     const layerM = el("g", { class: "stn-marks", "aria-hidden": "true" }, fadeG);
     const MARKS = {};
     GK.forEach(id => ["E", "W"].forEach(dir => {
@@ -204,18 +236,19 @@
       }
     }));
     const layerT = el("g", {}, fadeG);
-    const rings = (STACK ? GK : [0]).map(() => el("circle", { class: "stn-station", cx: 0, cy: 0, r: 18 }, scene));
     const radRing = el("circle", { class: "stn-station", cx: 0, cy: 0, r: 26 }, scene);   // v3.34: Radial has one bigger ring where every track meets
     const titleEl = SHOW_TITLE ? el("text", { class: "stn-title", "text-anchor": "middle" }, scene) : null;
     if (titleEl) titleEl.textContent = STN.name;
     const dirEls = [];
     GROUPS.forEach((g, i) => {
       const cls = "stn-dir " + (g.length > 1 ? "cx" : "c" + IDS.indexOf(g[0]));   // a shared track's labels are in ink
-      const yW = ONE ? 74 : i === 0 ? -62 : 72, yE = ONE ? -62 : yW;            // one track: eastbound label above it, westbound below
-      const w = el("text", { class: cls, y: yW }, scene); w.textContent = "← " + GWORDS[i].W;
-      const e = el("text", { class: cls, y: yE, "text-anchor": "end" }, scene); e.textContent = GWORDS[i].E + " →";
+      const w = el("text", { class: cls }, scene); w.textContent = "← " + GWORDS[i].W;
+      const e = el("text", { class: cls, "text-anchor": "end" }, scene); e.textContent = GWORDS[i].E + " →";
       dirEls.push([w, e]);
     });
+    // v3.35: the separators: an end separator beyond the first and the last track, and one between each pair of tracks
+    const mkSep = d => el("path", { class: "stn-sep", d }, sepG);
+    SEPS = { top: mkSep(SEP_END), bottom: mkSep(SEP_END), mid: Array.from({ length: NG - 1 }, () => mkSep(SEP_MID)) };
     // v3.34: Radial names each track end by its next station (from the approach lists; stations a line runs through are skipped)
     const nextStop = (g, d) => {
       for (const id of g) for (const seq of ((LINES[id].approach || {})[d] || [])) {
@@ -259,33 +292,46 @@
       scene.setAttribute("transform", `translate(${cx.toFixed(1)},${cy.toFixed(1)})`);
       maskRect.setAttribute("x", -cx); maskRect.setAttribute("y", -cy); maskRect.setAttribute("width", VW); maskRect.setAttribute("height", VH);
       if (titleEl) { titleEl.setAttribute("x", 0); titleEl.setAttribute("y", 54 - cy); }
-      setBase();
-      if (STACK && !RADIAL) placeStack(); else buildLanes();
-      dirEls.forEach(([we, ee]) => { we.setAttribute("x", -cx + 24); ee.setAttribute("x", cx - 24); });
+      if (!RADIAL) fitLinear();
+      setBase(); buildLanes();
+      dirEls.forEach(([we, ee]) => { we.setAttribute("x", -cx + 18); ee.setAttribute("x", cx - 18); });
+      if (!RADIAL) placeLabels();
       // what each layout shows
       const show = (n, on) => on ? n.removeAttribute("display") : n.setAttribute("display", "none");
-      rings.forEach(r => show(r, !RADIAL)); link.forEach(l => show(l, !RADIAL)); show(radRing, RADIAL);
+      show(sepG, !RADIAL); show(radRing, RADIAL);
       dirEls.forEach(pair => pair.forEach(n => show(n, !RADIAL))); endEls.forEach(pair => pair.forEach(n => show(n, RADIAL)));
       maskRect.setAttribute("fill", RADIAL ? "url(#stn-rg)" : "url(#stn-fg)");
       placeMarks(); if (RADIAL) placeEnds(); snapUntil = performance.now() + 250;
     }
-    // stacked tracks: spread them over the height of the map (at most 130 apart), then place the rings, the link and each track's labels:
-    // "← W" under the track on the left, "E →" above it on the right, clear of the trains (which run above the track on the left, below on the right)
-    // The stack stays centred unless that would put the last track's right-hand label under the zoom buttons (phones), when it moves up and closes up
-    function placeStack() {
+    // Linear: fit the stack to the height of the map. Normally the straight sections are 78 apart and each outer track ramps 52 outwards; if the
+    // map is short both close up (ramps to 20, then the spacing to 72). The stack stays centred unless that would put the outer tracks' labels
+    // under the layout switch (top left) or the zoom buttons (bottom right), when it moves clear of them
+    function fitLinear() {
       const r = svg.getBoundingClientRect(), zc = document.querySelector(".zoom-ctl"), k = r.height ? VH / r.height : 1;
       const zr = zc && zc.offsetParent ? zc.getBoundingClientRect() : null;
       const ctlTop = zr && zr.height ? (zr.top - r.top) * k : VH;   // top of the zoom buttons, in map units from the top
-      const tg = layoutCtl.getBoundingClientRect(), tgBottom = tg.height ? (tg.bottom - r.top) * k : 0;   // keep clear of the layout switch too
-      const top = Math.max(54, tgBottom + 40) - VH / 2, bottom = Math.min(ctlTop - 30, VH - 56) - VH / 2;   // where the first and last tracks may go (from the centre)
-      SP = Math.max(70, Math.min(130, (bottom - top) / (NG - 1)));
-      const half = (NG - 1) / 2 * SP;
-      OFF = 0; if (half > bottom) OFF = bottom - half; if (OFF - half < top) OFF = top + half;
-      GK.forEach((k, i) => { BASE[k] = [[-6000, stackY(i)], [6000, stackY(i)]]; });
-      buildLanes();
-      rings.forEach((r, i) => r.setAttribute("cy", stackY(i).toFixed(1)));
-      link.forEach(l => { l.setAttribute("y1", stackY(0).toFixed(1)); l.setAttribute("y2", stackY(NG - 1).toFixed(1)); });
-      dirEls.forEach(([we, ee], i) => { we.setAttribute("y", (stackY(i) + 46).toFixed(1)); ee.setAttribute("y", (stackY(i) - 34).toFixed(1)); });
+      const tg = layoutCtl.getBoundingClientRect(), tgBottom = tg.height ? (tg.bottom - r.top) * k : 0;
+      const top = Math.max(60, tgBottom + 41) - VH / 2, bottom = Math.min(ctlTop - 46, VH - 52) - VH / 2;   // where the outer levels may be (labels sit 30 beyond them)
+      const avail = bottom - top;
+      SPC = 78; RISE = NG === 1 ? 0 : 52;
+      const need = () => (NG - 1) * SPC + 2 * RISE;
+      if (NG > 1 && need() > avail) RISE = Math.max(20, (avail - (NG - 1) * SPC) / 2);
+      if (NG > 1 && need() > avail) SPC = Math.max(72, (avail - 2 * RISE) / (NG - 1));
+      const ext = need() / 2;
+      OFF = need() <= avail ? Math.max(top + ext, Math.min(bottom - ext, 0)) : (top + bottom) / 2;
+    }
+    // Linear: each track's words sit 30 beyond its outer level, on the outer side ("← W" under the middle track on the left, "E →" above it on the right)
+    function placeLabels() {
+      dirEls.forEach(([we, ee], i) => {
+        const o = outward(i), yo = stackY(i) + o * RISE, yw = yo + ((o || 1) < 0 ? -25 : 37), ye = yo + ((o || -1) < 0 ? -25 : 37);
+        we.setAttribute("y", yw.toFixed(1)); ee.setAttribute("y", ye.toFixed(1));
+      });
+    }
+    // Linear: the separators sit 23 from the nearest track and scale with the trains
+    function placeSeps() {
+      const put = (n, cy, flip, h) => n.setAttribute("transform", `translate(0,${cy.toFixed(1)}) scale(${zf.toFixed(3)},${(flip ? -zf : zf).toFixed(3)}) translate(-18,${-h / 2})`);
+      put(SEPS.top, stackY(0) - SEP_GAP - 8 * zf, false, 18); put(SEPS.bottom, stackY(NG - 1) + SEP_GAP + 8 * zf, true, 18);
+      SEPS.mid.forEach((n, j) => put(n, (stackY(j) + stackY(j + 1)) / 2, false, SEP_BOX));
     }
     // marker 1 sits just past the pinch (X1) and marker z at XK, 72% of the way to the screen edge, so zooming out closes the markers up and the next
     // one slides in from the fade (fading in as it arrives). The fade starts just after XK and ends at the edge, whatever the width of the screen.
@@ -294,24 +340,28 @@
     // markers sit on circles and the fade is a ring
     let XK = 200, RAD = 280;
     function placeMarks() {
-      const cx = VW / 2, X1 = RADIAL ? 92 : 86;
+      const cx = VW / 2, X1 = RADIAL ? 92 : 86;   // Linear: X1 is just past the ramp's foot
       RAD = Math.min(VW, VH) / 2; XK = (RADIAL ? RAD : cx) * 0.72;
       const step = (XK - X1) / (z - 1);
       const f0 = Math.max(0.02, Math.min(0.45, (cx - (XK + 14)) / VW));
       fadeStops[1].setAttribute("offset", f0.toFixed(4)); fadeStops[2].setAttribute("offset", (1 - f0).toFixed(4));
       rgrad.setAttribute("r", RAD.toFixed(1)); rStops[1].setAttribute("offset", Math.min(0.95, (XK + 14) / RAD).toFixed(4));
       GK.forEach(id => ["E", "W"].forEach(dir => {
-        const L = LANES[id + dir], sign = dir === "E" ? -1 : 1, yT = BASE[id][0][1];
+        const L = LANES[id + dir], sign = dir === "E" ? -1 : 1;
         L.D = [0];
         MARKS[id + dir].forEach(m => {
-          const x = X1 + (m.k - 1) * step;
-          let lo = -3000, hi = 0;                                // distance along the lane where the lane is level with x
-          for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2; if (Math.abs(pose(L, mid).x) > x) lo = mid; else hi = mid; }
+          const x = X1 + (m.k - 1) * step, my0 = RADIAL ? BASE[id][0][1] : yAtX(BASE[id], sign * x);
+          let lo = -3000, hi = 0;
+          if (RADIAL) {                                          // distance along the lane where the lane is level with x
+            for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2; if (Math.abs(pose(L, mid).x) > x) lo = mid; else hi = mid; }
+          } else {                                               // Linear: where the lane is level with the marker, square across the track
+            for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2, p = pose(L, mid); if ((p.x - sign * x) * Math.cos(p.ang) + (p.y - my0) * Math.sin(p.ang) < 0) lo = mid; else hi = mid; }
+          }
           L.D.push(-(lo + hi) / 2);
           const op = Math.max(0, Math.min(1, z - (m.k - 1)));   // marker k fades in as z goes from k - 1 to k
           if (op <= 0.001) { m.g.setAttribute("display", "none"); return; }
           m.g.removeAttribute("display"); m.g.setAttribute("opacity", op.toFixed(3));
-          const [mx, my] = rp(id, sign * x, yT);
+          const [mx, my] = rp(id, sign * x, my0);
           m.g.setAttribute("transform", `translate(${mx.toFixed(1)},${my.toFixed(1)}) scale(${zf.toFixed(3)})`);
         });
       }));

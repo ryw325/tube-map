@@ -12,6 +12,7 @@
     --river: #D8E4EA;
     --river-ink: #97AEBC;
     --station-fill: #FFFFFF;
+    --sep: #E7E7E7;
     --tip-bg: #23272B;
     --tip-ink: #F1F2EF;
     --dot-edge: transparent;
@@ -31,6 +32,7 @@
       --river: #232F3B;
       --river-ink: #4E6576;
       --station-fill: #1B2026;
+      --sep: #2E363E;
       --tip-bg: #E6EAED;
       --tip-ink: #1B2026;
       --dot-edge: #8C969E;
@@ -48,6 +50,7 @@
     --river: #232F3B;
     --river-ink: #4E6576;
     --station-fill: #1B2026;
+    --sep: #2E363E;
     --tip-bg: #E6EAED;
     --tip-ink: #1B2026;
     --dot-edge: #8C969E;
@@ -616,6 +619,8 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .stn-scene .train.stn-t5 .train-body { fill: var(--stn-t5); stroke: var(--stn-t5); }
 .stn-scene .stn-link { stroke: var(--ink); stroke-width: 22; stroke-linecap: round; }
 .stn-scene .stn-link-core { stroke: var(--station-fill); stroke-width: 8; }
+/* v3.35: Linear separators, drawn like the station pills on the Tube map */
+.stn-scene .stn-sep { fill: var(--sep); stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
 /* v3.34: the station map's layout switch (top-left of the map), styled like the zoom buttons */
 .stn-layout { position: absolute; left: 22px; top: 18px; z-index: 5; display: flex; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--pill-bg); opacity: .6; transition: opacity .15s; }
 .stn-layout:hover, .stn-layout:focus-within { opacity: 1; }
