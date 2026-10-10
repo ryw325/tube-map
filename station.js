@@ -3,7 +3,14 @@
    (lines/station-<id>.js). It uses the same shell as the line pages (left panel, departures board, facts, menu, preferences),
    and everything it starts goes through `scope`, so unmount undoes it all.
    Layout: the station icon sits in the middle; each line is one track that pinches in to run past the station and opens out
-   again; every train runs in a lane on its left, so eastbound trains are above their track and westbound trains below. */
+   again; every train runs in a lane on its left, so eastbound trains are above their track and westbound trains below.
+   v3.33: up to four tracks. Three or four (King's Cross) are stacked straight across the map, each with its own station ring, the rings linked
+   like an interchange on the Tube map; the board then shows two tracks at a time and cycles through them. Direction words come from each
+   line's data (left is the "W" lane, right the "E" lane; at King's Cross the Northern's northbound runs left and the Victoria's right).
+   v3.34: a second layout, Radial. Every track runs straight through one central station ring at its own angle (STN.angles, roughly the real
+   direction of the line), the stops-away markers sit on a circle, the fade is round, and each track end is named by its next station. The
+   lanes, markers and trains are worked out exactly as for a straight track and then turned by the track's angle, so the train movement is
+   the same in both layouts. A switch in the map's top-left corner picks the layout; the choice is remembered on this device. */
 (function () {
   "use strict";
   const NS = "http://www.w3.org/2000/svg";
@@ -85,8 +92,11 @@
     const root = document.documentElement;
     const LINES = STN.lines;                                   // { district: { name, short, colour, train }, piccadilly: { ... } }
     const IDS = Object.keys(LINES);
-    const CODES = STN.codes || {};
+    const CODES = STN.codes || window.UNDERCURRENT_CODES || {};   // v3.32: one shared table (lines/codes.js) for every station
     const reduceMotion = ctx.reduceMotion;
+    // v3.33: each line's words for its two directions ("E" = moving right on the page, "W" = moving left) and how its platform names say them
+    const DIRS = {};
+    IDS.forEach(id => { const d = LINES[id].dirs; DIRS[id] = d ? { E: d.E.label, W: d.W.label, pE: d.E.platform || [], pW: d.W.platform || [] } : { E: "Eastbound", W: "Westbound", pE: ["east"], pW: ["west"] }; });
 
     /* ---------- Page set-up (same fields as a line page; everything is put back on unmount) ---------- */
     const sw = document.querySelector(".line-title .swatch");
@@ -95,11 +105,13 @@
     document.title = `${STN.name} Station Live`;
     document.querySelector(".eyebrow").textContent = `Live prototype · v${ctx.VERSION}`;
     $("line-name").textContent = STN.name;
-    sw.style.background = `linear-gradient(to bottom, var(--stn-0) 50%, var(--stn-1) 50%)`;
+    sw.style.background = `linear-gradient(to bottom, ${IDS.map((id, i) => `var(--stn-${i}) ${(i * 100 / IDS.length).toFixed(1)}% ${((i + 1) * 100 / IDS.length).toFixed(1)}%`).join(", ")})`;
     dts[0].textContent = "Trains"; dts[1].textContent = "Lines";
     $("stat-stations").textContent = IDS.length;
     ["stat-trains", "stat-nb", "stat-sb"].forEach(id => { $(id).textContent = "–"; });
     $("dir-n").textContent = "Westbound"; $("dir-s").textContent = "Eastbound";
+    const STACKED = (STN.tracks || IDS).length >= 3;          // v3.33: three or more tracks: the last two counts are tracks and platforms
+    if (STACKED) { $("dir-n").textContent = "Tracks"; $("dir-s").textContent = "Platforms"; }
     const pill = $("status-pill"), reasonEl = $("status-reason"), upEl = $("updated");
     pill.textContent = "Checking line status"; pill.dataset.level = "unknown"; reasonEl.hidden = true;
     upEl.textContent = "Connecting to TfL…"; delete upEl.dataset.error;
@@ -121,30 +133,68 @@
     const defs = el("defs", {});
     const grad = el("linearGradient", { id: "stn-fg", x1: 0, y1: 0, x2: 1, y2: 0 }, defs);
     const fadeStops = [[0, "#000"], [0.2, "#fff"], [0.8, "#fff"], [1, "#000"]].map(([o, c]) => el("stop", { offset: o, "stop-color": c }, grad));
+    const rgrad = el("radialGradient", { id: "stn-rg", gradientUnits: "userSpaceOnUse", cx: 0, cy: 0, r: 280 }, defs);   // v3.34: the radial layout's round fade
+    const rStops = [[0, "#fff"], [0.8, "#fff"], [1, "#000"]].map(([o, c]) => el("stop", { offset: o, "stop-color": c }, rgrad));
     const mask = el("mask", { id: "stn-fade", maskUnits: "userSpaceOnUse", x: -6000, y: -6000, width: 12000, height: 12000 }, defs);
     const maskRect = el("rect", { fill: "url(#stn-fg)" }, mask);
     const scene = el("g", { class: "stn-scene" });
     const fadeG = el("g", { mask: "url(#stn-fade)" }, scene);
     const poly = a => a.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
-    const BASE = { [IDS[0]]: PINCH.top, [IDS[1]]: PINCH.bottom };
+    /* v3.32: tracks. Lines that share rails share one track, drawn as a ribbon of thin stripes (one per line, as on the TfL map), and their trains
+       share its lanes. STN.tracks lists the groups (default: one track per line). Two tracks pinch round the station, one above and one below;
+       a single track runs straight through the station and its lanes bow out round the station icon */
+    const GROUPS = (STN.tracks || IDS.map(id => [id])).map(g => g.filter(id => LINES[id])).filter(g => g.length).slice(0, 4);
+    const GK = GROUPS.map(g => g.join("+")), GROUP_OF = {};
+    GROUPS.forEach((g, i) => g.forEach(id => { GROUP_OF[id] = GK[i]; }));
+    const NG = GROUPS.length, ONE = NG === 1, STACK = NG >= 3;
+    // a track's direction words: its lines' own when they agree, otherwise west and east (Circle says clockwise where H&C says eastbound)
+    const GWORDS = GROUPS.map(g => { const a = g.map(id => DIRS[id]); return a.every(x => x.E === a[0].E && x.W === a[0].W) ? { E: a[0].E, W: a[0].W } : { E: "Eastbound", W: "Westbound" }; });
+    // v3.34: layout. Radial turns each track by its angle (degrees clockwise from pointing right; the right-hand end is the one "W" trains come from)
+    let RADIAL = false;
+    try { RADIAL = localStorage.getItem("uc-stn-layout") === "radial"; } catch (e) {}
+    const ANG = GROUPS.map((g, i) => { const a = (STN.angles || [])[i]; return (typeof a === "number" ? a : NG === 1 ? -12 : -60 + i * 120 / (NG - 1)) * Math.PI / 180; });
+    const ROT = {};                                            // per track: its turn in the layout on screen (0 in Linear)
+    const rp = (k, x, y) => { const a = ROT[k]; if (!a) return [x, y]; const c = Math.cos(a), sn = Math.sin(a); return [x * c - y * sn, x * sn + y * c]; };
+    const BASE = {};
+    let SP = 130, OFF = 0;                                     // stacked tracks: the distance between them and the stack's shift up or down (fitted in layout())
+    const stackY = i => OFF + (i - (NG - 1) / 2) * SP;
+    function setBase() {
+      GK.forEach((k, i) => { ROT[k] = RADIAL ? ANG[i] : 0; });
+      if (ONE || RADIAL) GK.forEach(k => { BASE[k] = [[-6000, 0], [6000, 0]]; });
+      else if (STACK) GK.forEach((k, i) => { BASE[k] = [[-6000, stackY(i)], [6000, stackY(i)]]; });
+      else { BASE[GK[0]] = PINCH.top; BASE[GK[1]] = PINCH.bottom; }
+    }
+    setBase();
     const LANES = {}, TRACKS = [];
-    IDS.forEach((id, i) => { TRACKS.push(el("polyline", { class: "stn-track c" + i, points: poly(BASE[id]) }, fadeG)); });
+    const laneOf = t => LANES[GROUP_OF[t.line] + t.dir];
+    GROUPS.forEach((g, gi) => {
+      const n = g.length, w = TRACK_W * (n > 1 ? 1.75 : 1) / n;
+      g.forEach((id, j) => TRACKS.push({ el: el("polyline", { class: "stn-track c" + IDS.indexOf(id) }, fadeG), k: GK[gi], off: (j - (n - 1) / 2) * w, w: w + (n > 1 ? 0.3 : 0) }));
+    });
     /* zoom: z is how many stops away fit on each side. 3 by default, smoothly out to 5. As z grows the stop markers close up, the next one slides
        in from the fade, and trains, markers, track and lanes all shrink by zf */
     let z = STOPS_MIN, zTarget = STOPS_MIN, zf = 1;
     const zScale = v => Math.pow(STOPS_MIN / v, 0.75);
     function buildLanes() {
-      IDS.forEach(id => {
-        LANES[id + "E"] = Object.assign(LANES[id + "E"] || {}, mkLane(offsetPoly(BASE[id], LANE * zf)));
-        LANES[id + "W"] = Object.assign(LANES[id + "W"] || {}, mkLane(offsetPoly(BASE[id].slice().reverse(), LANE * zf)));
+      GK.forEach(k => {
+        let E, W;
+        if (ONE || STACK || RADIAL) {                            // straight track: lanes bow out round the station icon (vertex 3 is level with the station)
+          const L = LANE * zf, H = Math.max(0, (RADIAL ? 44 : 36) - L), B = RADIAL ? 34 : 26, y0 = BASE[k][0][1];
+          E = [[-6000, -L], [-(B + H), -L], [-B, -L - H], [0, -L - H], [B, -L - H], [B + H, -L], [6000, -L]].map(p => [p[0], p[1] + y0]);
+          W = [[6000, L], [B + H, L], [B, L + H], [0, L + H], [-B, L + H], [-(B + H), L], [-6000, L]].map(p => [p[0], p[1] + y0]);
+        } else { E = offsetPoly(BASE[k], LANE * zf); W = offsetPoly(BASE[k].slice().reverse(), LANE * zf); }
+        LANES[k + "E"] = Object.assign(LANES[k + "E"] || {}, mkLane(E));
+        LANES[k + "W"] = Object.assign(LANES[k + "W"] || {}, mkLane(W));
       });
-      TRACKS.forEach(t => t.style.strokeWidth = (TRACK_W * zf).toFixed(2));
+      TRACKS.forEach(t => { t.el.setAttribute("points", poly((t.off ? offsetPoly(BASE[t.k], t.off * zf) : BASE[t.k]).map(p => rp(t.k, p[0], p[1])))); t.el.style.strokeWidth = (t.w * zf).toFixed(2); });
     }
     buildLanes();
     /* stops-away markers: a small station-style circle with the number, on the track, on the side trains approach from (west for eastbound, east for westbound) */
+    // stacked tracks: the rings are linked by a bar, as interchanges are on the Tube map (under the trains, so one at a platform stays visible)
+    const link = STACK ? [el("line", { class: "stn-link", x1: 0, x2: 0 }, fadeG), el("line", { class: "stn-link-core", x1: 0, x2: 0 }, fadeG)] : [];
     const layerM = el("g", { class: "stn-marks", "aria-hidden": "true" }, fadeG);
     const MARKS = {};
-    IDS.forEach(id => ["E", "W"].forEach(dir => {
+    GK.forEach(id => ["E", "W"].forEach(dir => {
       MARKS[id + dir] = [];
       for (let k = 1; k <= STOPS_MAX; k++) {
         const g = el("g", { class: "stn-mark", "data-line": id, "data-dir": dir, "data-k": k }, layerM);
@@ -154,16 +204,52 @@
       }
     }));
     const layerT = el("g", {}, fadeG);
-    const stationNode = el("circle", { class: "stn-station", cx: 0, cy: 0, r: 18 }, scene);
+    const rings = (STACK ? GK : [0]).map(() => el("circle", { class: "stn-station", cx: 0, cy: 0, r: 18 }, scene));
+    const radRing = el("circle", { class: "stn-station", cx: 0, cy: 0, r: 26 }, scene);   // v3.34: Radial has one bigger ring where every track meets
     const titleEl = SHOW_TITLE ? el("text", { class: "stn-title", "text-anchor": "middle" }, scene) : null;
     if (titleEl) titleEl.textContent = STN.name;
     const dirEls = [];
-    IDS.forEach((id, i) => {
-      const y = i === 0 ? -62 : 72;
-      const w = el("text", { class: "stn-dir c" + i, y }, scene); w.textContent = "← Westbound";
-      const e = el("text", { class: "stn-dir c" + i, y, "text-anchor": "end" }, scene); e.textContent = "Eastbound →";
+    GROUPS.forEach((g, i) => {
+      const cls = "stn-dir " + (g.length > 1 ? "cx" : "c" + IDS.indexOf(g[0]));   // a shared track's labels are in ink
+      const yW = ONE ? 74 : i === 0 ? -62 : 72, yE = ONE ? -62 : yW;            // one track: eastbound label above it, westbound below
+      const w = el("text", { class: cls, y: yW }, scene); w.textContent = "← " + GWORDS[i].W;
+      const e = el("text", { class: cls, y: yE, "text-anchor": "end" }, scene); e.textContent = GWORDS[i].E + " →";
       dirEls.push([w, e]);
     });
+    // v3.34: Radial names each track end by its next station (from the approach lists; stations a line runs through are skipped)
+    const nextStop = (g, d) => {
+      for (const id of g) for (const seq of ((LINES[id].approach || {})[d] || [])) {
+        const skip = new Set((LINES[id].skip || []).map(x => x.toLowerCase()));
+        for (let j = seq.length - 2; j >= 0; j--) if (!skip.has(seq[j].toLowerCase())) return seq[j];
+      }
+      return "";
+    };
+    const endEls = GROUPS.map((g, i) => {
+      const cls = "stn-dir stn-end " + (g.length > 1 ? "cx" : "c" + IDS.indexOf(g[0]));
+      return [nextStop(g, "E"), nextStop(g, "W")].map(name => {
+        const t = el("text", { class: cls }, scene);
+        if (name.length > 14 && name.includes(" & ")) {          // long names with an "&" go on two lines
+          name.split(" & ").forEach((part, j) => { const sp = el("tspan", { dy: j ? "1.15em" : 0 }, t); sp.textContent = j ? part : part + " &"; });
+        } else t.textContent = name;
+        return t;
+      });
+    });
+    /* v3.34: the layout switch, in the map's top-left corner (the zoom buttons have the bottom right). Station pages only; removed on unmount */
+    const layoutCtl = document.createElement("div");
+    layoutCtl.className = "stn-layout"; layoutCtl.setAttribute("role", "group"); layoutCtl.setAttribute("aria-label", "Map layout");
+    layoutCtl.innerHTML = `<button type="button" data-l="linear" title="Linear layout" aria-label="Linear layout"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/><rect x="9.5" y="3.5" width="5" height="17" rx="2.5" fill="var(--pill-bg)"/></svg><span>Linear</span></button>`
+      + `<button type="button" data-l="radial" title="Radial layout" aria-label="Radial layout"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg><span>Radial</span></button>`;
+    $("map-wrap").appendChild(layoutCtl);
+    scope.later(() => layoutCtl.remove());
+    const markCtl = () => layoutCtl.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.l === "radial") === RADIAL)));
+    function setLayout(radial) {
+      if (RADIAL === radial) return;
+      RADIAL = radial; markCtl();
+      try { localStorage.setItem("uc-stn-layout", radial ? "radial" : "linear"); } catch (e) {}
+      layout();
+    }
+    layoutCtl.querySelectorAll("button").forEach(b => scope.on(b, "click", e => { e.stopPropagation(); setLayout(b.dataset.l === "radial"); }));
+    markCtl();
     let VW = 800, VH = 480;
     function layout() {
       const r = svg.getBoundingClientRect(), w = r.width || 800, h = r.height || 480, a = w / h;
@@ -173,17 +259,48 @@
       scene.setAttribute("transform", `translate(${cx.toFixed(1)},${cy.toFixed(1)})`);
       maskRect.setAttribute("x", -cx); maskRect.setAttribute("y", -cy); maskRect.setAttribute("width", VW); maskRect.setAttribute("height", VH);
       if (titleEl) { titleEl.setAttribute("x", 0); titleEl.setAttribute("y", 54 - cy); }
+      setBase();
+      if (STACK && !RADIAL) placeStack(); else buildLanes();
       dirEls.forEach(([we, ee]) => { we.setAttribute("x", -cx + 24); ee.setAttribute("x", cx - 24); });
-      placeMarks(); snapUntil = performance.now() + 250;
+      // what each layout shows
+      const show = (n, on) => on ? n.removeAttribute("display") : n.setAttribute("display", "none");
+      rings.forEach(r => show(r, !RADIAL)); link.forEach(l => show(l, !RADIAL)); show(radRing, RADIAL);
+      dirEls.forEach(pair => pair.forEach(n => show(n, !RADIAL))); endEls.forEach(pair => pair.forEach(n => show(n, RADIAL)));
+      maskRect.setAttribute("fill", RADIAL ? "url(#stn-rg)" : "url(#stn-fg)");
+      placeMarks(); if (RADIAL) placeEnds(); snapUntil = performance.now() + 250;
+    }
+    // stacked tracks: spread them over the height of the map (at most 130 apart), then place the rings, the link and each track's labels:
+    // "← W" under the track on the left, "E →" above it on the right, clear of the trains (which run above the track on the left, below on the right)
+    // The stack stays centred unless that would put the last track's right-hand label under the zoom buttons (phones), when it moves up and closes up
+    function placeStack() {
+      const r = svg.getBoundingClientRect(), zc = document.querySelector(".zoom-ctl"), k = r.height ? VH / r.height : 1;
+      const zr = zc && zc.offsetParent ? zc.getBoundingClientRect() : null;
+      const ctlTop = zr && zr.height ? (zr.top - r.top) * k : VH;   // top of the zoom buttons, in map units from the top
+      const tg = layoutCtl.getBoundingClientRect(), tgBottom = tg.height ? (tg.bottom - r.top) * k : 0;   // keep clear of the layout switch too
+      const top = Math.max(54, tgBottom + 40) - VH / 2, bottom = Math.min(ctlTop - 30, VH - 56) - VH / 2;   // where the first and last tracks may go (from the centre)
+      SP = Math.max(70, Math.min(130, (bottom - top) / (NG - 1)));
+      const half = (NG - 1) / 2 * SP;
+      OFF = 0; if (half > bottom) OFF = bottom - half; if (OFF - half < top) OFF = top + half;
+      GK.forEach((k, i) => { BASE[k] = [[-6000, stackY(i)], [6000, stackY(i)]]; });
+      buildLanes();
+      rings.forEach((r, i) => r.setAttribute("cy", stackY(i).toFixed(1)));
+      link.forEach(l => { l.setAttribute("y1", stackY(0).toFixed(1)); l.setAttribute("y2", stackY(NG - 1).toFixed(1)); });
+      dirEls.forEach(([we, ee], i) => { we.setAttribute("y", (stackY(i) + 46).toFixed(1)); ee.setAttribute("y", (stackY(i) - 34).toFixed(1)); });
     }
     // marker 1 sits just past the pinch (X1) and marker z at XK, 72% of the way to the screen edge, so zooming out closes the markers up and the next
     // one slides in from the fade (fading in as it arrives). The fade starts just after XK and ends at the edge, whatever the width of the screen.
     // Each lane keeps D[k], its distance along the lane to marker k
+    // Radial: the same, measured along each track from the centre, with RAD (half the shorter side of the map) in place of the half-width, so the
+    // markers sit on circles and the fade is a ring
+    let XK = 200, RAD = 280;
     function placeMarks() {
-      const cx = VW / 2, X1 = 86, XK = cx * 0.72, step = (XK - X1) / (z - 1);
+      const cx = VW / 2, X1 = RADIAL ? 92 : 86;
+      RAD = Math.min(VW, VH) / 2; XK = (RADIAL ? RAD : cx) * 0.72;
+      const step = (XK - X1) / (z - 1);
       const f0 = Math.max(0.02, Math.min(0.45, (cx - (XK + 14)) / VW));
       fadeStops[1].setAttribute("offset", f0.toFixed(4)); fadeStops[2].setAttribute("offset", (1 - f0).toFixed(4));
-      IDS.forEach(id => ["E", "W"].forEach(dir => {
+      rgrad.setAttribute("r", RAD.toFixed(1)); rStops[1].setAttribute("offset", Math.min(0.95, (XK + 14) / RAD).toFixed(4));
+      GK.forEach(id => ["E", "W"].forEach(dir => {
         const L = LANES[id + dir], sign = dir === "E" ? -1 : 1, yT = BASE[id][0][1];
         L.D = [0];
         MARKS[id + dir].forEach(m => {
@@ -194,8 +311,44 @@
           const op = Math.max(0, Math.min(1, z - (m.k - 1)));   // marker k fades in as z goes from k - 1 to k
           if (op <= 0.001) { m.g.setAttribute("display", "none"); return; }
           m.g.removeAttribute("display"); m.g.setAttribute("opacity", op.toFixed(3));
-          m.g.setAttribute("transform", `translate(${(sign * x).toFixed(1)},${yT}) scale(${zf.toFixed(3)})`);
+          const [mx, my] = rp(id, sign * x, yT);
+          m.g.setAttribute("transform", `translate(${mx.toFixed(1)},${my.toFixed(1)}) scale(${zf.toFixed(3)})`);
         });
+      }));
+    }
+    // Radial end labels: just past the last marker, on whichever side of the track has more room before the next track round, reading away from the
+    // track, then nudged back inside the map and off the zoom buttons and the layout switch if they would sit under them
+    function placeEnds() {
+      const dirs = [];                                         // screen direction of every track end
+      GK.forEach((k, i) => { dirs.push(ANG[i], ANG[i] + Math.PI); });
+      const norm = a => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      const sr = svg.getBoundingClientRect(), kk = sr.height ? VH / sr.height : 1;
+      const avoid = [document.querySelector(".zoom-ctl"), layoutCtl].filter(n => n && n.offsetParent).map(n => n.getBoundingClientRect()).filter(r => r.width);
+      endEls.forEach((pair, i) => pair.forEach((t, j) => {
+        const sgn = j ? 1 : -1, th = norm(ANG[i] + (j ? 0 : Math.PI));
+        let cw = 7, ccw = 7;                                    // gaps (radians) to the nearest other track end, clockwise and anticlockwise
+        dirs.forEach(d => { const g = norm(d - th); if (g > 1e-6) cw = Math.min(cw, g); const h = norm(th - d); if (h > 1e-6) ccw = Math.min(ccw, h); });
+        // local +y is clockwise of a right-hand end and anticlockwise of a left-hand end
+        let side = Math.abs(cw - ccw) < 0.05 ? (j ? -1 : 1) : (cw > ccw ? 1 : -1) * sgn;
+        const [x, y] = rp(GK[i], sgn * (XK + 18), side * 24);
+        const nx = -Math.sin(ANG[i]) * side;                    // which way the label sits from the track, across the screen
+        const anchor = nx > 0.35 ? "start" : nx < -0.35 ? "end" : x < -30 ? "end" : x > 30 ? "start" : "middle";
+        const lines = t.querySelectorAll("tspan").length || 1, y0 = y + 5 - (lines - 1) * 8 * (side * Math.cos(ANG[i]) < 0 ? 1 : 0);
+        const put = (px, py) => { t.setAttribute("x", px.toFixed(1)); t.setAttribute("y", py.toFixed(1)); t.querySelectorAll("tspan").forEach(sp => sp.setAttribute("x", px.toFixed(1))); };
+        t.setAttribute("text-anchor", anchor); put(x, y0);
+        let b = null; try { b = t.getBBox(); } catch (e) {}
+        if (!b || !b.width) return;
+        const lim = VW / 2 - 10, limY = VH / 2 - 8;
+        let dx = 0, dy = 0;
+        if (b.x + b.width > lim) dx = lim - (b.x + b.width); else if (b.x < -lim) dx = -lim - b.x;
+        if (b.y + b.height > limY) dy = limY - (b.y + b.height); else if (b.y < -limY) dy = -limY - b.y;
+        if (dx || dy) put(x + dx, y0 + dy);
+        const r = t.getBoundingClientRect();
+        for (const c of avoid) {
+          if (r.right < c.left - 4 || c.right + 4 < r.left || r.bottom < c.top - 4 || c.bottom + 4 < r.top) continue;
+          const up = (r.bottom - c.top + 6) * kk, down = (c.bottom - r.top + 6) * kk;   // move the shorter way out of its way
+          put(x + dx, y0 + dy + (c.top > sr.top + sr.height / 2 ? -up : down));
+        }
       }));
     }
     let snapUntil = 0;                                       // while zooming or resizing, drawn positions jump straight to where they belong
@@ -242,13 +395,15 @@
       name = (name || "").replace(/ Underground Station$/, "").trim();
       return CODES[name] || CODES[name.replace(/ \(.*\)$/, "")] || name.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "???";
     };
-    const nameOf = name => (name || "").replace(/ Underground Station$/, "").replace(/ \(Dist&Picc Line\)$/, "").trim();
+    const nameOf = name => (name || "").replace(/ Underground Station$/, "").replace(/ \([^)]*Line\)$/, "").trim();   // drops a "(Dist&Picc Line)" style suffix
     const WEST = new RegExp(STN.westWords || "$^", "i");
+    const LWEST = {}; IDS.forEach(id => { if (LINES[id].westWords) LWEST[id] = new RegExp(LINES[id].westWords, "i"); });
+    // fallback for a train the feed lists with this station alone: the platform's direction word, then the destination
     function dirOf(a) {
-      const p = a.platformName || "";
-      if (/east/i.test(p)) return "E";
-      if (/west/i.test(p)) return "W";
-      return WEST.test(a.destinationName || "") ? "W" : "E";
+      const p = (a.platformName || "").toLowerCase(), D = DIRS[a.lineId] || DIRS[IDS[0]];
+      if (D.pE.some(w => p.includes(w))) return "E";
+      if (D.pW.some(w => p.includes(w))) return "W";
+      return (LWEST[a.lineId] || WEST).test(a.destinationName || "") ? "W" : "E";
     }
     function makeTrain(o) {
       const g = el("g", { class: "train stn-t" + lineIdx(o.line), tabindex: "0", role: "button" }, layerT);
@@ -290,6 +445,8 @@
     // The feed has no time for the stop a train has just left, so when its first gap changes, work out when it left: just now if it has just
     // passed a stop; at a typical gap's length before its next stop if TfL says it is standing "At" that stop; otherwise (first seen on the
     // move) as if it is 40% of the way through the gap, or a typical gap's length, whichever is longer
+    // "At <this station>" or "At Platform": the train is at this station's platform
+    function atHere(loc) { const m = /^at\s+(.+)$/i.exec(loc || ""); return !!m && (/^platform/i.test(m[1]) || nrm(m[1]).startsWith(nrm(STN.name))); }
     function firstGap(t, plan, loc, now) {
       const key = plan.length + "|" + plan[0].name;
       if (t.planKey === key) return;
@@ -298,7 +455,7 @@
       for (let i = 1; i < plan.length; i++) gaps.push((plan[i].eta - plan[i - 1].eta) / 1000);
       const typ = Math.max(30, Math.min(150, 0.8 * (gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : TAU_STOP)));
       if (prev && +prev.split("|")[0] === plan.length + 1) t.dep0 = now;
-      else if (/^at\s/i.test(loc || "") && !/^at\s+(hammersmith|platform)/i.test(loc)) { t.dep0 = plan[0].eta - Math.min(left, typ) * 1000; t.dep0At = true; }
+      else if (/^at\s/i.test(loc || "") && !atHere(loc)) { t.dep0 = plan[0].eta - Math.min(left, typ) * 1000; t.dep0At = true; }
       else t.dep0 = now - (Math.max(left / 0.6, typ) - left) * 1000;
     }
     function dropTrain(t) { if (sel === t) clearSel(); t.g.remove(); trains.delete(t.key); }
@@ -337,15 +494,20 @@
       const f = span > 0.5 ? g.f0 * (gF(e) - gF(g.e1)) / span : 0;
       return g.n - 1 + Math.max(0, Math.min(1, f));
     }
+    // where a train is drawn: its position along its lane, turned by its track's angle (lx is the distance along the track, for the edge checks)
+    function screenPose(t) {
+      const k = GROUP_OF[t.line], p = pose(laneOf(t), t.s), [x, y] = rp(k, p.x, p.y);
+      return { x, y, ang: p.ang + (ROT[k] || 0), lx: p.x };
+    }
     function frame(ts) {
       const dt = Math.min(0.25, (ts - lastFrame) / 1000); lastFrame = ts;
       zoomTick(dt);
-      const now = Date.now(), half = VW / 2 + 70;
+      const now = Date.now(), half = RADIAL ? Math.hypot(VW, VH) / 2 + 70 : VW / 2 + 70;
       const byLane = {};
       for (const t of trains.values()) {
         t.deta = t.eta;                                          // the drawn position (below) does the smoothing now
         t.tts = (t.deta - now) / 1000;
-        const L = LANES[t.line + t.dir];
+        const L = laneOf(t);
         // where the train should be, in gaps out from the station (negative once it has left)
         const tq = t.tts < 0 ? -sOf(t.tts) / (SPEED * TAU_DEP) : qOf(t);
         if (t.qs === undefined) t.qs = tq;
@@ -359,7 +521,7 @@
           // otherwise TfL has pushed the arrival later: hold still until the train's time catches up
         }
         t.s = t.qs >= 0 ? -qToD(L, t.qs) : -t.qs * qToD(L, 1);
-        (byLane[t.line + t.dir] = byLane[t.line + t.dir] || []).push(t);
+        const lk = GROUP_OF[t.line] + t.dir; (byLane[lk] = byLane[lk] || []).push(t);
       }
       for (const k in byLane) {                                // trains in one lane keep their arrival order and queue nose to tail (v3.29: ordered by arrival time, so they never swap)
         const L = byLane[k].sort((a, b) => a.tts - b.tts);
@@ -377,11 +539,11 @@
       }
       const mode = (document.querySelector('input[name="lbl"]:checked') || { value: "dest" }).value;
       for (const t of Array.from(trains.values())) {
-        const p = pose(LANES[t.line + t.dir], t.s);
-        if ((t.tts < 0 && Math.abs(p.x) > half) || (t.fadeAt && now - t.fadeAt > FADE_MS)) { dropTrain(t); continue; }
+        const p = screenPose(t);
+        if ((t.tts < 0 && Math.abs(p.lx) > half) || (t.fadeAt && now - t.fadeAt > FADE_MS)) { dropTrain(t); continue; }
         let op = Math.min(1, (now - t.born) / 1000);
         if (t.fadeAt) op = Math.min(op, Math.max(0, 1 - (now - t.fadeAt) / FADE_MS));
-        const o = Math.abs(p.x) < half + 60 ? op.toFixed(2) : "0";
+        const o = Math.abs(p.lx) < half + 60 ? op.toFixed(2) : "0";
         const deg = p.ang * 180 / Math.PI, a = ((deg % 360) + 360) % 360, flip = a > 90 && a < 270;   // label turns with the train and is never upside down, as on the line pages
         t.g.setAttribute("transform", `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${deg.toFixed(1)}) scale(${(SC * zf).toFixed(3)})`);
         t.g.setAttribute("opacity", o); t.op = +o;
@@ -486,8 +648,8 @@
       let n = 0, w = 0, e = 0;
       trains.forEach(t => { if (t.missed < 2) { n++; t.dir === "W" ? w++ : e++; } });
       $("stat-trains").textContent = everLoaded ? n : "–";
-      $("stat-nb").textContent = everLoaded ? w : "–";
-      $("stat-sb").textContent = everLoaded ? e : "–";
+      $("stat-nb").textContent = STACK ? NG : everLoaded ? w : "–";
+      $("stat-sb").textContent = STACK ? NG * 2 : everLoaded ? e : "–";
       if (fetchError) { upEl.dataset.error = ""; upEl.textContent = fetchError; }
       else if (lastOk) { delete upEl.dataset.error; const s = Math.round((Date.now() - lastOk) / 1000); upEl.textContent = s < 5 ? "Updated just now" : `Updated ${s} seconds ago`; }
       ctx.updateClock();
@@ -520,7 +682,7 @@
     function stopsText(p) {
       let n = p.n != null && p.n > 1 ? p.n : stopsAway(p);
       if (n === null && p.n === 1) n = 1;
-      if (n === 1 && /^at\s+(hammersmith|platform)/i.test(p.loc || "")) n = 0;
+      if (n === 1 && atHere(p.loc)) n = 0;
       if (ctx.debug) locSeen.set(p.line + " | " + p.dir + " | " + p.loc, n);
       return n === null || n > STOPS_CAP ? "" : n === 0 ? "At platform" : n === 1 ? "1 stop away" : n + " stops away";
     }
@@ -570,12 +732,46 @@
     const addClock = led => { const c = document.createElement("div"); c.className = "led-clock"; c.textContent = clockFmt.format(new Date()); led.appendChild(c); };
     const ledTitle = text => { const h = document.createElement("p"); h.className = "led-title"; h.textContent = text; popSections.appendChild(h); };
     const dirWord = d => d === "W" ? "Westbound" : "Eastbound";
+    /* v3.33: with three or more tracks the board (one fixed size) shows two sections at a time and moves to the next pair every 8 seconds, or when
+       tapped. A track with one line is one section (its trains both ways, the direction on the second line); a shared track is two, westbound and
+       eastbound (the line on the second line), and they always share a page */
+    const PAGE_MS = 8000, PAGE_EPOCH = Date.now();
+    let pageShift = 0;
+    const PAGES = [];
+    if (STACK) {
+      let single = [];
+      GROUPS.forEach((g, i) => {
+        if (g.length > 1) PAGES.push([{ g: i, dir: "W", label: GWORDS[i].W }, { g: i, dir: "E", label: GWORDS[i].E }]);
+        else { single.push({ g: i, label: LINES[g[0]].name }); if (single.length === 2) { PAGES.push(single); single = []; } }
+      });
+      if (single.length) PAGES.push(single);
+      scope.on(popSections, "click", () => { if (!popRender) { pageShift++; renderStation(); } });
+    }
+    const pageNow = () => (Math.floor((Date.now() - PAGE_EPOCH) / PAGE_MS) + pageShift) % PAGES.length;
+    function renderPaged(now, compact) {
+      const pi = pageNow(), page = PAGES[pi], per = compact ? 2 : 3;
+      let last = null;
+      page.forEach(sec => {
+        const lines = GROUPS[sec.g], n = page.length === 1 ? per * 2 : per;
+        let rows = board.filter(p => lines.includes(p.line) && (!sec.dir || p.dir === sec.dir)).map(p => ({ ...p, left: (p.eta - now) / 1000 })).filter(p => p.left > -20)
+          .sort((a, b) => a.left - b.left);
+        if (!sec.dir) {                                          // one line, both ways: the next train each way first, then the soonest of the rest
+          const firsts = ["W", "E"].map(d => rows.find(p => p.dir === d)).filter(Boolean);
+          rows = firsts.concat(rows.filter(p => !firsts.includes(p))).slice(0, n).sort((a, b) => a.left - b.left);
+        } else rows = rows.slice(0, n);
+        const cells = rows.length ? rows.map((p, i) => ledRow([[String(i + 1)], [p.destName || "Check front of train", "dest", [sec.dir ? LINES[p.line].name : DIRS[p.line][p.dir], stopsText(p)]], [whenText(p.left), "when"]], "stn"))
+          : [ledRow([[""], [everLoaded ? "No trains listed" : "Loading…", "dest"], ["", "when"]], "stn led-empty")];
+        last = screen(sec.label, cells);
+      });
+      const c = document.createElement("div"); c.className = "led-clock"; c.textContent = `${clockFmt.format(new Date())} · ${pi + 1} of ${PAGES.length}`; last.appendChild(c);
+    }
     function renderStation() {
       const now = Date.now();
       popSections.innerHTML = "";
       // the board keeps one fixed size, so on short and phone screens it shows 2 trains each way and drops its heading (the left panel carries the name)
       const compact = window.matchMedia("(max-height: 800px) and (min-width: 861px), (max-width: 860px)").matches, perDir = compact ? 2 : 3;
       if (!compact) ledTitle(STN.name);
+      if (STACK) { renderPaged(now, compact); popNote.hidden = true; return; }
       let last = null;
       ["W", "E"].forEach(dir => {
         const rows = board.filter(p => p.dir === dir).map(p => ({ ...p, left: (p.eta - now) / 1000 })).filter(p => p.left > -20)
@@ -613,7 +809,7 @@
         if (sel !== t || !trains.has(t.key)) { clearSel(); return; }
         const now = Date.now();
         popSections.innerHTML = "";
-        ledTitle(`${LINES[t.line].name} ${dirWord(t.dir)} to ${nameOf(t.dest) || "check front of train"} · Vehicle ID ${t.vid}`);
+        ledTitle(`${LINES[t.line].name} ${DIRS[t.line][t.dir]} to ${nameOf(t.dest) || "check front of train"} · Vehicle ID ${t.vid}`);
         const stops = (t.stops || []).filter(s => s.at - now > -15000);
         const rows = stops.length ? stops.slice(0, 9).map(s => ledRow([[s.name, "dest"], [whenText((s.at - now) / 1000), "when"]], "stop"))
           : [ledRow([[t.stops ? "No stops predicted" : "Loading…", "dest"], ["", "when"]], "stop led-empty")];
@@ -684,12 +880,12 @@
         meta: () => ({ id: STN.id, name: STN.name, naptan: STN.naptan, lines: IDS, stopsShown: z,
                        approach: Object.fromEntries(IDS.map(id => [id, LINES[id].approach || null])), skip: Object.fromEntries(IDS.map(id => [id, LINES[id].skip || []])) }),
         sample: () => Array.from(trains.values()).filter(t => typeof t.s === "number").map(t => {
-          const p = pose(LANES[t.line + t.dir], t.s);
+          const p = screenPose(t);
           return [t.vid, t.line, t.dir, n1(p.x), n1(p.y), n1(t.s), n2(t.tts >= 0 ? qOf(t) : 0), t.n != null && (t.n > 1 || !t.gap) ? t.n : t.gap ? t.gap.n : null, t.plan ? !!t.atStop : t.gap ? !!t.gap.at : null, n1(t.tts), nameOf(t.dest), t.loc || "", n2(t.op)];
         })
       };
     }
-    if (ctx.debug) window.__stn = { trains, LANES, get board() { return board; }, stopsAway, stopInfo, qToD, qOf, get shown() { return z; }, stopsText, get locs() { return Array.from(locSeen); } };
+    if (ctx.debug) window.__stn = { trains, LANES, get layout() { return RADIAL ? "radial" : "linear"; }, setLayout, get board() { return board; }, stopsAway, stopInfo, qToD, qOf, get shown() { return z; }, stopsText, get locs() { return Array.from(locSeen); } };
 
     return { zoomCentre(f) { zoomStep(f > 1 ? 1 : -1); }, resetView() { zoomTo(STOPS_MIN); } };
   }

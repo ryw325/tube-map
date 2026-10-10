@@ -18,4 +18,4 @@ window.UNDERCURRENT_MENU = [{"id":"light","name":"Light rail","sub":"DLR and Lon
 // Categories form connected blocks (a train circles each block), surface at the top, deep level at the bottom. Move a tile by swapping two ids.
 window.UNDERCURRENT_GRID = ["menu","c-light","trams","liberty","lioness","mildmay","c-over","thameslink","dlr","hammersmith","circle","weaver","windrush","suffragette","c-hybrid","elizabeth","c-sub","metropolitan","district","central","victoria","c-deep","bakerloo","jubilee","northern","waterloo","piccadilly","logo"];
 // Stations that have their own page (?station=<id>; data in lines/station-<id>.js)
-window.UNDERCURRENT_STATIONS = [{ id: "hsd", name: "Hammersmith" }];
+window.UNDERCURRENT_STATIONS = [{ id: "hsd", name: "Hammersmith", lines: "District and Piccadilly" }, { id: "bsc", name: "Barons Court", lines: "District and Piccadilly" }, { id: "bbn", name: "Barbican", lines: "Circle, Hammersmith & City and Metropolitan" }, { id: "kxc", name: "King's Cross St Pancras", lines: "Circle, H&C, Metropolitan, Northern, Piccadilly and Victoria" }];

@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tube Live</title>
 <script>if (/[?&]from=/.test(location.search)) { document.documentElement.classList.add("tx-in", "tx-away"); setTimeout(function () { var c = document.documentElement.classList; if (c.contains("tx-in")) c.remove("tx-in", "tx-away"); }, 5000); }  /* only used if a line ever has to switch by a full page load (the fallback): keep the panels slid off screen from the first paint */</script>
-<link rel="stylesheet" href="style.css?v=3.30">
+<link rel="stylesheet" href="style.css?v=3.34">
 </head>
 <body>
 <div class="wrap">
   <aside class="panel">
     <div class="panel-head">
       <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span></h1>
-      <p class="eyebrow">Live prototype · v3.30</p>
+      <p class="eyebrow">Live prototype · v3.34</p>
     </div>
 
     <div>
@@ -196,7 +196,7 @@
   </div>
 </section>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.30"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.34"; -->
 <script src="lines/index.js"></script>
 <script src="lines/shared.js"></script>
 <script>
@@ -206,7 +206,7 @@
     const sid = new URLSearchParams(location.search).get("station");
     if (sid && (window.UNDERCURRENT_STATIONS || []).some(s => s.id === sid)) {
       const b = "?b=" + Date.now();
-      document.write('<script src="lines/river.js' + b + '"><\/script><script src="lines/station-' + sid + '.js' + b + '"><\/script><script src="station.js' + b + '"><\/script><script src="engine.js' + b + '"><\/script><script src="recorder.js' + b + '"><\/script>');
+      document.write('<script src="lines/river.js' + b + '"><\/script><script src="lines/codes.js' + b + '"><\/script><script src="lines/station-' + sid + '.js' + b + '"><\/script><script src="station.js' + b + '"><\/script><script src="engine.js' + b + '"><\/script><script src="recorder.js' + b + '"><\/script>');
       return;
     }
     const lines = window.UNDERCURRENT_LINES || [];

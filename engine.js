@@ -1,4 +1,8 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.34: Radial layout for station pages, picked with a switch in the map's top-left corner (remembered on this device). Every track runs straight through one central ring at roughly its real angle (angles per station from tools/make_station.py), the stops-away markers sit on circles, the fade is round, and each track end is named by its next station. Trains move exactly as in the Linear layout (the same lanes, turned). The stacked Linear layout keeps clear of the switch.
+   v3.33: King's Cross St Pancras station page (?station=kxc): six lines on four tracks, stacked across the map, each with its own station ring, the rings linked like an interchange on the Tube map. Euston is on the left of every track, and each track is labelled with its own direction words (from each line's data). With three or more tracks the departures board shows two tracks at a time, moving on every 8 seconds or when tapped, and the side panel counts tracks and platforms.
+   v3.32: Barbican station page (?station=bbn): Circle, Hammersmith & City and Metropolitan share one track, drawn as a ribbon of three stripes, and share its lanes (STN.tracks groups lines that share rails; lines that don't share rails keep a track each). A single track runs straight through the station and its lanes bow out round the station icon. Destination codes moved to one shared file (lines/codes.js), so each station file is about 4.6 KB instead of 11 KB. Station line keys are TfL's line ids.
+   v3.31: Barons Court station page (?station=bsc). Station data for every station now comes from tools/make_station.py. The menu's Station card opens a station picker when there is more than one station page. station.js no longer assumes Hammersmith ("At <station>" checks and the station-name suffix are generic); Piccadilly also runs through West Kensington.
    v3.30: Station page reads the per-train line feed (/Line/district,piccadilly/Arrivals), the same source as the line maps (rule from Ryan, 9 Oct: one data source for every build). Each train's own next stops and times set its stop count, when it reaches each marker (short dwell at each, then on to the next by that stop's predicted time) and its calling points; TfL never predicts stops a train runs through. Location text is only a fallback for trains listed with Hammersmith alone. Queuing in a lane is smoothed (no shoves or snaps), trains are drawn from 30 minutes out (no pop-ins), and a train missing from the feed is kept about 2 minutes before a 4 s fade.
    v3.29: Station page smoothing (from Ryan's 9 Oct 5pm recording): trains first seen part-way through a gap start where their time puts them; each lane keeps arrival order (no swaps); an approaching train is never drawn moving backwards when TfL pushes its arrival later (it holds), and catches up at most a gap per 20 s when TfL brings it forward; Piccadilly runs through Stamford Brook and Ravenscourt Park as well as Turnham Green. tools/station_replay.js replays a recording's TfL replies on a fake clock.
    v3.28: Recorder records stations too (Stations row in the Record pop-up; the station page ticks itself). The recording is saved into the browser's storage as it goes, so reloading or changing page mid-recording carries straight on (no leave prompt); a recording left by a closed tab is saved as a file the next time the site opens. File format 2 adds station rows (fields.stationTrain), kinds, resumes and gaps.
@@ -55,7 +59,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.30";
+  const VERSION = "3.34";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -296,7 +300,16 @@
       `<div class="menu-view menu-land" data-view="land"><div class="menu-top"><div class="menu-eyebrow">Project Undercurrent</div>${clockHTML}</div>` +
       `<h2 class="menu-h1">What would you like to see?</h2><p>Choose a way to explore the live network.</p><div class="tiles">${tiles}</div>` +
       `<button type="button" class="menu-ghost menu-back" data-go="close">${backIcon}Back to the map</button></div>` +
-      `<div class="menu-view menu-lines" data-view="lines" hidden><div class="gboard" id="gboard" role="group" aria-label="Choose a line">${buildGrid()}<svg class="gfx" id="gfx" aria-hidden="true"></svg></div></div>`;
+      `<div class="menu-view menu-lines" data-view="lines" hidden><div class="gboard" id="gboard" role="group" aria-label="Choose a line">${buildGrid()}<svg class="gfx" id="gfx" aria-hidden="true"></svg></div></div>` +
+      buildStations();
+  }
+  // v3.31: the station picker (one card per station page in UNDERCURRENT_STATIONS; the station on screen is marked)
+  function buildStations() {
+    const here = new URLSearchParams(location.search).get("station");
+    const cards = (window.UNDERCURRENT_STATIONS || []).map(s => `<button type="button" class="tile stn-pick${s.id === here ? " cur" : ""}" data-station="${esc(s.id)}"${s.id === here ? ' aria-current="page"' : ""}><div class="tile-top"><svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="17" fill="var(--station-fill)" stroke="currentColor" stroke-width="10"/></svg><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 H19 M13 6 L19 12 L13 18"/></svg></div><div><div class="tile-name">${esc(s.name)}</div><div class="tile-sub">${esc(s.lines || "")}</div></div></button>`).join("");
+    return `<div class="menu-view menu-land menu-stations" data-view="stations" hidden><div class="menu-top"><div class="menu-eyebrow">Stations</div>${clockHTML}</div>` +
+      `<h2 class="menu-h1">Choose a station</h2><p>Every train arriving and leaving, live.</p><div class="tiles">${cards}</div>` +
+      `<button type="button" class="menu-ghost menu-back" data-go="land">${backIcon}Back</button></div>`;
   }
   /* Tracks: the boundary of each category's tiles, pulled in a little so it sits in the gap, corners rounded, one train per loop. */
   const gSVG = "http://www.w3.org/2000/svg";
@@ -382,7 +395,7 @@
   let menuFrom = null, menuFade = 0;
   function showView(v) {
     menuEl.querySelectorAll(".menu-view").forEach(n => { n.hidden = n.dataset.view !== v; });
-    const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".gline.cur, .gline.live" : ".tile:not([disabled])"}`);
+    const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".gline.cur, .gline.live" : v === "stations" ? ".stn-pick.cur, .stn-pick" : ".tile:not([disabled])"}`);
     if (first) first.focus({ preventScroll: true });
     if (v === "lines") gStart(); else gStop();
     updateClock();
@@ -409,13 +422,18 @@
     if (!b || b.disabled) return;
     if (b.dataset.line) { const id = b.dataset.line; closeMenu(() => { if (cur && id !== cur.id) plainSwitch(id); }); return; }
     const go = b.dataset.go;
-    if (go === "station") { closeMenu(() => { location.assign(location.pathname + "?station=hsd"); }); return; }
+    if (b.dataset.station) { const sid = b.dataset.station; closeMenu(() => { location.assign(location.pathname + "?station=" + encodeURIComponent(sid)); }); return; }
+    if (go === "station") {                                    // v3.31: more than one station page, so the card opens a picker
+      const st = window.UNDERCURRENT_STATIONS || [];
+      if (st.length === 1) { closeMenu(() => { location.assign(location.pathname + "?station=" + st[0].id); }); return; }
+      showView("stations"); return;
+    }
     if (go === "close") closeMenu(); else if (go) showView(go);
   });
   document.addEventListener("keydown", e => {
     if (!menuOpen || e.key !== "Escape") return;
-    const onLines = !menuEl.querySelector('.menu-view[data-view="lines"]').hidden;
-    if (onLines) showView("land"); else closeMenu();
+    const onLand = !menuEl.querySelector('.menu-view[data-view="land"]').hidden;
+    if (!onLand) showView("land"); else closeMenu();
   });
   document.getElementById("menu-open").addEventListener("click", openMenu);
   document.getElementById("menu-fab").addEventListener("click", openMenu);
