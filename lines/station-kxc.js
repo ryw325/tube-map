@@ -213,6 +213,22 @@ window.UNDERCURRENT_LINE = {
    "approach": {
     "E": [
      [
+      "Clapham North",
+      "Stockwell",
+      "Oval",
+      "Kennington",
+      "Elephant & Castle",
+      "Borough",
+      "London Bridge",
+      "Bank",
+      "Moorgate",
+      "Old Street",
+      "Angel",
+      "King's Cross St Pancras"
+     ]
+    ],
+    "W": [
+     [
       "Edgware",
       "Burnt Oak",
       "Colindale",
@@ -252,40 +268,24 @@ window.UNDERCURRENT_LINE = {
       "Euston",
       "King's Cross St Pancras"
      ]
-    ],
-    "W": [
-     [
-      "Clapham North",
-      "Stockwell",
-      "Oval",
-      "Kennington",
-      "Elephant & Castle",
-      "Borough",
-      "London Bridge",
-      "Bank",
-      "Moorgate",
-      "Old Street",
-      "Angel",
-      "King's Cross St Pancras"
-     ]
     ]
    },
    "short": "NOR",
    "dirs": {
     "E": {
-     "label": "Southbound",
-     "platform": [
-      "southbound"
-     ]
-    },
-    "W": {
      "label": "Northbound",
      "platform": [
       "northbound"
      ]
+    },
+    "W": {
+     "label": "Southbound",
+     "platform": [
+      "southbound"
+     ]
     }
    },
-   "westWords": "edgware|high barnet|mill hill|camden|golders|archway|east finchley|burnt oak|colindale"
+   "westWords": "morden|battersea|kennington|bank|london bridge|borough|waterloo|elephant|stockwell|clapham|tooting|balham"
   },
   "victoria": {
    "name": "Victoria",
@@ -478,7 +478,7 @@ window.UNDERCURRENT_LINE = {
  ],
  "angles": [
   38,
-  12,
+  -168,
   -35,
   -70
  ]

@@ -14,7 +14,9 @@
    v3.35: Linear 2. No station rings. Each track runs flat at its outer level, ramps in at 34 degrees to a short straight section (about two
    trains long) at the middle, and ramps out again. Grey pill separators (as on the Tube map) mark the middle: one beyond the first track, one
    beyond the last, and one between each pair of tracks, so stations with more than two tracks get a separator between each. Direction words
-   sit at the two line ends on the outer side of their track. */
+   sit at the two line ends on the outer side of their track.
+   v3.36: in a stack only the first and last track ramp (the middle ones stay flat); lanes are 16 from the track; the separators stay 9 beyond the
+   lane when zooming out (end ones move in, the I's stem lengthens); Westbound and Southbound words are always on the left. */
 (function () {
   "use strict";
   const NS = "http://www.w3.org/2000/svg";
@@ -40,9 +42,13 @@
   /* ---------- Geometry ---------- */
   // v3.35 Linear 2: a track is flat at its outer level, ramps in at RAMP to a short straight section of 2 * HALF at the middle, and ramps out;
   // corners are rounded by cutting CUT off each side. SPC is the distance between the straight sections, RISE how far a track ramps outwards
-  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 14, SEP_GAP = 23, SEP_BOX = 34;
+  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 16, SEP_CLR = 9;   // SEP_CLR: how far a separator's edge stays beyond the lane the trains run in
   const SEP_END = "M6,7 H10.57 A7 7 0 0 1 17.5,1 H18.5 A7 7 0 0 1 25.43,7 H30 A5 5 0 0 1 35,12 A5 5 0 0 1 30,17 H6 A5 5 0 0 1 1,12 A5 5 0 0 1 6,7 Z";   // 36 x 18, bump at the top
-  const SEP_MID = "M6,1 H30 A5 5 0 0 1 35,6 A5 5 0 0 1 30,11 H25.5 V23 H30 A5 5 0 0 1 35,28 A5 5 0 0 1 30,33 H6 A5 5 0 0 1 1,28 A5 5 0 0 1 6,23 H10.5 V11 H6 A5 5 0 0 1 1,6 A5 5 0 0 1 6,1 Z";   // 36 x 34
+  // the middle separator (an I: a pill at each end joined by a stem), drawn at scale k from y0 downwards and H tall, so the stem can be any length
+  const midPath = (k, y0, H) => {
+    const w = 17 * k, t = 10 * k, r = 5 * k, sw = 7.5 * k, f = n => n.toFixed(2), a = (x, y) => `A${f(r)} ${f(r)} 0 0 1 ${f(x)},${f(y)}`;
+    return `M${f(-w + r)},${f(y0)} H${f(w - r)} ${a(w, y0 + r)} ${a(w - r, y0 + t)} H${f(sw)} V${f(y0 + H - t)} H${f(w - r)} ${a(w, y0 + H - t + r)} ${a(w - r, y0 + H)} H${f(-w + r)} ${a(-w, y0 + H - r)} ${a(-w + r, y0 + H - t)} H${f(-sw)} V${f(y0 + t)} H${f(-w + r)} ${a(-w, y0 + r)} ${a(-w + r, y0)} Z`;
+  };
   // a rounded polyline through V (a vertex marked with a third entry is where the station is: its index comes back as idx)
   function roundPoly(V, R) {
     const out = []; let idx = 0;
@@ -183,9 +189,10 @@
     const rp = (k, x, y) => { const a = ROT[k]; if (!a) return [x, y]; const c = Math.cos(a), sn = Math.sin(a); return [x * c - y * sn, x * sn + y * c]; };
     const BASE = {}, IDX0 = {};
     let SEPS = null;
-    let SPC = 78, RISE = 52, OFF = 0;                          // Linear: the distance between the straight sections, how far a track ramps outwards, and the stack's shift (fitted in layout())
+    let SPC = 82, RISE = 52, OFF = 0;                          // Linear: the distance between the straight sections, how far a track ramps outwards, and the stack's shift (fitted in layout())
     const stackY = i => OFF + (i - (NG - 1) / 2) * SPC;
-    const outward = i => i < (NG - 1) / 2 ? -1 : i > (NG - 1) / 2 ? 1 : 0;   // which way a track opens out: up in the top half, down in the bottom, straight in the middle
+    const outward = i => NG > 1 && i === 0 ? -1 : NG > 1 && i === NG - 1 ? 1 : 0;   // which way a track opens out: only the outer two do (up for the first, down for the last); the middle ones stay flat
+    const sideOf = i => outward(i) || (i < (NG - 1) / 2 ? -1 : i > (NG - 1) / 2 ? 1 : 0);   // which side of its track its words sit: the outer side (0 = the single middle track)
     function setBase() {
       GK.forEach((k, i) => {
         ROT[k] = RADIAL ? ANG[i] : 0;
@@ -248,7 +255,7 @@
     });
     // v3.35: the separators: an end separator beyond the first and the last track, and one between each pair of tracks
     const mkSep = d => el("path", { class: "stn-sep", d }, sepG);
-    SEPS = { top: mkSep(SEP_END), bottom: mkSep(SEP_END), mid: Array.from({ length: NG - 1 }, () => mkSep(SEP_MID)) };
+    SEPS = { top: mkSep(SEP_END), bottom: mkSep(SEP_END), mid: Array.from({ length: NG - 1 }, () => mkSep("")) };
     // v3.34: Radial names each track end by its next station (from the approach lists; stations a line runs through are skipped)
     const nextStop = (g, d) => {
       for (const id of g) for (const seq of ((LINES[id].approach || {})[d] || [])) {
@@ -313,7 +320,7 @@
       const tg = layoutCtl.getBoundingClientRect(), tgBottom = tg.height ? (tg.bottom - r.top) * k : 0;
       const top = Math.max(60, tgBottom + 41) - VH / 2, bottom = Math.min(ctlTop - 46, VH - 52) - VH / 2;   // where the outer levels may be (labels sit 30 beyond them)
       const avail = bottom - top;
-      SPC = 78; RISE = NG === 1 ? 0 : 52;
+      SPC = 82; RISE = NG === 1 ? 0 : 52;
       const need = () => (NG - 1) * SPC + 2 * RISE;
       if (NG > 1 && need() > avail) RISE = Math.max(20, (avail - (NG - 1) * SPC) / 2);
       if (NG > 1 && need() > avail) SPC = Math.max(72, (avail - 2 * RISE) / (NG - 1));
@@ -323,15 +330,21 @@
     // Linear: each track's words sit 30 beyond its outer level, on the outer side ("← W" under the middle track on the left, "E →" above it on the right)
     function placeLabels() {
       dirEls.forEach(([we, ee], i) => {
-        const o = outward(i), yo = stackY(i) + o * RISE, yw = yo + ((o || 1) < 0 ? -25 : 37), ye = yo + ((o || -1) < 0 ? -25 : 37);
+        const o = sideOf(i), yo = stackY(i) + outward(i) * RISE, yw = yo + ((o || 1) < 0 ? -25 : 37), ye = yo + ((o || -1) < 0 ? -25 : 37);
         we.setAttribute("y", yw.toFixed(1)); ee.setAttribute("y", ye.toFixed(1));
       });
     }
-    // Linear: the separators sit 23 from the nearest track and scale with the trains
+    // Linear: the separators keep a constant distance from the lane the trains run in (SEP_CLR beyond it) however far the view is zoomed out: the
+    // end separators move with it, and the middle one (the I) keeps its pills there and lengthens its stem to fill the rest of the gap
     function placeSeps() {
-      const put = (n, cy, flip, h) => n.setAttribute("transform", `translate(0,${cy.toFixed(1)}) scale(${zf.toFixed(3)},${(flip ? -zf : zf).toFixed(3)}) translate(-18,${-h / 2})`);
-      put(SEPS.top, stackY(0) - SEP_GAP - 8 * zf, false, 18); put(SEPS.bottom, stackY(NG - 1) + SEP_GAP + 8 * zf, true, 18);
-      SEPS.mid.forEach((n, j) => put(n, (stackY(j) + stackY(j + 1)) / 2, false, SEP_BOX));
+      let e = LIN_LANE * zf + SEP_CLR;   // from a track to the nearest edge of a separator
+      if (NG > 1) e = Math.min(e, (SPC - 20 * zf - 6) / 2);   // on a short screen the stem stays at least 6 long
+      const put = (n, cy, flip) => { n.setAttribute("transform", `translate(0,${cy.toFixed(1)}) scale(${zf.toFixed(3)},${(flip ? -zf : zf).toFixed(3)}) translate(-18,-9)`); };
+      put(SEPS.top, stackY(0) - e - 8 * zf, false); put(SEPS.bottom, stackY(NG - 1) + e + 8 * zf, true);
+      SEPS.mid.forEach((n, j) => {
+        const y0 = stackY(j) + e, H = stackY(j + 1) - e - y0;
+        n.setAttribute("d", midPath(zf, y0, H)); n.style.strokeWidth = (2 * zf).toFixed(2);
+      });
     }
     // marker 1 sits just past the pinch (X1) and marker z at XK, 72% of the way to the screen edge, so zooming out closes the markers up and the next
     // one slides in from the fade (fading in as it arrives). The fade starts just after XK and ends at the edge, whatever the width of the screen.
