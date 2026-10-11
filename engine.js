@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.38: Radial drops the numbered stop markers for two dashed rings, 5 and 10 minutes out, that fade in the widest gap between track ends where their labels sit.
+   v3.37: Linear separators now sit the same distance from a train as the train sits from its track (at every zoom); a train stays at the platform for at least 15 seconds from when it is drawn there.
    v3.36: Linear tweaks. In a stack only the outer two tracks ramp (the middle ones stay flat); Southbound and Westbound are always the left-hand words (the Northern at King's Cross is flipped); trains run a little further from their track; the separators keep a constant distance from the trains' lane when zooming, the I lengthening its stem.
    v3.35: Linear 2 for station pages. No station rings: each track ramps in to a short straight section at the middle, with grey pill separators at the two ends and between each pair of tracks. Direction words sit at the line ends.
    v3.34: Radial layout for station pages, picked with a switch in the map's top-left corner (remembered on this device). Every track runs straight through one central ring at roughly its real angle (angles per station from tools/make_station.py), the stops-away markers sit on circles, the fade is round, and each track end is named by its next station. Trains move exactly as in the Linear layout (the same lanes, turned). The stacked Linear layout keeps clear of the switch.
@@ -61,7 +63,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.36";
+  const VERSION = "3.38";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

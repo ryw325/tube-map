@@ -16,7 +16,11 @@
    beyond the last, and one between each pair of tracks, so stations with more than two tracks get a separator between each. Direction words
    sit at the two line ends on the outer side of their track.
    v3.36: in a stack only the first and last track ramp (the middle ones stay flat); lanes are 16 from the track; the separators stay 9 beyond the
-   lane when zooming out (end ones move in, the I's stem lengthens); Westbound and Southbound words are always on the left. */
+   lane when zooming out (end ones move in, the I's stem lengthens); Westbound and Southbound words are always on the left.
+   v3.37: the gap from a train to a separator equals the gap from a train to its track (at every zoom, so the spacing between tracks is 92); a
+   train stays at the platform for at least DWELL (15) seconds counted from when it is drawn there, not from its predicted time.
+   v3.38: Radial has two dashed rings (5 and 10 minutes) instead of numbered markers; they sit at the 2nd and 3rd stop distances, so the times are
+   approximate, and each fades in the widest gap between track ends, where its label sits. */
 (function () {
   "use strict";
   const NS = "http://www.w3.org/2000/svg";
@@ -42,7 +46,7 @@
   /* ---------- Geometry ---------- */
   // v3.35 Linear 2: a track is flat at its outer level, ramps in at RAMP to a short straight section of 2 * HALF at the middle, and ramps out;
   // corners are rounded by cutting CUT off each side. SPC is the distance between the straight sections, RISE how far a track ramps outwards
-  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 16, SEP_CLR = 9;   // SEP_CLR: how far a separator's edge stays beyond the lane the trains run in
+  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 16, TRAIN_HALF = 5.5, TRACK_HALF = 3.5, SEP_LINE = 1;   // lane, half a train's width, half a track's width, half a separator's outline (at the default zoom)
   const SEP_END = "M6,7 H10.57 A7 7 0 0 1 17.5,1 H18.5 A7 7 0 0 1 25.43,7 H30 A5 5 0 0 1 35,12 A5 5 0 0 1 30,17 H6 A5 5 0 0 1 1,12 A5 5 0 0 1 6,7 Z";   // 36 x 18, bump at the top
   // the middle separator (an I: a pill at each end joined by a stem), drawn at scale k from y0 downwards and H tall, so the stem can be any length
   const midPath = (k, y0, H) => {
@@ -170,6 +174,7 @@
     const maskRect = el("rect", { fill: "url(#stn-fg)" }, mask);
     const scene = el("g", { class: "stn-scene" });
     const sepG = el("g", { "aria-hidden": "true" }, scene);
+    const ringG = el("g", { "aria-hidden": "true" }, scene);   // v3.38: Radial's 5 and 10 minute rings
     const fadeG = el("g", { mask: "url(#stn-fade)" }, scene);
     const poly = a => a.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
     /* v3.32: tracks. Lines that share rails share one track, drawn as a ribbon of thin stripes (one per line, as on the TfL map), and their trains
@@ -189,7 +194,7 @@
     const rp = (k, x, y) => { const a = ROT[k]; if (!a) return [x, y]; const c = Math.cos(a), sn = Math.sin(a); return [x * c - y * sn, x * sn + y * c]; };
     const BASE = {}, IDX0 = {};
     let SEPS = null;
-    let SPC = 82, RISE = 52, OFF = 0;                          // Linear: the distance between the straight sections, how far a track ramps outwards, and the stack's shift (fitted in layout())
+    let SPC = 92, RISE = 52, OFF = 0;                          // Linear: the distance between the straight sections, how far a track ramps outwards, and the stack's shift (fitted in layout())
     const stackY = i => OFF + (i - (NG - 1) / 2) * SPC;
     const outward = i => NG > 1 && i === 0 ? -1 : NG > 1 && i === NG - 1 ? 1 : 0;   // which way a track opens out: only the outer two do (up for the first, down for the last); the middle ones stay flat
     const sideOf = i => outward(i) || (i < (NG - 1) / 2 ? -1 : i > (NG - 1) / 2 ? 1 : 0);   // which side of its track its words sit: the outer side (0 = the single middle track)
@@ -246,6 +251,11 @@
     const radRing = el("circle", { class: "stn-station", cx: 0, cy: 0, r: 26 }, scene);   // v3.34: Radial has one bigger ring where every track meets
     const titleEl = SHOW_TITLE ? el("text", { class: "stn-title", "text-anchor": "middle" }, scene) : null;
     if (titleEl) titleEl.textContent = STN.name;
+    // v3.38: Radial has no numbered markers: two dashed rings, 5 and 10 minutes out, take their place. Each ring fades in the widest gap between track
+    // ends (where there is room) and its label sits in that fade. Drawn as short dashes in four opacity steps (one path per step) so it can fade
+    const RING_MINS = [5, 10], RING_STOP = [2, 3];               // a ring sits where that stop's marker would: the 2nd and 3rd stop out
+    const RINGS = RING_MINS.map(m => ({ mins: m, paths: [0, 1, 2, 3].map(k => el("path", { class: "stn-ring", opacity: ((k + 1) / 4 * 0.6).toFixed(2) }, ringG)), txt: el("text", { class: "stn-ring-label", "text-anchor": "middle", "dominant-baseline": "central" }, ringG) }));
+    RINGS.forEach(r => { r.txt.textContent = r.mins + " min"; });
     const dirEls = [];
     GROUPS.forEach((g, i) => {
       const cls = "stn-dir " + (g.length > 1 ? "cx" : "c" + IDS.indexOf(g[0]));   // a shared track's labels are in ink
@@ -305,7 +315,7 @@
       if (!RADIAL) placeLabels();
       // what each layout shows
       const show = (n, on) => on ? n.removeAttribute("display") : n.setAttribute("display", "none");
-      show(sepG, !RADIAL); show(radRing, RADIAL);
+      show(sepG, !RADIAL); show(radRing, RADIAL); show(ringG, RADIAL);
       dirEls.forEach(pair => pair.forEach(n => show(n, !RADIAL))); endEls.forEach(pair => pair.forEach(n => show(n, RADIAL)));
       maskRect.setAttribute("fill", RADIAL ? "url(#stn-rg)" : "url(#stn-fg)");
       placeMarks(); if (RADIAL) placeEnds(); snapUntil = performance.now() + 250;
@@ -320,9 +330,9 @@
       const tg = layoutCtl.getBoundingClientRect(), tgBottom = tg.height ? (tg.bottom - r.top) * k : 0;
       const top = Math.max(60, tgBottom + 41) - VH / 2, bottom = Math.min(ctlTop - 46, VH - 52) - VH / 2;   // where the outer levels may be (labels sit 30 beyond them)
       const avail = bottom - top;
-      SPC = 82; RISE = NG === 1 ? 0 : 52;
+      SPC = 92; RISE = NG === 1 ? 0 : 52;
       const need = () => (NG - 1) * SPC + 2 * RISE;
-      if (NG > 1 && need() > avail) RISE = Math.max(20, (avail - (NG - 1) * SPC) / 2);
+      if (NG > 1 && need() > avail) RISE = Math.max(14, (avail - (NG - 1) * SPC) / 2);
       if (NG > 1 && need() > avail) SPC = Math.max(72, (avail - 2 * RISE) / (NG - 1));
       const ext = need() / 2;
       OFF = need() <= avail ? Math.max(top + ext, Math.min(bottom - ext, 0)) : (top + bottom) / 2;
@@ -334,10 +344,11 @@
         we.setAttribute("y", yw.toFixed(1)); ee.setAttribute("y", ye.toFixed(1));
       });
     }
-    // Linear: the separators keep a constant distance from the lane the trains run in (SEP_CLR beyond it) however far the view is zoomed out: the
-    // end separators move with it, and the middle one (the I) keeps its pills there and lengthens its stem to fill the rest of the gap
+    // Linear (v3.37): the gap from a train to a separator equals the gap from a train to its track line, at every zoom. The end separators move
+    // with it, and the middle one (the I) keeps its pills there and lengthens its stem to fill the rest of the gap
     function placeSeps() {
-      let e = LIN_LANE * zf + SEP_CLR;   // from a track to the nearest edge of a separator
+      const gapT = LIN_LANE - TRACK_HALF - TRAIN_HALF;          // train to track line
+      let e = (LIN_LANE + TRAIN_HALF + gapT + SEP_LINE) * zf;   // from a track to the nearest edge of a separator
       if (NG > 1) e = Math.min(e, (SPC - 20 * zf - 6) / 2);   // on a short screen the stem stays at least 6 long
       const put = (n, cy, flip) => { n.setAttribute("transform", `translate(0,${cy.toFixed(1)}) scale(${zf.toFixed(3)},${(flip ? -zf : zf).toFixed(3)}) translate(-18,-9)`); };
       put(SEPS.top, stackY(0) - e - 8 * zf, false); put(SEPS.bottom, stackY(NG - 1) + e + 8 * zf, true);
@@ -371,6 +382,7 @@
             for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2, p = pose(L, mid); if ((p.x - sign * x) * Math.cos(p.ang) + (p.y - my0) * Math.sin(p.ang) < 0) lo = mid; else hi = mid; }
           }
           L.D.push(-(lo + hi) / 2);
+          if (RADIAL) { m.g.setAttribute("display", "none"); return; }   // v3.38: Radial shows rings instead of numbered markers
           const op = Math.max(0, Math.min(1, z - (m.k - 1)));   // marker k fades in as z goes from k - 1 to k
           if (op <= 0.001) { m.g.setAttribute("display", "none"); return; }
           m.g.removeAttribute("display"); m.g.setAttribute("opacity", op.toFixed(3));
@@ -378,6 +390,31 @@
           m.g.setAttribute("transform", `translate(${mx.toFixed(1)},${my.toFixed(1)}) scale(${zf.toFixed(3)})`);
         });
       }));
+      if (RADIAL) placeRings(X1, step);
+    }
+    // v3.38: Radial rings. The widest gap between track ends (the upward one if two are equal) is where the rings fade and the labels sit; gaps
+    // under 60 degrees do not fade
+    function placeRings(X1, step) {
+      const norm = a => ((a % 360) + 360) % 360, rays = [...new Set(GK.flatMap((k, i) => [ANG[i], ANG[i] + Math.PI]).map(a => Math.round(norm(a * 180 / Math.PI) * 10) / 10))].sort((a, b) => a - b);
+      const gaps = rays.map((a, i) => { const n = i + 1 < rays.length ? rays[i + 1] : rays[0] + 360; return { from: a, size: n - a, c: norm(a + (n - a) / 2) }; });
+      const up = g => -Math.sin(g.c * Math.PI / 180), best = gaps.slice().sort((p, q) => q.size - p.size || up(q) - up(p))[0];
+      const alphaAt = th => {
+        th = norm(th); const g = gaps.find(g => norm(th - g.from) <= g.size);
+        if (!g || g.size < 60) return 1;
+        const dc = Math.abs(norm(th - g.c + 180) - 180);
+        return Math.max(0, Math.min(1, (dc - 0.12 * g.size) / (0.30 * g.size)));
+      };
+      RINGS.forEach((R, i) => {
+        const r = X1 + (RING_STOP[i] - 1) * step, n = Math.max(24, Math.round(2 * Math.PI * r / 8)), d = ["", "", "", ""];
+        for (let j = 0; j < n; j++) {
+          const t0 = j / n * 360, t1 = (j + 0.38) / n * 360, a = alphaAt((t0 + t1) / 2), b = Math.round(a * 4) - 1;
+          if (b < 0) continue;
+          const c = t => [r * Math.cos(t * Math.PI / 180), r * Math.sin(t * Math.PI / 180)], p0 = c(t0), p1 = c(t1);
+          d[b] += `M${p0[0].toFixed(1)},${p0[1].toFixed(1)}A${r.toFixed(1)} ${r.toFixed(1)} 0 0 1 ${p1[0].toFixed(1)},${p1[1].toFixed(1)}`;
+        }
+        R.paths.forEach((pa, k) => pa.setAttribute("d", d[k]));
+        R.txt.setAttribute("x", (r * Math.cos(best.c * Math.PI / 180)).toFixed(1)); R.txt.setAttribute("y", (r * Math.sin(best.c * Math.PI / 180)).toFixed(1));
+      });
     }
     // Radial end labels: just past the last marker, on whichever side of the track has more room before the next track round, reading away from the
     // track, then nudged back inside the map and off the zoom buttons and the layout switch if they would sit under them
@@ -485,7 +522,7 @@
         t = makeTrain(o); t.eta = t.deta = o.eta; t.born = now; trains.set(o.key, t);
       } else {
         const cur = (t.deta - now) / 1000;
-        if (cur < 0 && tts > 90) { t.eta = t.deta = o.eta; t.born = now; t.fadeAt = 0; t.qs = undefined; t.gap = null; }      // same vehicle, new trip
+        if (cur < 0 && tts > 90) { t.eta = t.deta = o.eta; t.born = now; t.fadeAt = 0; t.qs = undefined; t.arrAt = undefined; t.gap = null; }      // same vehicle, new trip
         else if (cur >= 0) t.eta = o.eta;
         t.dest = o.dest;
       }
@@ -572,7 +609,13 @@
         t.tts = (t.deta - now) / 1000;
         const L = laneOf(t);
         // where the train should be, in gaps out from the station (negative once it has left)
-        const tq = t.tts < 0 ? -sOf(t.tts) / (SPEED * TAU_DEP) : qOf(t);
+        // v3.37: a train stays at the platform for at least DWELL seconds from when it is actually drawn there (not from its predicted time, which
+        // a train still catching up may have passed), and one first seen after its time is taken to have arrived at it
+        if (t.qs === undefined && t.tts < 0 && t.arrAt === undefined) t.arrAt = t.deta;
+        let tq;
+        if (t.tts >= 0) tq = qOf(t);
+        else if (t.arrAt === undefined) tq = 0;                  // past its time but not at the platform yet: carry on to it
+        else tq = -sOf(-(Math.max(0, Math.min(-t.tts - DWELL, (now - t.arrAt) / 1000 - DWELL)) + DWELL)) / (SPEED * TAU_DEP);
         if (t.qs === undefined) t.qs = tq;
         else {
           const d = tq - t.qs;
@@ -583,6 +626,7 @@
           } else if (d > BACK_LIMIT) t.qs += Math.min(d, CATCH_UP * dt);   // badly out of place: drift back slowly
           // otherwise TfL has pushed the arrival later: hold still until the train's time catches up
         }
+        if (t.arrAt === undefined && t.qs <= 0.01) t.arrAt = now;   // it has reached the platform
         t.s = t.qs >= 0 ? -qToD(L, t.qs) : -t.qs * qToD(L, 1);
         const lk = GROUP_OF[t.line] + t.dir; (byLane[lk] = byLane[lk] || []).push(t);
       }

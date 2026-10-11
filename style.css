@@ -621,6 +621,9 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .stn-scene .stn-link-core { stroke: var(--station-fill); stroke-width: 8; }
 /* v3.35: Linear separators, drawn like the station pills on the Tube map */
 .stn-scene .stn-sep { fill: var(--sep); stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+/* v3.38: Radial's 5 and 10 minute rings */
+.stn-scene .stn-ring { fill: none; stroke: var(--ink); stroke-width: 1.4; stroke-linecap: round; }
+.stn-scene .stn-ring-label { fill: var(--ink); opacity: .75; font-family: var(--sans); font-size: 11px; font-weight: 600; }
 /* v3.34: the station map's layout switch (top-left of the map), styled like the zoom buttons */
 .stn-layout { position: absolute; left: 22px; top: 18px; z-index: 5; display: flex; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--pill-bg); opacity: .6; transition: opacity .15s; }
 .stn-layout:hover, .stn-layout:focus-within { opacity: 1; }
