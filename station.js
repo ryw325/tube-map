@@ -66,11 +66,33 @@
     });
     return { pts: out, idx };
   }
-  function linearTrack(yc, yo) {
+  // v3.40: deadL / deadR: the track ends at the platform on that side (END units from the station) instead of running on and ramping out
+  const END = 24;
+  function trackVerts(yc, yo, deadL, deadR) {
     const rise = Math.abs(yo - yc), X = 6000;
-    if (rise < 0.5) return roundPoly([[-X, yc], [0, yc, 1], [X, yc]], CUT);
-    const dx = rise / Math.tan(RAMP);
-    return roundPoly([[-X, yo], [-(HALF + dx), yo], [-HALF, yc], [0, yc, 1], [HALF, yc], [HALF + dx, yo], [X, yo]], CUT);
+    const left = deadL ? [[-END, yc]] : rise < 0.5 ? [[-X, yc]] : [[-X, yo], [-(HALF + rise / Math.tan(RAMP)), yo], [-HALF, yc]];
+    const right = deadR ? [[END, yc]] : rise < 0.5 ? [[X, yc]] : [[HALF, yc], [HALF + rise / Math.tan(RAMP), yo], [X, yo]];
+    return { left, right, yc };
+  }
+  // v3.42: paths. mainY(V, x) is the track's height at x (negative x on the left). A path on one side of a station is the main track shifted up or down by a
+  // vertical offset that changes at forks. segVerts lists the corners of a stretch of such a path, from distance xa to xb from the station, near to far: the
+  // main track's own corners, the start and end of each fork ({ xf, dw, r0, r1 }: it starts at xf, takes dw sideways to go from offset r0 to r1), and both ends.
+  const mainY = (V, x) => {
+    const P = V.left.concat([[0, V.yc]], V.right); let i = 1; while (i < P.length - 1 && P[i][0] < x) i++;
+    const a = P[i - 1], b = P[i], u = b[0] === a[0] ? 0 : (x - a[0]) / (b[0] - a[0]); return a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, u));
+  };
+  const plainTrack = V => roundPoly(V.left.concat([[0, V.yc, 1]], V.right), CUT);
+  function segVerts(V, side, xa, xb, forks, base) {
+    const ro = x => {
+      if (!forks.length) return base;
+      for (const f of forks) { if (x <= f.xf) return f.r0; if (x < f.xf + f.dw) return f.r0 + (f.r1 - f.r0) * (x - f.xf) / f.dw; }
+      return forks[forks.length - 1].r1;
+    };
+    const xs = [xa, xb];
+    (side < 0 ? V.left : V.right).forEach(p => { const x = Math.abs(p[0]); if (x > xa && x < xb) xs.push(x); });
+    forks.forEach(f => [f.xf, f.xf + f.dw].forEach(x => { if (x > xa && x < xb) xs.push(x); }));
+    xs.sort((p, q) => p - q);
+    return xs.filter((x, i) => !i || x - xs[i - 1] > 1e-6).map(x => [side * x, mainY(V, side * x) + ro(x)]);
   }
   const yAtX = (P, x) => { let i = 1; while (i < P.length - 1 && P[i][0] < x) i++; const a = P[i - 1], b = P[i], u = b[0] === a[0] ? 0 : (x - a[0]) / (b[0] - a[0]); return a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, u)); };
   function offsetPoly(P, d) {
@@ -190,65 +212,228 @@
     let RADIAL = false;
     try { RADIAL = localStorage.getItem("uc-stn-layout") === "radial"; } catch (e) {}
     const ANG = GROUPS.map((g, i) => { const a = (STN.angles || [])[i]; return (typeof a === "number" ? a : NG === 1 ? -12 : -60 + i * 120 / (NG - 1)) * Math.PI / 180; });
+    // v3.40: a terminus. A track with nothing coming in from one side (the lines on it have no stops on that side) is drawn only on the side its
+    // trains use, so every train comes in from one direction, and it ends at the platform. DEAD[i].E: nothing arrives from the left (moving right).
+    const apOf = (id, d) => (LINES[id].approach || {})[d] || [];
+    const DEAD = GROUPS.map(g => { const e = g.every(id => !apOf(id, "E").length), w = g.every(id => !apOf(id, "W").length); return { E: e && !w, W: w && !e }; });
+    // v3.42: paths. The stops 1 to 5 out on each side of a track, nearest first, form a tree: stops that follow the same stops are one path, and where they
+    // differ the path forks (a fork can fork again). TREE[i].E is the left side (trains moving right arrive from it), TREE[i].W the right; each is
+    // { root, nodes, leaves, maxRow } or null where nothing comes in (a terminus). A node is { name, depth, kids, lines, end, row, origin, parent }: its stop,
+    // how many stops out, the lines that call there, whether the line ends there, its row (0 is the main track, a row is a path's place below it; a spur
+    // takes a short row), and the depth of the fork that made its row (0 if it never left the main row).
+    const nrmN = s => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const RSV0 = 66, SPUR = 0.86;
+    let RSV = RSV0;                                            // the distance between rows (shrinks on a short screen)
+    function buildTree(gi, dir) {
+      const group = GROUPS[gi], all = [];
+      for (const id of group) {
+        const skip = new Set((LINES[id].skip || []).map(nrmN));
+        for (const seq of apOf(id, dir)) all.push({ id, st: seq.slice(0, -1).filter(n => !skip.has(nrmN(n))).reverse() });
+      }
+      all.forEach(a => { a.st = a.st; });
+      if (!all.some(a => a.st.length)) return null;
+      // a route that is another with one stop left out (Euston: via Mornington Crescent or direct) is the same path: the longer one is drawn
+      const minusOne = (t, q) => t.slice(0, STOPS_MAX).some((_, i) => { const u = t.filter((__, j) => j !== i), n = Math.min(u.length, q.length, STOPS_MAX); return n > i && Array.from({ length: n }).every((__, j) => nrmN(u[j]) === nrmN(q[j])); });
+      const keep = all.filter(a => a.st.length && !all.some(o => o !== a && o.id === a.id && minusOne(o.st, a.st)));
+      const root = { name: "", depth: 0, kids: [], lines: new Set(group), end: false, parent: null, row: 0, origin: 0 };
+      for (const { id, st } of keep) {
+        let node = root;
+        st.slice(0, STOPS_MAX).forEach((name, i) => {
+          let c = node.kids.find(k => nrmN(k.name) === nrmN(name));
+          if (!c) { c = { name, depth: i + 1, kids: [], lines: new Set(), end: false, parent: node }; node.kids.push(c); }
+          c.lines.add(id); node = c;
+          if (i === st.length - 1 && st.length < STOPS_MAX) c.end = true;
+        });
+      }
+      // a branch of one or two stops that ends where there are other branches (Kensington Olympia) is a spur: it goes last, on a short row
+      const spurOf = (n, sibs) => !n.kids.length && n.end && n.depth <= 2 && sibs.length > 2;
+      const prep = n => { n.kids.forEach(k => { k.spur = spurOf(k, n.kids); }); n.kids.sort((a, b) => (a.spur ? 1 : 0) - (b.spur ? 1 : 0)); n.kids.forEach(prep); };
+      prep(root);
+      let r = 0; const leaves = [], nodes = [];
+      const assign = n => {
+        if (n.parent) nodes.push(n);
+        if (!n.kids.length) { if (n.spur) { n.row = r - 1 + SPUR; r = n.row + 1; } else { n.row = r; r += 1; } n.leafIdx = leaves.length; leaves.push(n); return; }
+        n.kids.forEach(assign); n.row = n.kids[0].row;
+      };
+      assign(root);
+      nodes.forEach(n => { n.origin = n.row !== n.parent.row ? n.depth : n.parent.origin; });   // nodes are in depth-first order, so a parent comes first
+      return { root, nodes, leaves, maxRow: Math.max(0, ...leaves.map(l => l.row)) };
+    }
+    const TREE = GROUPS.map((g, gi) => ({ E: buildTree(gi, "E"), W: buildTree(gi, "W") }));
+    const bdir = gi => NG > 1 && gi === NG - 1 ? -1 : 1;     // rows go down, except under the last track, where they go up (towards the inside of the stack)
     const ROT = {};                                            // per track: its turn in the layout on screen (0 in Linear)
     const rp = (k, x, y) => { const a = ROT[k]; if (!a) return [x, y]; const c = Math.cos(a), sn = Math.sin(a); return [x * c - y * sn, x * sn + y * c]; };
-    const BASE = {}, IDX0 = {};
+    const BASE = {}, IDX0 = {}, VERTS = {}, TRK = {}, LSET = {};
     let SEPS = null;
+    let VW = 800, VH = 480;                                    // the map's size in its own units (set in layout())
     let SPC = 92, RISE = 52, OFF = 0;                          // Linear: the distance between the straight sections, how far a track ramps outwards, and the stack's shift (fitted in layout())
-    const stackY = i => OFF + (i - (NG - 1) / 2) * SPC;
+    // v3.43: a track with branches needs room for its rows, but only for the rows that are showing: visRows(i, side) is how many rows (a path counts as far as it
+    // has faded in) hang under a side of track i (above the last track). The gap between two tracks is the most that is needed on either side of the station,
+    // where the rows going down from the upper track and the rows going up from the lower one meet, so a gap follows the zoom and the stack drifts a little as you zoom
+    const visRows = (gi, sd) => { const T = TREE[gi][sd]; return T ? Math.max(0, ...T.leaves.map(l => l.row * pathOp(l))) : 0; };
+    // rows are drawn at RSV * zf apart and hang from a track's outer level, which the first and last track's ramps have moved RISE away from the stack, so a
+    // gap only has to find the rest; the standard spacing between tracks also eases in a little as everything shrinks
+    const kz = () => 0.6 + 0.4 * zf;
+    const rampOf = i => NG > 1 && (i === 0 || i === NG - 1) ? RISE * Math.min(1, (86 - HALF) / (RISE / Math.tan(RAMP) || 1)) : 0;   // the first stop (86 out) is part way up the ramp
+    const sideNeed = (i, sd) => {
+      const down = i < NG - 1 && bdir(i) === 1 ? Math.max(0, visRows(i, sd) * RSV * zf - rampOf(i)) : 0;
+      const up = i + 1 === NG - 1 && NG > 1 ? Math.max(0, visRows(NG - 1, sd) * RSV * zf - rampOf(NG - 1)) : 0;
+      return down + up;
+    };
+    const gapAfter = i => Math.max(sideNeed(i, "E"), sideNeed(i, "W"));
+    const sumGap = () => { let q = 0; for (let i = 0; i < NG - 1; i++) q += gapAfter(i); return q; };
+    const botExt = () => NG === 1 ? Math.max(visRows(0, "E"), visRows(0, "W")) * RSV * zf : 0;           // a single track's rows hang below it
+    const stackY = i => { let y = 0; for (let j = 0; j < i; j++) y += SPC * kz() + gapAfter(j); return OFF + y - ((NG - 1) * SPC * kz() + sumGap() + botExt()) / 2; };
     const outward = i => NG > 1 && i === 0 ? -1 : NG > 1 && i === NG - 1 ? 1 : 0;   // which way a track opens out: only the outer two do (up for the first, down for the last); the middle ones stay flat
     const sideOf = i => outward(i) || (i < (NG - 1) / 2 ? -1 : i > (NG - 1) / 2 ? 1 : 0);   // which side of its track its words sit: the outer side (0 = the single middle track)
+    let z = STOPS_MIN, zTarget = STOPS_MIN, zf = 1;
+    const clamp01 = v => Math.max(0, Math.min(1, v));
+    // how visible a path is: one that forks further out than the stops shown fades in as you zoom out
+    const pathOp = n => n.origin ? clamp01(z - (n.origin - 1)) : 1;
     function setBase() {
       GK.forEach((k, i) => {
         ROT[k] = RADIAL ? ANG[i] : 0;
-        if (RADIAL) { BASE[k] = [[-6000, 0], [6000, 0]]; IDX0[k] = 0; return; }
-        const T = linearTrack(stackY(i), stackY(i) + outward(i) * RISE);
+        if (RADIAL) { BASE[k] = [[DEAD[i].E ? 0 : -6000, 0], [DEAD[i].W ? 0 : 6000, 0]]; IDX0[k] = 0; return; }
+        VERTS[k] = trackVerts(stackY(i), stackY(i) + outward(i) * RISE, DEAD[i].E, DEAD[i].W);
+        const T = plainTrack(VERTS[k]);
         BASE[k] = T.pts; IDX0[k] = T.idx;
       });
     }
     setBase();
-    const LANES = {}, TRACKS = [];
-    const laneOf = t => LANES[GROUP_OF[t.line] + t.dir];
+    const LANES = {}, TRACKS = [], ESTR = [];
+    const laneKey = (k, dir, l, r) => k + dir + (l || r ? "-" + (l || 0) + "_" + (r || 0) : "");   // v3.42: a train on a branch has its own lane (left leaf, right leaf)
+    const laneOf = t => LANES[laneKey(GROUP_OF[t.line], t.dir, t.pl, t.pr)] || LANES[GROUP_OF[t.line] + t.dir];
     GROUPS.forEach((g, gi) => {
       const n = g.length, w = TRACK_W * (n > 1 ? 1.75 : 1) / n;
-      g.forEach((id, j) => TRACKS.push({ el: el("polyline", { class: "stn-track c" + IDS.indexOf(id) }, fadeG), k: GK[gi], off: (j - (n - 1) / 2) * w, w: w + (n > 1 ? 0.3 : 0) }));
+      g.forEach((id, j) => TRACKS.push({ el: el("polyline", { class: "stn-track c" + IDS.indexOf(id) }, fadeG), k: GK[gi], off: (j - (n - 1) / 2) * w, w: w + (n > 1 ? 0.3 : 0) }));   // Radial's straight track
+      // v3.42: Linear draws each stretch of track on its own, so a ribbon of lines can split into the stripes of the lines on each path: the stub through the
+      // station, then for every stop the stretch up to it (stripes of the lines that call there), and on from each path's last stop out to the fade
+      ["E", "W"].forEach(sd => {
+        const T = TREE[gi][sd], side = sd === "E" ? -1 : 1;
+        const mk = (kind, node, id, j, m) => ESTR.push({ el: el("polyline", { class: "stn-track c" + IDS.indexOf(id) + (kind === "root" || kind === "base" ? " stn-root" : " stn-edge") }, fadeG), k: GK[gi], gi, side, kind, node, off: (j - (m - 1) / 2) * w, w: w + (n > 1 ? 0.3 : 0) });
+        if (!T) { g.forEach((id, j) => mk("base", null, id, j, n)); return; }
+        g.forEach((id, j) => mk("root", T.root, id, j, n));
+        T.nodes.forEach(nd => { const ls = g.filter(id => nd.lines.has(id)); ls.forEach((id, j) => { mk("edge", nd, id, j, ls.length); if (!nd.kids.length) mk("ext", nd, id, j, ls.length); }); });
+      });
     });
     /* zoom: z is how many stops away fit on each side. 3 by default, smoothly out to 5. As z grows the stop markers close up, the next one slides
        in from the fade, and trains, markers, track and lanes all shrink by zf */
-    let z = STOPS_MIN, zTarget = STOPS_MIN, zf = 1;
     const zScale = v => Math.pow(STOPS_MIN / v, 0.75);
+    // where the stops are: stop k is X1 + (k - 1) * step from the station (see placeMarks)
+    const stopGeom = () => { const rad = Math.min(VW, VH) / 2, xk = (RADIAL ? rad : VW / 2) * 0.72, x1 = RADIAL ? 92 : 86; return { x1, step: (xk - x1) / (z - 1) }; };
+    const rowUnit = gi => bdir(gi) * RSV * zf;
+    // v3.42: where the path to node c leaves its parent's row: just after the parent's icon (just past the platform for a first stop), at 45 degrees unless the
+    // stops are close together; null when c stays on its parent's row
+    function forkRec(gi, c) {
+      const p = c.parent; if (c.row === p.row) return null;
+      const { x1, step } = stopGeom(), ru = rowUnit(gi), r0 = p.row * ru, r1 = c.row * ru;
+      const xf = p.depth === 0 ? HALF + 4 : x1 + (p.depth - 1) * step + 9 * zf;
+      return { xf, dw: Math.max(12, Math.min(Math.abs(r1 - r0), x1 + (c.depth - 1) * step - 7 * zf - xf)), r0, r1 };
+    }
     function buildLanes() {
-      GK.forEach(k => {
-        let E, W, iE = 3, iW = 3;
+      GK.forEach((k, gi) => {
+        const sets = [];
         if (RADIAL) {                                            // straight track: lanes bow out round the station ring (vertex 3 is level with the station)
+          let E, W, iE = 3, iW = 3;
           const L = LANE * zf, H = Math.max(0, 44 - L), B = 34, y0 = BASE[k][0][1];
           E = [[-6000, -L], [-(B + H), -L], [-B, -L - H], [0, -L - H], [B, -L - H], [B + H, -L], [6000, -L]].map(p => [p[0], p[1] + y0]);
           W = [[6000, L], [B + H, L], [B, L + H], [0, L + H], [-B, L + H], [-(B + H), L], [-6000, L]].map(p => [p[0], p[1] + y0]);
+          if (DEAD[gi].E) { E = E.slice(2); iE = 1; W = W.slice(0, 5); }      // v3.40: a terminus has one arm: its lanes stop at the ring
+          if (DEAD[gi].W) { W = W.slice(2); iW = 1; E = E.slice(0, 5); }
+          sets.push({ l: 0, r: 0, E, W, iE, iW, trk: BASE[k] });
         } else {                                                 // Linear: lanes run alongside the track, eastbound above it and westbound below
-          E = offsetPoly(BASE[k], LIN_LANE * zf); W = offsetPoly(BASE[k].slice().reverse(), LIN_LANE * zf);
-          iE = IDX0[k]; iW = BASE[k].length - 1 - IDX0[k];
+          const V = VERTS[k], ru = rowUnit(gi), sidePaths = {};
+          ["E", "W"].forEach(sd => {
+            const T = TREE[gi][sd], side = sd === "E" ? -1 : 1;
+            if (!T) return;
+            T.nodes.forEach(nd => { nd.fk = forkRec(gi, nd); });
+            sidePaths[sd] = T.leaves.map(leaf => {
+              const forks = []; for (let q = leaf; q.parent; q = q.parent) if (q.fk) forks.unshift(q.fk);
+              return segVerts(V, side, HALF, leaf.end ? stopX(leaf.depth) : 6000, forks, 0);   // v3.44: a path that ends stops at the icon
+            });
+          });
+          const nl = sidePaths.E ? sidePaths.E.length : 1, nr = sidePaths.W ? sidePaths.W.length : 1;
+          for (let l = 0; l < nl; l++) for (let r = 0; r < nr; r++) {
+            const left = sidePaths.E ? sidePaths.E[l].slice().reverse() : V.left, right = sidePaths.W ? sidePaths.W[r] : V.right;
+            const T = roundPoly(left.concat([[0, V.yc, 1]], right), CUT);
+            sets.push({ l, r, E: offsetPoly(T.pts, LIN_LANE * zf), W: offsetPoly(T.pts.slice().reverse(), LIN_LANE * zf), iE: T.idx, iW: T.pts.length - 1 - T.idx, trk: T.pts });
+          }
         }
-        LANES[k + "E"] = Object.assign(LANES[k + "E"] || {}, mkLane(E, iE));
-        LANES[k + "W"] = Object.assign(LANES[k + "W"] || {}, mkLane(W, iW));
+        TRK[k] = {}; LSET[k] = LSET[k] || [];
+        sets.forEach(S => {
+          TRK[k][S.l + "_" + S.r] = S.trk;
+          const ke = laneKey(k, "E", S.l, S.r), kw = laneKey(k, "W", S.l, S.r);
+          if (!LSET[k].some(x => x.key === ke)) LSET[k].push({ key: ke, dir: "E" }, { key: kw, dir: "W" });
+          LANES[ke] = Object.assign(LANES[ke] || {}, mkLane(S.E, S.iE), { deadBefore: DEAD[gi].E, deadAfter: DEAD[gi].W, trk: S.trk });   // v3.40: trains wait at the platform before leaving / stop there for good
+          LANES[kw] = Object.assign(LANES[kw] || {}, mkLane(S.W, S.iW), { deadBefore: DEAD[gi].W, deadAfter: DEAD[gi].E, trk: S.trk });
+        });
       });
       if (!RADIAL && SEPS) placeSeps();
-      TRACKS.forEach(t => { t.el.setAttribute("points", poly((t.off ? offsetPoly(BASE[t.k], t.off * zf) : BASE[t.k]).map(p => rp(t.k, p[0], p[1])))); t.el.style.strokeWidth = (t.w * zf).toFixed(2); });
+      TRACKS.forEach(t => {
+        if (!RADIAL) { t.el.setAttribute("display", "none"); return; }
+        t.el.removeAttribute("display"); t.el.setAttribute("points", poly((t.off ? offsetPoly(BASE[t.k], t.off * zf) : BASE[t.k]).map(p => rp(t.k, p[0], p[1])))); t.el.style.strokeWidth = (t.w * zf).toFixed(2);
+      });
+      ESTR.forEach(t => {
+        if (RADIAL) { t.el.setAttribute("display", "none"); return; }
+        const V = VERTS[t.k], ru = rowUnit(t.gi), nd = t.node;
+        let verts;
+        if (t.kind === "base") verts = [[0, V.yc]].concat(t.side < 0 ? V.left.slice().reverse() : V.right);   // a side with no stops (a terminus): from the station to the end of the track
+        else if (t.kind === "root") verts = segVerts(V, t.side, 0, HALF + 4, [], 0);
+        else if (t.kind === "edge") verts = segVerts(V, t.side, nd.parent.depth === 0 ? HALF + 4 : stopX(nd.parent.depth), stopX(nd.depth), nd.fk ? [nd.fk] : [], nd.parent.row * ru);
+        else if (nd.end) { t.el.setAttribute("display", "none"); return; }                 // v3.44: nothing beyond the icon where a path ends
+        else verts = segVerts(V, t.side, stopX(nd.depth), 6000, [], nd.row * ru);
+        const pts = roundPoly(verts, CUT).pts;
+        t.el.removeAttribute("display"); t.el.setAttribute("points", poly(t.off ? offsetPoly(pts, (t.side < 0 ? -t.off : t.off) * zf) : pts)); t.el.style.strokeWidth = (t.w * zf).toFixed(2);   // v3.43: left-hand stretches run the other way, so their offset is turned round: a line keeps its place in the ribbon
+        t.el.setAttribute("opacity", (nd && t.kind !== "root" ? pathOp(nd) : 1).toFixed(3));
+      });
     }
+    const stopX = k => { const { x1, step } = stopGeom(); return x1 + (k - 1) * step; };
     buildLanes();
-    /* stops-away markers: a small station-style circle with the number, on the track, on the side trains approach from (west for eastbound, east for westbound) */
+    /* v3.42: stops. Each stop on the side trains approach from (west for eastbound, east for westbound) is a station icon on the track with its name beside it,
+       away from the track as on the line maps (two short lines at most). Every path within the stops shown has its own icons and names. A side with branches
+       puts its names under each row (above, under the last track); a side without puts them opposite the direction word. A stop that has a branch leaving it
+       has its name moved towards the station, clear of the fork. Nothing shows on a side with no stops (a terminus). */
     const layerM = el("g", { class: "stn-marks", "aria-hidden": "true" }, fadeG);
     const MARKS = {};
-    GK.forEach(id => ["E", "W"].forEach(dir => {
+    const LONG = { "heathrow terminals 2 & 3": "Heathrow 2 & 3", "heathrow terminal 4": "Heathrow T4", "heathrow terminal 5": "Heathrow T5", "king's cross st pancras": "King's Cross", "king's cross st. pancras": "King's Cross",
+      "totteridge & whetstone": "Totteridge", "harrow & wealdstone": "Harrow", "chalfont & latimer": "Chalfont", "elephant & castle": "Elephant", "highbury & islington": "Highbury", "high street kensington": "High St Ken", "tottenham court road": "Tottenham Ct Rd", "shepherd's bush market": "Shepherd's Bush Mkt" };
+    const shortName = n => LONG[n.toLowerCase()] || n;
+    // wrap to at most two lines of about 12 characters; a name whose longest line is still too wide gets the usual abbreviations first
+    const ABBR = [[/\bStreet\b/, "St"], [/\bRoad\b/, "Rd"], [/\bSquare\b/, "Sq"], [/\bGardens\b/, "Gdns"], [/\bAvenue\b/, "Ave"], [/\bGreat\b/, "Gt"], [/\bTerminals?\b/, "T"]];
+    const split2 = n => {
+      if (n.length <= 12) return { m: n.length, l: [n] };
+      const w = n.split(" "); let best = { m: n.length, l: [n] };
+      for (let i = 1; i < w.length; i++) { const a = w.slice(0, i).join(" "), b = w.slice(i).join(" "), m = Math.max(a.length, b.length); if (m < best.m) best = { m, l: [a, b] }; }
+      return best;
+    };
+    const wrap2 = n => {
+      n = shortName(n); let r = split2(n);
+      for (const [re, to] of ABBR) { if (r.m <= 12) break; n = n.replace(re, to); r = split2(n); }
+      return r.l;
+    };
+    const LBL = 21, LBL_LH = 9.4, LBL_CW = 4.4;               // distance from the track to the first line of a name, line height, and an average character width (8.5px text)
+    // which side of the track names sit on (up -1, down +1)
+    const nameSide = (gi, dir) => {
+      const T = TREE[gi][dir];
+      if (T && T.maxRow > 0.01) return bdir(gi);
+      const o = sideOf(gi); return (dir === "E" ? (o || 1) < 0 : (o || -1) < 0) ? 1 : -1;
+    };
+    GK.forEach((id, gi) => ["E", "W"].forEach(dir => {
       MARKS[id + dir] = [];
-      for (let k = 1; k <= STOPS_MAX; k++) {
-        const g = el("g", { class: "stn-mark", "data-line": id, "data-dir": dir, "data-k": k }, layerM);
+      const T = TREE[gi][dir]; if (!T) return;
+      const side = nameSide(gi, dir);
+      T.nodes.forEach(nd => {
+        const g = el("g", { class: "stn-mark", "data-line": id, "data-dir": dir, "data-k": nd.depth, "data-row": nd.row.toFixed(2) }, layerM);
         el("circle", { r: MARK_R }, g);
-        const tx = el("text", {}, g); tx.textContent = String(k);
-        MARKS[id + dir].push({ g, tx, k });
-      }
+        const lines = wrap2(nd.name), tx = el("text", {}, g), fork = nd.depth === 1 && nd.kids.some(k => k.row !== nd.row);
+        const y0 = side > 0 ? LBL + 8 : -(LBL + 2) - (lines.length - 1) * LBL_LH;
+        if (fork) { tx.style.textAnchor = dir === "E" ? "start" : "end"; }
+        lines.forEach((l, j) => { const sp = el("tspan", { x: fork ? (dir === "E" ? 4 : -4) : 0, y: (y0 + j * LBL_LH).toFixed(1) }, tx); sp.textContent = l; });
+        MARKS[id + dir].push({ g, gi, k: nd.depth, node: nd, w: Math.max(...lines.map(l => l.length)) * LBL_CW + 4 });
+      });
     }));
     const layerT = el("g", {}, fadeG);
-    const radRing = el("circle", { class: "stn-station", cx: 0, cy: 0, r: 26 }, scene);   // v3.34: Radial has one bigger ring where every track meets
+    const radRing = el("circle", { class: "stn-station", cx: 0, cy: 0, r: 13 }, scene);   // v3.34: Radial has one ring where every track meets (v3.40: half the size)
     const titleEl = SHOW_TITLE ? el("text", { class: "stn-title", "text-anchor": "middle" }, scene) : null;
     if (titleEl) titleEl.textContent = STN.name;
     // v3.38: Radial has no numbered markers: two dashed rings, 5 and 10 minutes out, take their place. Each ring fades in the widest gap between track
@@ -276,9 +461,11 @@
     };
     const endEls = GROUPS.map((g, i) => {
       const cls = "stn-dir stn-end " + (g.length > 1 ? "cx" : "c" + IDS.indexOf(g[0]));
-      return [nextStop(g, "E"), nextStop(g, "W")].map(name => {
+      // v3.44: a Radial end says which way trains heading out that end are going (the left end is where westbound trains go, as in Linear), not the next station,
+      // which means nothing when a line branches
+      return [nextStop(g, "E") ? GWORDS[i].W : "", nextStop(g, "W") ? GWORDS[i].E : ""].map(name => {
         const t = el("text", { class: cls }, scene);
-        if (name.length > 14 && name.includes(" & ")) {          // long names with an "&" go on two lines
+        if (name.length > 14 && name.includes(" & ") && name.split(" & ").every(x => x.length > 3)) {          // long names with an "&" go on two lines
           name.split(" & ").forEach((part, j) => { const sp = el("tspan", { dy: j ? "1.15em" : 0 }, t); sp.textContent = j ? part : part + " &"; });
         } else t.textContent = name;
         return t;
@@ -300,7 +487,6 @@
     }
     layoutCtl.querySelectorAll("button").forEach(b => scope.on(b, "click", e => { e.stopPropagation(); setLayout(b.dataset.l === "radial"); }));
     markCtl();
-    let VW = 800, VH = 480;
     function layout() {
       const r = svg.getBoundingClientRect(), w = r.width || 800, h = r.height || 480, a = w / h;
       VW = Math.max(560, 480 * a); VH = VW / a;
@@ -311,7 +497,11 @@
       if (titleEl) { titleEl.setAttribute("x", 0); titleEl.setAttribute("y", 54 - cy); }
       if (!RADIAL) fitLinear();
       setBase(); buildLanes();
-      dirEls.forEach(([we, ee]) => { we.setAttribute("x", -cx + 18); ee.setAttribute("x", cx - 18); });
+      dirEls.forEach(([we, ee], i) => {
+        const L = -cx + 18, R = cx - 18;
+        we.setAttribute("x", DEAD[i].E ? R : L); we.setAttribute("text-anchor", DEAD[i].E ? "end" : "start");   // v3.40: a terminus keeps both words at its live end
+        ee.setAttribute("x", DEAD[i].W ? L : R); ee.setAttribute("text-anchor", DEAD[i].W ? "start" : "end");
+      });
       if (!RADIAL) placeLabels();
       // what each layout shows
       const show = (n, on) => on ? n.removeAttribute("display") : n.setAttribute("display", "none");
@@ -323,33 +513,59 @@
     // Linear: fit the stack to the height of the map. Normally the straight sections are 78 apart and each outer track ramps 52 outwards; if the
     // map is short both close up (ramps to 20, then the spacing to 72). The stack stays centred unless that would put the outer tracks' labels
     // under the layout switch (top left) or the zoom buttons (bottom right), when it moves clear of them
+    let FIT = { ctlTop: 0, tgBottom: 0 };
     function fitLinear() {
       const r = svg.getBoundingClientRect(), zc = document.querySelector(".zoom-ctl"), k = r.height ? VH / r.height : 1;
       const zr = zc && zc.offsetParent ? zc.getBoundingClientRect() : null;
-      const ctlTop = zr && zr.height ? (zr.top - r.top) * k : VH;   // top of the zoom buttons, in map units from the top
-      const tg = layoutCtl.getBoundingClientRect(), tgBottom = tg.height ? (tg.bottom - r.top) * k : 0;
-      const top = Math.max(60, tgBottom + 41) - VH / 2, bottom = Math.min(ctlTop - 46, VH - 52) - VH / 2;   // where the outer levels may be (labels sit 30 beyond them)
+      FIT.ctlTop = zr && zr.height ? (zr.top - r.top) * k : VH;   // top of the zoom buttons, in map units from the top
+      const tg = layoutCtl.getBoundingClientRect(); FIT.tgBottom = tg.height ? (tg.bottom - r.top) * k : 0;
+      refit();
+    }
+    // v3.43: the stack is fitted again whenever the zoom moves, because the rows showing (and so the gaps) change with it
+    function refit() {
+      const w0 = wordPos(0), w1 = wordPos(NG - 1);                  // v3.41: words pushed out past station names need more room
+      const upExtra = Math.max(0, -Math.min(w0.we, w0.ee) - 25), downExtra = Math.max(0, Math.max(w1.we, w1.ee) - 37);
+      const top = Math.max(60, FIT.tgBottom + 41 + upExtra) - VH / 2, bottom = Math.min(FIT.ctlTop - 46 - downExtra, VH - 52 - downExtra) - VH / 2;   // where the outer levels may be (labels sit 30 beyond them)
       const avail = bottom - top;
       SPC = 92; RISE = NG === 1 ? 0 : 52;
-      const need = () => (NG - 1) * SPC + 2 * RISE;
-      if (NG > 1 && need() > avail) RISE = Math.max(14, (avail - (NG - 1) * SPC) / 2);
-      if (NG > 1 && need() > avail) SPC = Math.max(72, (avail - 2 * RISE) / (NG - 1));
+      RSV = RSV0;
+      const need = () => (NG - 1) * SPC * kz() + sumGap() + botExt() + 2 * RISE;
+      if (NG > 1 && need() > avail) RISE = Math.max(14, (avail - (NG - 1) * SPC * kz() - sumGap() - botExt()) / 2);
+      if (NG > 1 && need() > avail) SPC = Math.max(72, (avail - 2 * RISE - sumGap() - botExt()) / ((NG - 1) * kz()));
+      if (need() > avail) {                                       // v3.42: still too tall (many rows): the rows close up, down to 46 apart
+        const rows = (sumGap() + botExt()) / RSV;
+        if (rows > 0) RSV = Math.max(46, Math.min(RSV0, (avail - (NG - 1) * SPC * kz() - 2 * RISE) / rows));
+      }
       const ext = need() / 2;
       OFF = need() <= avail ? Math.max(top + ext, Math.min(bottom - ext, 0)) : (top + bottom) / 2;
     }
     // Linear: each track's words sit 30 beyond its outer level, on the outer side ("← W" under the middle track on the left, "E →" above it on the right)
     function placeLabels() {
       dirEls.forEach(([we, ee], i) => {
-        const o = sideOf(i), yo = stackY(i) + outward(i) * RISE, yw = yo + ((o || 1) < 0 ? -25 : 37), ye = yo + ((o || -1) < 0 ? -25 : 37);
-        we.setAttribute("y", yw.toFixed(1)); ee.setAttribute("y", ye.toFixed(1));
+        const yo = stackY(i) + outward(i) * RISE, W = wordPos(i);
+        we.setAttribute("y", (yo + W.we).toFixed(1)); ee.setAttribute("y", (yo + W.ee).toFixed(1));
       });
+    }
+    // where a track's two direction words sit, as offsets from the track's outer level: 25 above or 37 below, or further out where the station names at that end
+    // are on the same side (v3.41; v3.42 past all the rows of a branching side), and both at the live end of a terminus (v3.40)
+    function wordPos(i) {
+      const o = sideOf(i);
+      let ws = (o || 1) < 0 ? -1 : 1, es = (o || -1) < 0 ? -1 : 1;           // which side of the track each word sits (up -1, down +1)
+      if (DEAD[i].E) ws = -es; else if (DEAD[i].W) es = -ws;
+      const off = (side, dir0) => {
+        const dir = DEAD[i].E ? "W" : DEAD[i].W ? "E" : dir0, T = TREE[i][dir];
+        if (!T || side !== nameSide(i, dir)) return side < 0 ? -25 : 37;
+        const ext = visRows(i, dir) * RSV * zf;               // v3.42: past the station names, and (v3.43) past the rows showing on a branching side
+        return side < 0 ? -(56 + ext) : 52 + ext;
+      };
+      return { we: off(ws, "E"), ee: off(es, "W") };
     }
     // Linear (v3.37): the gap from a train to a separator equals the gap from a train to its track line, at every zoom. The end separators move
     // with it, and the middle one (the I) keeps its pills there and lengthens its stem to fill the rest of the gap
     function placeSeps() {
       const gapT = LIN_LANE - TRACK_HALF - TRAIN_HALF;          // train to track line
       let e = (LIN_LANE + TRAIN_HALF + gapT + SEP_LINE) * zf;   // from a track to the nearest edge of a separator
-      if (NG > 1) e = Math.min(e, (SPC - 20 * zf - 6) / 2);   // on a short screen the stem stays at least 6 long
+      if (NG > 1) e = Math.min(e, (SPC * kz() - 20 * zf - 6) / 2);   // on a short screen the stem stays at least 6 long
       const put = (n, cy, flip) => { n.setAttribute("transform", `translate(0,${cy.toFixed(1)}) scale(${zf.toFixed(3)},${(flip ? -zf : zf).toFixed(3)}) translate(-18,-9)`); };
       put(SEPS.top, stackY(0) - e - 8 * zf, false); put(SEPS.bottom, stackY(NG - 1) + e + 8 * zf, true);
       SEPS.mid.forEach((n, j) => {
@@ -370,32 +586,43 @@
       const f0 = Math.max(0.02, Math.min(0.45, (cx - (XK + 14)) / VW));
       fadeStops[1].setAttribute("offset", f0.toFixed(4)); fadeStops[2].setAttribute("offset", (1 - f0).toFixed(4));
       rgrad.setAttribute("r", RAD.toFixed(1)); rStops[1].setAttribute("offset", Math.min(0.95, (XK + 14) / RAD).toFixed(4));
-      GK.forEach(id => ["E", "W"].forEach(dir => {
-        const L = LANES[id + dir], sign = dir === "E" ? -1 : 1;
-        L.D = [0];
-        MARKS[id + dir].forEach(m => {
-          const x = X1 + (m.k - 1) * step, my0 = RADIAL ? BASE[id][0][1] : yAtX(BASE[id], sign * x);
-          let lo = -3000, hi = 0;
-          if (RADIAL) {                                          // distance along the lane where the lane is level with x
-            for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2; if (Math.abs(pose(L, mid).x) > x) lo = mid; else hi = mid; }
-          } else {                                               // Linear: where the lane is level with the marker, square across the track
-            for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2, p = pose(L, mid); if ((p.x - sign * x) * Math.cos(p.ang) + (p.y - my0) * Math.sin(p.ang) < 0) lo = mid; else hi = mid; }
+      GK.forEach(id => {
+        LSET[id].forEach(({ key, dir }) => {                     // each lane keeps D[k], its distance to marker k, measured on its own track (a branch's lane on the branch)
+          const L = LANES[key], sign = dir === "E" ? -1 : 1;
+          L.D = [0];
+          for (let k = 1; k <= STOPS_MAX; k++) {
+            const x = X1 + (k - 1) * step, my0 = RADIAL ? BASE[id][0][1] : yAtX(L.trk, sign * x);
+            let lo = -3000, hi = 0;
+            if (RADIAL) {                                        // distance along the lane where the lane is level with x
+              for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2; if (Math.abs(pose(L, mid).x) > x) lo = mid; else hi = mid; }
+            } else {                                             // Linear: where the lane is level with the marker, square across the track
+              for (let it = 0; it < 32; it++) { const mid = (lo + hi) / 2, p = pose(L, mid); if ((p.x - sign * x) * Math.cos(p.ang) + (p.y - my0) * Math.sin(p.ang) < 0) lo = mid; else hi = mid; }
+            }
+            L.D.push(-(lo + hi) / 2);
           }
-          L.D.push(-(lo + hi) / 2);
-          if (RADIAL) { m.g.setAttribute("display", "none"); return; }   // v3.38: Radial shows rings instead of numbered markers
-          const op = Math.max(0, Math.min(1, z - (m.k - 1)));   // marker k fades in as z goes from k - 1 to k
-          if (op <= 0.001) { m.g.setAttribute("display", "none"); return; }
-          m.g.removeAttribute("display"); m.g.setAttribute("opacity", op.toFixed(3));
-          const [mx, my] = rp(id, sign * x, my0);
-          m.g.setAttribute("transform", `translate(${mx.toFixed(1)},${my.toFixed(1)}) scale(${zf.toFixed(3)})`);
         });
-      }));
+        ["E", "W"].forEach(dir => {
+          const sign = dir === "E" ? -1 : 1;
+          MARKS[id + dir].forEach(m => {
+            if (RADIAL) { m.g.setAttribute("display", "none"); return; }   // v3.38: Radial shows rings instead of markers
+            const x = X1 + (m.k - 1) * step;
+            // v3.41: a name needs room: when the stops are closer than the name is wide (zoomed out) it fades out with its icon
+            const room = Math.max(0, Math.min(1, (step / (m.w * zf) - 0.8) / 0.2));
+            const op = Math.max(0, Math.min(1, z - (m.k - 1))) * (m.k === 1 ? 1 : room) * pathOp(m.node);   // marker k fades in as z goes from k - 1 to k
+            if (op <= 0.001) { m.g.setAttribute("display", "none"); return; }
+            const my0 = mainY(VERTS[id], sign * x) + m.node.row * rowUnit(m.gi);
+            m.g.removeAttribute("display"); m.g.setAttribute("opacity", op.toFixed(3));
+            const [mx, my] = rp(id, sign * x, my0);
+            m.g.setAttribute("transform", `translate(${mx.toFixed(1)},${my.toFixed(1)}) scale(${zf.toFixed(3)})`);
+          });
+        });
+      });
       if (RADIAL) placeRings(X1, step);
     }
     // v3.38: Radial rings. The widest gap between track ends (the upward one if two are equal) is where the rings fade and the labels sit; gaps
     // under 60 degrees do not fade
     function placeRings(X1, step) {
-      const norm = a => ((a % 360) + 360) % 360, rays = [...new Set(GK.flatMap((k, i) => [ANG[i], ANG[i] + Math.PI]).map(a => Math.round(norm(a * 180 / Math.PI) * 10) / 10))].sort((a, b) => a - b);
+      const norm = a => ((a % 360) + 360) % 360, rays = [...new Set(GK.flatMap((k, i) => [DEAD[i].W ? null : ANG[i], DEAD[i].E ? null : ANG[i] + Math.PI].filter(a => a !== null)).map(a => Math.round(norm(a * 180 / Math.PI) * 10) / 10))].sort((a, b) => a - b);
       const gaps = rays.map((a, i) => { const n = i + 1 < rays.length ? rays[i + 1] : rays[0] + 360; return { from: a, size: n - a, c: norm(a + (n - a) / 2) }; });
       const up = g => -Math.sin(g.c * Math.PI / 180), best = gaps.slice().sort((p, q) => q.size - p.size || up(q) - up(p))[0];
       const alphaAt = th => {
@@ -420,7 +647,7 @@
     // track, then nudged back inside the map and off the zoom buttons and the layout switch if they would sit under them
     function placeEnds() {
       const dirs = [];                                         // screen direction of every track end
-      GK.forEach((k, i) => { dirs.push(ANG[i], ANG[i] + Math.PI); });
+      GK.forEach((k, i) => { if (!DEAD[i].W) dirs.push(ANG[i]); if (!DEAD[i].E) dirs.push(ANG[i] + Math.PI); });
       const norm = a => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
       const sr = svg.getBoundingClientRect(), kk = sr.height ? VH / sr.height : 1;
       const avoid = [document.querySelector(".zoom-ctl"), layoutCtl].filter(n => n && n.offsetParent).map(n => n.getBoundingClientRect()).filter(r => r.width);
@@ -452,7 +679,7 @@
       }));
     }
     let snapUntil = 0;                                       // while zooming or resizing, drawn positions jump straight to where they belong
-    function applyZoom() { zf = zScale(z); buildLanes(); placeMarks(); snapUntil = performance.now() + 250; }
+    function applyZoom() { zf = zScale(z); if (!RADIAL) { refit(); setBase(); } buildLanes(); if (!RADIAL) placeLabels(); placeMarks(); snapUntil = performance.now() + 250; }
     const zoomFit = document.getElementById("zoom-fit");
     function zoomTo(v) {
       zTarget = Math.max(STOPS_MIN, Math.min(STOPS_MAX, v));
@@ -526,6 +753,10 @@
         else if (cur >= 0) t.eta = o.eta;
         t.dest = o.dest;
       }
+      if (o.pa >= 0 || t.pa === undefined) { t.pa = o.pa; }          // v3.41: a branch is only changed when the stops name one
+      if (o.pd >= 0 || t.pd === undefined) { t.pd = o.pd; }
+      const arr = Math.max(0, t.pa), dep = Math.max(0, t.pd);
+      t.pl = o.dir === "E" ? arr : dep; t.pr = o.dir === "E" ? dep : arr;   // left and right path of the lane
       if (o.plan) firstGap(t, o.plan, o.loc, now);
       t.seen = now; t.loc = o.loc; t.plan = o.plan || null; t.n = o.plan ? o.plan.length : null; if (o.calls) t.calls = o.calls;
       if (t.fadeAt && now - t.fadeAt < FADE_MS) t.fadeAt = 0;          // back in the feed before it had gone: carry on
@@ -628,6 +859,7 @@
         }
         if (t.arrAt === undefined && t.qs <= 0.01) t.arrAt = now;   // it has reached the platform
         t.s = t.qs >= 0 ? -qToD(L, t.qs) : -t.qs * qToD(L, 1);
+        if (L.deadAfter && t.s > 0) t.s = 0;                     // v3.40: a train that has come in to the end of the line stays at the platform
         const lk = GROUP_OF[t.line] + t.dir; (byLane[lk] = byLane[lk] || []).push(t);
       }
       for (const k in byLane) {                                // trains in one lane keep their arrival order and queue nose to tail (v3.29: ordered by arrival time, so they never swap)
@@ -650,7 +882,8 @@
         if ((t.tts < 0 && Math.abs(p.lx) > half) || (t.fadeAt && now - t.fadeAt > FADE_MS)) { dropTrain(t); continue; }
         let op = Math.min(1, (now - t.born) / 1000);
         if (t.fadeAt) op = Math.min(op, Math.max(0, 1 - (now - t.fadeAt) / FADE_MS));
-        const o = Math.abs(p.lx) < half + 60 ? op.toFixed(2) : "0";
+        let o = Math.abs(p.lx) < half + 60 ? op.toFixed(2) : "0";
+        if (laneOf(t).deadBefore && t.tts > 90) o = "0";          // v3.40: a train that will leave from a terminus is not drawn until it is nearly due
         const deg = p.ang * 180 / Math.PI, a = ((deg % 360) + 360) % 360, flip = a > 90 && a < 270;   // label turns with the train and is never upside down, as on the line pages
         t.g.setAttribute("transform", `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${deg.toFixed(1)}) scale(${(SC * zf).toFixed(3)})`);
         t.g.setAttribute("opacity", o); t.op = +o;
@@ -673,6 +906,16 @@
     let SIDE = null;                                           // station name -> side of Hammersmith it lies on, per line, from the approach lists (built on first use)
     function buildSide() { SIDE = {}; IDS.forEach(id => { SIDE[id] = {}; ["E", "W"].forEach(d => (APPROACH[id][d] || []).forEach(q => q.forEach(n => { if (n !== nrm(STN.name)) SIDE[id][n] = d; }))); }); }
     const blankVid = v => !v || /^0+$/.test(v);
+    // the path (index of its last stop among the tree's leaves) a train is on, from the stops it calls at on that side, nearest first: each stop it calls at
+    // that is a stop of the node it has reached takes it on to that stop; where it has not been named, it takes the first path. -1 if none of its stops is on the tree
+    function pathIn(gi, side, names) {
+      const T = gi >= 0 && TREE[gi][side]; if (!T) return -1;
+      let node = T.root, hit = false;
+      for (const n of names) { const c = node.kids.find(k => nrmN(k.name) === nrmN(n)); if (c) { node = c; hit = true; } }
+      if (!hit) return -1;
+      while (node.kids.length) node = node.kids[0];
+      return node.leafIdx;
+    }
     function ingest(data) {
       const now = Date.now(), list = [], groups = new Map();
       if (!SIDE) buildSide();
@@ -700,7 +943,10 @@
         const calls = preds.filter((p, i) => i === preds.findIndex(q => q.nap === p.nap)).map(p => ({ name: p.name, at: p.eta }));
         const vid = a.vehicleId;
         list.push({ line, dir, dest: a.destinationName, destName: nameOf(a.destinationName), eta: h.eta, vid, platform: a.platformName, loc: a.currentLocation, n: plan.length });
-        upsert({ key: line + dir + (blankVid(vid) ? "x" + vid + a.destinationName : vid), line, dir, dest: a.destinationName, vid, eta: h.eta, loc: a.currentLocation, plan, calls }, now);
+        // v3.41: which branch it comes in on and goes out on, from the names of the stops before and after this one (-1 = cannot tell)
+        const gi = GROUPS.findIndex(g => g.includes(line)), opp = dir === "E" ? "W" : "E";
+        const pa = pathIn(gi, dir, before.map(p => p.name).reverse()), pd = pathIn(gi, opp, preds.slice(hi + 1).filter(p => !p.here).map(p => p.name));
+        upsert({ key: line + dir + (blankVid(vid) ? "x" + vid + a.destinationName : vid), line, dir, dest: a.destinationName, vid, eta: h.eta, loc: a.currentLocation, plan, calls, pa, pd }, now);
       }
       board = list;
       for (const t of trains.values()) {
@@ -992,7 +1238,7 @@
         })
       };
     }
-    if (ctx.debug) window.__stn = { trains, LANES, get layout() { return RADIAL ? "radial" : "linear"; }, setLayout, get board() { return board; }, stopsAway, stopInfo, qToD, qOf, get shown() { return z; }, stopsText, get locs() { return Array.from(locSeen); } };
+    if (ctx.debug) window.__stn = { trains, LANES, TRK, TREE, ESTR, stackYs: () => GK.map((k, i) => stackY(i)), fit: () => ({ SPC, RISE, RSV, OFF, zf, kz: kz(), rows: GK.map((k, i) => [visRows(i, 'E'), visRows(i, 'W')]) }), get layout() { return RADIAL ? "radial" : "linear"; }, setLayout, get board() { return board; }, stopsAway, stopInfo, qToD, qOf, get shown() { return z; }, stopsText, get locs() { return Array.from(locSeen); } };
 
     return { zoomCentre(f) { zoomStep(f > 1 ? 1 : -1); }, resetView() { zoomTo(STOPS_MIN); } };
   }

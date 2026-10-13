@@ -18,9 +18,12 @@
   const btn = $("rec-btn"), note = $("rec-note"), btnLabel = btn && btn.querySelector(".rec-label");
   if (!btn || !$("sheet-rec")) return;
   const LINES = (window.UNDERCURRENT_LINES || []).map(l => ({ id: l.id, name: l.name, kind: "line" }));
-  const STATIONS = (window.UNDERCURRENT_STATIONS || []).map(s => ({ id: "station-" + s.id, sid: s.id, name: s.name, kind: "station" }));
+  // v3.40: with every station having a page, the Station row offers only the station on screen (to record another one, open it first). Ids of stations in a
+  // recording that is still running are recognised by their prefix.
+  const here = new URLSearchParams(location.search).get("station");
+  const STATIONS = here ? [{ id: "station-" + here, sid: here, name: (document.getElementById("line-name") || {}).textContent || here, kind: "station" }] : [];
   const ALL = LINES.concat(STATIONS);
-  const itemOf = id => ALL.find(x => x.id === id) || { id, name: id, kind: "line" };
+  const itemOf = id => ALL.find(x => x.id === id) || (/^station-/.test(id) ? { id, sid: id.slice(8), name: id.slice(8), kind: "station" } : { id, name: id, kind: "line" });
   const nameOf = id => itemOf(id).name;
   const frameSrc = id => { const it = itemOf(id); return it.kind === "station" ? "index.html?station=" + encodeURIComponent(it.sid) + "&recframe=1" : "index.html?line=" + encodeURIComponent(id) + "&recframe=1"; };
   const countText = ids => {

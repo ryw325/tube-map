@@ -1,4 +1,10 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.44: Radial track ends say Westbound, Eastbound, Northbound or Southbound (the line's own words, as in Linear) instead of the next station; a path that ends (Kensington Olympia) stops at its icon; the gaps between tracks on a Linear station page scale with the zoom and allow for the first and last track's ramps, so zoomed out there is no longer an empty band.
+   v3.43: the floating Menu button is gone (the sidebar has Menu); a shared track keeps its lines in the same order on both sides of the station; the gaps between tracks on a Linear station page follow the branch rows showing at the current zoom (and meet per side), so no room is held for rows that are still hidden and the stack drifts a little as you zoom.
+   v3.42: Linear station pages draw every branch within the stops shown, not just two: a fork can fork again, a branch of one or two stops that ends is a short spur, routes that differ by one skipped stop are one path, a shared track splits into the stripes of the lines on each path, and a train runs on the path its stops name.
+   v3.41: Linear station pages draw a branch within the stops shown as a real fork (its own icons, names and lane; trains follow the branch they are on); station icons are plain circles with the name beside them, away from the track.
+   v3.40: station pages. A terminus is drawn with one track coming in from one side; Radial angles are true to life and the centre ring is half the size; Linear markers show station names (branches listed together) instead of numbers; the station picker has small cards, search and a line filter, and loads its list on demand (lines/stations.js); all 272 stations have a page.
+   v3.39: all-stations Phase 1 (data only): station files are generated for every station from the line files (tools/station_derive.py); 15 pilot stations are registered. No engine change.
    v3.38: Radial drops the numbered stop markers for two dashed rings, 5 and 10 minutes out, that fade in the widest gap between track ends where their labels sit.
    v3.37: Linear separators now sit the same distance from a train as the train sits from its track (at every zoom); a train stays at the platform for at least 15 seconds from when it is drawn there.
    v3.36: Linear tweaks. In a stack only the outer two tracks ramp (the middle ones stay flat); Southbound and Westbound are always the left-hand words (the Northern at King's Cross is flipped); trains run a little further from their track; the separators keep a constant distance from the trains' lane when zooming, the I lengthening its stem.
@@ -63,7 +69,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.38";
+  const VERSION = "3.44";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -307,13 +313,47 @@
       `<div class="menu-view menu-lines" data-view="lines" hidden><div class="gboard" id="gboard" role="group" aria-label="Choose a line">${buildGrid()}<svg class="gfx" id="gfx" aria-hidden="true"></svg></div></div>` +
       buildStations();
   }
-  // v3.31: the station picker (one card per station page in UNDERCURRENT_STATIONS; the station on screen is marked)
+  // v3.40: the station picker. Small cards, a search box and a chip per line. A line chip lists that line's stations in order along it, otherwise A to Z.
+  // The list of stations (lines/stations.js, 270 or so) is loaded the first time the picker opens, so it adds nothing to the weight of a page.
+  const LINE_API = { hammersmith: "hammersmith-city", waterloo: "waterloo-city" };   // menu id -> TfL id (station files use TfL's)
+  const lineColour = id => { for (const c of (window.UNDERCURRENT_MENU || [])) for (const l of c.lines) if (l.id === id) return l.colour; return "#888"; };
+  const stnNorm = t => (t || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const stnState = { q: "", line: "" };
+  function loadStations(cb) {
+    if (window.UNDERCURRENT_STATIONS) { cb(); return; }
+    const sc = document.createElement("script"); sc.src = "lines/stations.js?v=" + VERSION; sc.onload = cb; sc.onerror = cb; document.head.appendChild(sc);
+  }
+  window.UndercurrentLoadStations = loadStations;
   function buildStations() {
-    const here = new URLSearchParams(location.search).get("station");
-    const cards = (window.UNDERCURRENT_STATIONS || []).map(s => `<button type="button" class="tile stn-pick${s.id === here ? " cur" : ""}" data-station="${esc(s.id)}"${s.id === here ? ' aria-current="page"' : ""}><div class="tile-top"><svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="17" fill="var(--station-fill)" stroke="currentColor" stroke-width="10"/></svg><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 H19 M13 6 L19 12 L13 18"/></svg></div><div><div class="tile-name">${esc(s.name)}</div><div class="tile-sub">${esc(s.lines || "")}</div></div></button>`).join("");
+    const chips = (window.UNDERCURRENT_LINES || []).map(l => `<button type="button" class="stn-chip" data-chip="${LINE_API[l.id] || l.id}" aria-pressed="false" style="--c:${lineColour(l.id)}"><i aria-hidden="true"></i>${esc(l.name)}</button>`).join("");
     return `<div class="menu-view menu-land menu-stations" data-view="stations" hidden><div class="menu-top"><div class="menu-eyebrow">Stations</div>${clockHTML}</div>` +
-      `<h2 class="menu-h1">Choose a station</h2><p>Every train arriving and leaving, live.</p><div class="tiles">${cards}</div>` +
+      `<h2 class="menu-h1">Choose a station</h2>` +
+      `<div class="stn-tools"><input class="stn-search" id="stn-search" type="search" placeholder="Search stations" aria-label="Search stations" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="stn-chips" role="group" aria-label="Show one line">${chips}</div></div>` +
+      `<div class="stn-count" id="stn-count" aria-live="polite"></div><div class="stn-list" id="stn-list"></div>` +
       `<button type="button" class="menu-ghost menu-back" data-go="land">${backIcon}Back</button></div>`;
+  }
+  const apiColour = {};
+  function renderStations() {
+    const list = document.getElementById("stn-list"); if (!list) return;
+    (window.UNDERCURRENT_LINES || []).forEach(l => { apiColour[LINE_API[l.id] || l.id] = lineColour(l.id); });
+    const all = window.UNDERCURRENT_STATIONS || [], here = new URLSearchParams(location.search).get("station"), q = stnNorm(stnState.q), line = stnState.line;
+    let rows = all;
+    if (line) { const byId = new Map(all.map(x => [x.id, x])); rows = ((window.UNDERCURRENT_STATION_ORDER || {})[line] || []).map(i => byId.get(i)).filter(Boolean); }
+    if (q) {
+      rows = rows.filter(x => stnNorm(x.name).includes(q));
+      if (!line) rows = rows.slice().sort((x, y) => (stnNorm(x.name).startsWith(q) ? 0 : 1) - (stnNorm(y.name).startsWith(q) ? 0 : 1) || x.name.localeCompare(y.name));
+    }
+    list.innerHTML = rows.map(x => `<button type="button" class="stn-pick${x.id === here ? " cur" : ""}" data-station="${esc(x.id)}"${x.id === here ? ' aria-current="page"' : ""}${line ? ` style="--lc:${apiColour[line] || "#888"}"` : ""}><span class="stn-nm">${esc(x.name)}</span><span class="stn-dots" aria-hidden="true">${(x.ls || []).map(a => `<i style="background:${apiColour[a] || "#888"}"></i>`).join("")}</span></button>`).join("");
+    const lname = line ? ((window.UNDERCURRENT_LINES || []).find(l => (LINE_API[l.id] || l.id) === line) || {}).name : "";
+    document.getElementById("stn-count").textContent = !all.length ? "Loading stations…" : !rows.length ? "No stations match." : `${rows.length} station${rows.length === 1 ? "" : "s"}${lname ? " on the " + lname + " line, in order" : ""}`;
+    menuEl.querySelectorAll(".stn-chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.chip === line)));
+  }
+  function showStations() {
+    stnState.q = ""; stnState.line = "";
+    const inp = document.getElementById("stn-search"); if (inp) inp.value = "";
+    renderStations();
+    loadStations(() => { renderStations(); const cur = menuEl.querySelector(".stn-pick.cur"); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center" }); });
+    if (inp && !(window.matchMedia && matchMedia("(pointer: coarse)").matches)) inp.focus({ preventScroll: true });
   }
   /* Tracks: the boundary of each category's tiles, pulled in a little so it sits in the gap, corners rounded, one train per loop. */
   const gSVG = "http://www.w3.org/2000/svg";
@@ -399,8 +439,8 @@
   let menuFrom = null, menuFade = 0;
   function showView(v) {
     menuEl.querySelectorAll(".menu-view").forEach(n => { n.hidden = n.dataset.view !== v; });
-    const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".gline.cur, .gline.live" : v === "stations" ? ".stn-pick.cur, .stn-pick" : ".tile:not([disabled])"}`);
-    if (first) first.focus({ preventScroll: true });
+    if (v === "stations") showStations();
+    else { const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".gline.cur, .gline.live" : ".tile:not([disabled])"}`); if (first) first.focus({ preventScroll: true }); }
     if (v === "lines") gStart(); else gStop();
     updateClock();
   }
@@ -427,12 +467,13 @@
     if (b.dataset.line) { const id = b.dataset.line; closeMenu(() => { if (cur && id !== cur.id) plainSwitch(id); }); return; }
     const go = b.dataset.go;
     if (b.dataset.station) { const sid = b.dataset.station; closeMenu(() => { location.assign(location.pathname + "?station=" + encodeURIComponent(sid)); }); return; }
-    if (go === "station") {                                    // v3.31: more than one station page, so the card opens a picker
-      const st = window.UNDERCURRENT_STATIONS || [];
-      if (st.length === 1) { closeMenu(() => { location.assign(location.pathname + "?station=" + st[0].id); }); return; }
-      showView("stations"); return;
-    }
+    if (b.dataset.chip) { stnState.line = stnState.line === b.dataset.chip ? "" : b.dataset.chip; renderStations(); const l = document.getElementById("stn-list"); if (l) l.scrollTop = 0; return; }   // v3.40
+    if (go === "station") { showView("stations"); return; }       // v3.31: the card opens the station picker
     if (go === "close") closeMenu(); else if (go) showView(go);
+  });
+  menuEl.addEventListener("input", e => { if (e.target.id === "stn-search") { stnState.q = e.target.value; renderStations(); const l = document.getElementById("stn-list"); if (l) l.scrollTop = 0; } });
+  menuEl.addEventListener("keydown", e => {                      // v3.40: Enter in the search box opens the first match
+    if (e.key === "Enter" && e.target.id === "stn-search") { const f = menuEl.querySelector(".stn-pick"); if (f) f.click(); }
   });
   document.addEventListener("keydown", e => {
     if (!menuOpen || e.key !== "Escape") return;
@@ -440,7 +481,6 @@
     if (!onLand) showView("land"); else closeMenu();
   });
   document.getElementById("menu-open").addEventListener("click", openMenu);
-  document.getElementById("menu-fab").addEventListener("click", openMenu);
 
   /* ---------- Key and Preferences pop-ups (v3.21) ---------- */
   const sheetScrim = document.getElementById("sheet-scrim");
