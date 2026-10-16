@@ -1,4 +1,13 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.53: Elizabeth line (Reading and Heathrow to Abbey Wood and Shenfield; five routes, solid style). Engine: a station the feed lists under two IDs at the same moment is one stop (a repeat prediction for the same train and station within 6 s is dropped). More hub groups (lines/hubs.js): Paddington, Bond Street, Tottenham Court Road, Farringdon, Canary Wharf, Ealing Broadway, Heathrow, plus the Elizabeth line's second IDs at Liverpool Street and Whitechapel.
+   v3.52: Overground lines drawn hollow (coloured outline, the map background showing through the middle, as on TfL's map; 'hollow' in the line file). The master Thames has long straight tails at both ends so the river runs past both edges of every map at any zoom; the six Overground rivers re-placed to match.
+   v3.51: Windrush line (Highbury & Islington to New Cross, Crystal Palace, West Croydon and Clapham Junction; shares track with the Mildmay from Highbury & Islington to Canonbury). Shared-track rules for Bakerloo/Lioness, District/Mildmay and Mildmay/Windrush added.
+   v3.50: Weaver line (Liverpool Street to Chingford, Enfield Town and Cheshunt).
+   v3.49: Mildmay line (Stratford to Richmond and Clapham Junction, fork at Willesden Junction; shares track with the District from Richmond to Gunnersbury).
+   v3.48: Suffragette line (Gospel Oak to Barking Riverside).
+   v3.47: Lioness line (Euston to Watford Junction, shares track with the Bakerloo from Queen's Park to Harrow & Wealdstone).
+   v3.46: Liberty line (Romford, Emerson Park, Upminster).
+   v3.45: hub table (lines/hubs.js, tools/make_hubs.py): IDs TfL gives one station in different modes (Overground and Underground) point at the same station on a line, so interchange taps and shared-track stripes work across modes; board destinations lose ' Rail Station' and ' (London)'; a line can set noStations (the station picker shows no chip for it); shared_track.js matches by hub and a rule waits until all its lines are built; the station generator skips lines with noStations.
    v3.44: Radial track ends say Westbound, Eastbound, Northbound or Southbound (the line's own words, as in Linear) instead of the next station; a path that ends (Kensington Olympia) stops at its icon; the gaps between tracks on a Linear station page scale with the zoom and allow for the first and last track's ramps, so zoomed out there is no longer an empty band.
    v3.43: the floating Menu button is gone (the sidebar has Menu); a shared track keeps its lines in the same order on both sides of the station; the gaps between tracks on a Linear station page follow the branch rows showing at the current zoom (and meet per side), so no room is held for rows that are still hidden and the stack drifts a little as you zoom.
    v3.42: Linear station pages draw every branch within the stops shown, not just two: a fork can fork again, a branch of one or two stops that ends is a short spur, routes that differ by one skipped stop are one path, a shared track splits into the stripes of the lines on each path, and a train runs on the path its stops name.
@@ -69,7 +78,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.44";
+  const VERSION = "3.53";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -325,7 +334,7 @@
   }
   window.UndercurrentLoadStations = loadStations;
   function buildStations() {
-    const chips = (window.UNDERCURRENT_LINES || []).map(l => `<button type="button" class="stn-chip" data-chip="${LINE_API[l.id] || l.id}" aria-pressed="false" style="--c:${lineColour(l.id)}"><i aria-hidden="true"></i>${esc(l.name)}</button>`).join("");
+    const chips = (window.UNDERCURRENT_LINES || []).filter(l => !l.noStations).map(l => `<button type="button" class="stn-chip" data-chip="${LINE_API[l.id] || l.id}" aria-pressed="false" style="--c:${lineColour(l.id)}"><i aria-hidden="true"></i>${esc(l.name)}</button>`).join("");
     return `<div class="menu-view menu-land menu-stations" data-view="stations" hidden><div class="menu-top"><div class="menu-eyebrow">Stations</div>${clockHTML}</div>` +
       `<h2 class="menu-h1">Choose a station</h2>` +
       `<div class="stn-tools"><input class="stn-search" id="stn-search" type="search" placeholder="Search stations" aria-label="Search stations" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="stn-chips" role="group" aria-label="Show one line">${chips}</div></div>` +
@@ -558,6 +567,8 @@
     const S = LINE.stations.map(s => ({ ...s }));
     const dirLabel = d => LINE.dirs[d].label;
     // "Northbound" / "Eastbound" etc. from the platform name, used where the direction word changes along a line
+    const HUB_OF = {};
+    (window.UNDERCURRENT_HUBS || []).forEach(g => g.forEach(id => { HUB_OF[id] = g; }));
     const platformWord = name => { const m = /^(\w+bound)\b/i.exec(name || ""); return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : ""; };
     const dirText = t => (!LINE.labelFromDir && t.pdir) || dirLabel(t.dir);   // labelFromDir (Circle): always name the drawn direction, never the platform word
 
@@ -586,6 +597,8 @@
     S.forEach(s => { s.x *= SPACING; s.y *= SPACING; });
     const byNaptan = Object.fromEntries(S.map((s, i) => [s.naptan, i]).filter(([, i]) => !S[i].of));
     S.forEach((s, i) => (s.alias || []).forEach(n => { byNaptan[n] = i; }));   // other naptans of the same station (e.g. the two Paddington stops)
+    // v3.45: IDs TfL gives to one station in different modes (Overground / Underground) point at the same station (lines/hubs.js)
+    S.forEach((s, i) => { if (!s.of) (HUB_OF[s.naptan] || []).forEach(n => { if (byNaptan[n] === undefined) byNaptan[n] = i; }); });
     const byId = Object.fromEntries(S.map((s, i) => [s.id, i]));
     // A station a route passes twice (the Circle's Paddington and Edgware Road): its later visits are second icons (no label, dotted link
     // to the real station, tapping one opens the real station) placed beside it ({ of: "<id>" }). Predictions name the real station, so remapRaw() works out which visit each one belongs to.
@@ -700,6 +713,9 @@
 
     const trackD = ROUTE_LISTS.map(r => "M " + r.map(i => S[i].x + " " + S[i].y).join(" L ")).join(" ");
     const trackPath = el("path", { class: "track", d: trackD });   // track under the trains
+    // v3.52: Overground style ("hollow": true in the line file): a coloured outline with the map background showing through the middle, as on TfL's map
+    const HOLLOW = !!LINE.hollow;
+    const trackCore = HOLLOW ? el("path", { class: "track-core", d: trackD }) : null;
     const trainLayer = el("g", {});
     const content = el("g", {});                           // stations and labels, drawn above trains
     el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
@@ -1439,7 +1455,7 @@
         if (existing && existing.tts <= ttsOf(p)) return;
         if (existing) list.splice(list.indexOf(existing), 1);
         list.push({ key, dir, tts: ttsOf(p), fetchedAt: now,
-          dest: destG, destName: (p.destinationName || "").replace(/ Underground Station$/, ""),
+          dest: destG, destName: (p.destinationName || "").replace(/ (Underground|Rail|DLR) Station$/, "").replace(/ \(London\)$/, ""),
           pdir: platformWord(p.platformName), towards: p.towards || "",
           platform: (p.platformName || "").replace(/^\w+bound\s*-\s*/i, "") });
       });
@@ -1461,6 +1477,7 @@
 
       groups.forEach((raw, v) => {
         raw.sort((a, b) => a.tts - b.tts);
+        raw = raw.filter((p, i, a) => !(i && p.g === a[i - 1].g && Math.abs(p.tts - a[i - 1].tts) <= 6));   // v3.53: the feed lists some stations under two IDs at the same moment (Elizabeth line core): one stop, not two
         if (AGE_FIX) { const live = raw.filter(p => p.tts >= -20); raw = live.length ? live : [raw[raw.length - 1]]; }   // stops already passed (the train has arrived at its last one)
         if (CUT_REPEATS) raw = cutAtRepeat(raw);
         let t = trains.get(v);
@@ -2325,7 +2342,13 @@
         const path = el("path", { class: "track", d: `M ${S[p].x} ${S[p].y} L ${S[q].x} ${S[q].y}`, "stroke-dasharray": `${len.toFixed(1)} ${(len + 60).toFixed(1)}` }, g);
         parts.push({ path, d0: dist[p], len });
       }));
-      trackPath.style.opacity = 0;
+      if (HOLLOW) TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => {   // the hollow middle retracts with the outline
+        if (dist[p] === Infinity) return;
+        const len = Math.hypot(S[p].x - S[q].x, S[p].y - S[q].y);
+        const path = el("path", { class: "track-core", d: `M ${S[p].x} ${S[p].y} L ${S[q].x} ${S[q].y}`, "stroke-dasharray": `${len.toFixed(1)} ${(len + 60).toFixed(1)}` }, g);
+        parts.push({ path, d0: dist[p], len });
+      }));
+      trackPath.style.opacity = 0; if (trackCore) trackCore.style.opacity = 0;
       return {
         set(R) {
           parts.forEach(p => {
@@ -2334,7 +2357,7 @@
             p.path.style.visibility = v < 0.5 ? "hidden" : "";
           });
         },
-        done() { g.remove(); trackPath.style.opacity = ""; }
+        done() { g.remove(); trackPath.style.opacity = ""; if (trackCore) trackCore.style.opacity = ""; }
       };
     }
     function switchLine(id, si) {

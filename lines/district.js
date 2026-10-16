@@ -111,7 +111,7 @@ window.UNDERCURRENT_LINE = {
   "UPK": ["hammersmith"],
   "EHM": ["hammersmith"],
   "BKG": ["hammersmith", "suffragette", "rail"],
-  "UPM": ["rail"],
+  "UPM": ["rail", "liberty"],
   "RMD": ["mildmay", "rail"],
   "KWG": ["mildmay", "rail"],
   "GBY": ["mildmay", "rail"],
