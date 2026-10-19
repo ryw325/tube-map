@@ -26,10 +26,12 @@
   const NS = "http://www.w3.org/2000/svg";
   const API = "https://api.tfl.gov.uk";
   const POLL_MS = 30000, STATUS_MS = 120000;
-  const LANE = 18, SC = 0.78, SPEED = 1.5, TDEC = 8, DWELL = 15;  // lane offset and train size at the default zoom (smaller than the line pages so trains have more track to cover)
+  const LANE = 18, SC_R = 0.78, SC = 0.64,   // v3.56: Linear trains are smaller (SC); Radial keeps its size (SC_R)
+  SPEED = 1.5, TDEC = 8, DWELL = 15;  // lane offset and train size at the default zoom (smaller than the line pages so trains have more track to cover)
   const TRACK_W = 7, MARK_R = 7;                                     // track width and stop-marker radius at the default zoom
-  const GAP = 35 * SC + 6;                                           // nose-to-tail spacing in a lane at the default zoom
+  const GAP = 35 * SC + 6, GAP_R = 35 * SC_R + 6;                                           // nose-to-tail spacing in a lane at the default zoom
   const CARRIAGE = "M-12,-7H10L17,0L10,7H-12A6 6 0 0 1 -18,1V-1A6 6 0 0 1 -12,-7Z";
+  const LIN_K = 0.86;   // v3.55: the last stop sits this far (was 0.72) along the way from the station to the edge of a Linear map
   const STOPS_MIN = 3, STOPS_MAX = 5;   // stops away shown on each side of the station: 3 by default, zooming smoothly out to 5
   const TAU_STOP = 100;       // typical seconds between stops, used only for trains the feed gives no location for
   const TAU_DEP = 60;         // a leaving train crosses the first gap in about this long
@@ -41,12 +43,12 @@
   const MISS_POLLS = 4;       // a train missing from this many replies in a row (about 2 minutes) fades out...
   const FADE_MS = 4000;       // ...over this long
   const Q_FWD = 6, Q_BACK = 4;   // drawn-position limits in map units per second, so queuing in a lane is never a jump (zooming is exempt)
-  const SHOW_TITLE = false;   // the left panel already carries the station name, as on the line pages
+  const SHOW_TITLE = true;    // v3.54: the station's name at the top of the map (the left panel carries it too, as on the line pages)
 
   /* ---------- Geometry ---------- */
   // v3.35 Linear 2: a track is flat at its outer level, ramps in at RAMP to a short straight section of 2 * HALF at the middle, and ramps out;
   // corners are rounded by cutting CUT off each side. SPC is the distance between the straight sections, RISE how far a track ramps outwards
-  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 16, TRAIN_HALF = 5.5, TRACK_HALF = 3.5, SEP_LINE = 1;   // lane, half a train's width, half a track's width, half a separator's outline (at the default zoom)
+  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 13.7, TRAIN_HALF = 4.5, TRACK_HALF = 3.5, SEP_LINE = 1;   // lane, half a train's width, half a track's width, half a separator's outline (at the default zoom)
   const SEP_END = "M6,7 H10.57 A7 7 0 0 1 17.5,1 H18.5 A7 7 0 0 1 25.43,7 H30 A5 5 0 0 1 35,12 A5 5 0 0 1 30,17 H6 A5 5 0 0 1 1,12 A5 5 0 0 1 6,7 Z";   // 36 x 18, bump at the top
   // the middle separator (an I: a pill at each end joined by a stem), drawn at scale k from y0 downwards and H tall, so the stem can be any length
   const midPath = (k, y0, H) => {
@@ -82,17 +84,24 @@
     const a = P[i - 1], b = P[i], u = b[0] === a[0] ? 0 : (x - a[0]) / (b[0] - a[0]); return a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, u));
   };
   const plainTrack = V => roundPoly(V.left.concat([[0, V.yc, 1]], V.right), CUT);
+  // v3.54: a path on a row below (or, under the last track, above) the main track is flat at the main track's outer level plus the row's offset. It used to
+  // follow the main track's ramp as well, so a branch dropped to its row and then rose again as the ramp finished. Now it goes down once (diagonally) and across.
+  const outerY = (V, side) => mainY(V, side * 6000);
+  const lvl = (V, side, x, r) => r === 0 ? mainY(V, side * x) : outerY(V, side) + r;
   function segVerts(V, side, xa, xb, forks, base) {
-    const ro = x => {
-      if (!forks.length) return base;
-      for (const f of forks) { if (x <= f.xf) return f.r0; if (x < f.xf + f.dw) return f.r0 + (f.r1 - f.r0) * (x - f.xf) / f.dw; }
-      return forks[forks.length - 1].r1;
+    const yAt = x => {
+      if (!forks.length) return lvl(V, side, x, base);
+      for (const f of forks) {
+        if (x <= f.xf) return lvl(V, side, x, f.r0);
+        if (x < f.xf + f.dw) { const a = lvl(V, side, f.xf, f.r0), b = lvl(V, side, f.xf + f.dw, f.r1); return a + (b - a) * (x - f.xf) / f.dw; }
+      }
+      return lvl(V, side, x, forks[forks.length - 1].r1);
     };
     const xs = [xa, xb];
     (side < 0 ? V.left : V.right).forEach(p => { const x = Math.abs(p[0]); if (x > xa && x < xb) xs.push(x); });
     forks.forEach(f => [f.xf, f.xf + f.dw].forEach(x => { if (x > xa && x < xb) xs.push(x); }));
     xs.sort((p, q) => p - q);
-    return xs.filter((x, i) => !i || x - xs[i - 1] > 1e-6).map(x => [side * x, mainY(V, side * x) + ro(x)]);
+    return xs.filter((x, i) => !i || x - xs[i - 1] > 1e-6).map(x => [side * x, yAt(x)]);
   }
   const yAtX = (P, x) => { let i = 1; while (i < P.length - 1 && P[i][0] < x) i++; const a = P[i - 1], b = P[i], u = b[0] === a[0] ? 0 : (x - a[0]) / (b[0] - a[0]); return a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, u)); };
   function offsetPoly(P, d) {
@@ -313,22 +322,27 @@
         const mk = (kind, node, id, j, m) => ESTR.push({ el: el("polyline", { class: "stn-track c" + IDS.indexOf(id) + (kind === "root" || kind === "base" ? " stn-root" : " stn-edge") }, fadeG), k: GK[gi], gi, side, kind, node, off: (j - (m - 1) / 2) * w, w: w + (n > 1 ? 0.3 : 0) });
         if (!T) { g.forEach((id, j) => mk("base", null, id, j, n)); return; }
         g.forEach((id, j) => mk("root", T.root, id, j, n));
-        T.nodes.forEach(nd => { const ls = g.filter(id => nd.lines.has(id)); ls.forEach((id, j) => { mk("edge", nd, id, j, ls.length); if (!nd.kids.length) mk("ext", nd, id, j, ls.length); }); });
+        T.nodes.forEach(nd => {
+          // v3.55: on the main row a line keeps its place in the ribbon when another line leaves it (the stripes of the lines that stay no longer jog where a branch joins)
+          const ls = g.filter(id => nd.lines.has(id)), main = nd.row === 0;
+          ls.forEach((id, jj) => { const j = main ? g.indexOf(id) : jj, m = main ? n : ls.length; mk("edge", nd, id, j, m); if (!nd.kids.length) mk("ext", nd, id, j, m); });
+        });
       });
     });
     /* zoom: z is how many stops away fit on each side. 3 by default, smoothly out to 5. As z grows the stop markers close up, the next one slides
        in from the fade, and trains, markers, track and lanes all shrink by zf */
     const zScale = v => Math.pow(STOPS_MIN / v, 0.75);
     // where the stops are: stop k is X1 + (k - 1) * step from the station (see placeMarks)
-    const stopGeom = () => { const rad = Math.min(VW, VH) / 2, xk = (RADIAL ? rad : VW / 2) * 0.72, x1 = RADIAL ? 92 : 86; return { x1, step: (xk - x1) / (z - 1) }; };
+    const stopGeom = () => { const rad = Math.min(VW, VH) / 2, xk = (RADIAL ? rad * 0.72 : VW / 2 * LIN_K), x1 = RADIAL ? 92 : 86; return { x1, step: (xk - x1) / (z - 1) }; };
     const rowUnit = gi => bdir(gi) * RSV * zf;
     // v3.42: where the path to node c leaves its parent's row: just after the parent's icon (just past the platform for a first stop), at 45 degrees unless the
     // stops are close together; null when c stays on its parent's row
-    function forkRec(gi, c) {
+    function forkRec(gi, c, side) {
       const p = c.parent; if (c.row === p.row) return null;
-      const { x1, step } = stopGeom(), ru = rowUnit(gi), r0 = p.row * ru, r1 = c.row * ru;
+      const { x1, step } = stopGeom(), ru = rowUnit(gi), r0 = p.row * ru, r1 = c.row * ru, V = VERTS[GK[gi]];
       const xf = p.depth === 0 ? HALF + 4 : x1 + (p.depth - 1) * step + 9 * zf;
-      return { xf, dw: Math.max(12, Math.min(Math.abs(r1 - r0), x1 + (c.depth - 1) * step - 7 * zf - xf)), r0, r1 };
+      const drop = Math.abs(lvl(V, side, 0, r1) - lvl(V, side, xf, r0));     // v3.54: how far the path really moves (the row's level is fixed, the main track may still be ramping)
+      return { xf, dw: Math.max(12, Math.min(drop, x1 + (c.depth - 1) * step - 7 * zf - xf)), r0, r1 };
     }
     function buildLanes() {
       GK.forEach((k, gi) => {
@@ -346,7 +360,7 @@
           ["E", "W"].forEach(sd => {
             const T = TREE[gi][sd], side = sd === "E" ? -1 : 1;
             if (!T) return;
-            T.nodes.forEach(nd => { nd.fk = forkRec(gi, nd); });
+            T.nodes.forEach(nd => { nd.fk = forkRec(gi, nd, side); });
             sidePaths[sd] = T.leaves.map(leaf => {
               const forks = []; for (let q = leaf; q.parent; q = q.parent) if (q.fk) forks.unshift(q.fk);
               return segVerts(V, side, HALF, leaf.end ? stopX(leaf.depth) : 6000, forks, 0);   // v3.44: a path that ends stops at the icon
@@ -393,8 +407,30 @@
        away from the track as on the line maps (two short lines at most). Every path within the stops shown has its own icons and names. A side with branches
        puts its names under each row (above, under the last track); a side without puts them opposite the direction word. A stop that has a branch leaving it
        has its name moved towards the station, clear of the fork. Nothing shows on a side with no stops (a terminus). */
-    const layerM = el("g", { class: "stn-marks", "aria-hidden": "true" }, fadeG);
+    const layerM = el("g", { class: "stn-marks" }, fadeG);
+    // v3.54: a smaller branch goes behind the main line where it joins it: the lower a path's row, the further back it is drawn; the stub through the
+    // station and the main row go on top (a stable sort, so the stripes of one path keep their order)
+    ESTR.slice().sort((a, b) => ((a.kind === "root" || a.kind === "base") ? 1e6 : 1e3 - (a.node ? a.node.row : 0) * 10) - ((b.kind === "root" || b.kind === "base") ? 1e6 : 1e3 - (b.node ? b.node.row : 0) * 10))
+      .forEach(t => fadeG.insertBefore(t.el, layerM));
     const MARKS = {};
+    // v3.54: a stop's name -> its station page. The list of station pages loads on demand (lines/stations.js); three names belong to two stations
+    // (Hammersmith, Paddington, Edgware Road): the one served by the most of the lines that call at that stop wins
+    let REG = null;
+    const withRegistry = cb => {
+      if (REG) { cb(); return; }
+      const got = () => { REG = window.UNDERCURRENT_STATIONS || []; cb(); };
+      if (window.UNDERCURRENT_STATIONS) got(); else if (window.UndercurrentLoadStations) window.UndercurrentLoadStations(got);
+    };
+    function stationFor(nd) {
+      const n = nrmN(nd.name), base = x => nrmN(x.replace(/\(.*?\)/g, ""));
+      const c = REG.filter(r => nrmN(r.name) === n || base(r.name) === n), ls = [...nd.lines];
+      c.sort((a, b) => ls.filter(l => (b.ls || []).includes(l)).length - ls.filter(l => (a.ls || []).includes(l)).length);
+      return c[0] || null;
+    }
+    function goStation(nd) {
+      withRegistry(() => { const r = stationFor(nd); if (r && r.id !== STN.id) location.assign(location.pathname + "?station=" + encodeURIComponent(r.id)); });
+    }
+    scope.after(() => withRegistry(() => {}), 1500);           // fetch the list shortly after the page is up, so the first tap is instant
     const LONG = { "heathrow terminals 2 & 3": "Heathrow 2 & 3", "heathrow terminal 4": "Heathrow T4", "heathrow terminal 5": "Heathrow T5", "king's cross st pancras": "King's Cross", "king's cross st. pancras": "King's Cross",
       "totteridge & whetstone": "Totteridge", "harrow & wealdstone": "Harrow", "chalfont & latimer": "Chalfont", "elephant & castle": "Elephant", "highbury & islington": "Highbury", "high street kensington": "High St Ken", "tottenham court road": "Tottenham Ct Rd", "shepherd's bush market": "Shepherd's Bush Mkt" };
     const shortName = n => LONG[n.toLowerCase()] || n;
@@ -423,13 +459,16 @@
       const T = TREE[gi][dir]; if (!T) return;
       const side = nameSide(gi, dir);
       T.nodes.forEach(nd => {
-        const g = el("g", { class: "stn-mark", "data-line": id, "data-dir": dir, "data-k": nd.depth, "data-row": nd.row.toFixed(2) }, layerM);
+        const g = el("g", { class: "stn-mark stn-go", "data-line": id, "data-dir": dir, "data-k": nd.depth, "data-row": nd.row.toFixed(2), tabindex: "0", role: "link", "aria-label": "Open " + nd.name }, layerM);
+        el("circle", { class: "stn-hit", r: 13 }, g);                                       // v3.54: a bigger target round the icon: tapping a stop opens that station's page
         el("circle", { r: MARK_R }, g);
+        g.addEventListener("click", e => { e.stopPropagation(); goStation(nd); });
+        g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); goStation(nd); } });
         const lines = wrap2(nd.name), tx = el("text", {}, g), fork = nd.depth === 1 && nd.kids.some(k => k.row !== nd.row);
         const y0 = side > 0 ? LBL + 8 : -(LBL + 2) - (lines.length - 1) * LBL_LH;
         if (fork) { tx.style.textAnchor = dir === "E" ? "start" : "end"; }
         lines.forEach((l, j) => { const sp = el("tspan", { x: fork ? (dir === "E" ? 4 : -4) : 0, y: (y0 + j * LBL_LH).toFixed(1) }, tx); sp.textContent = l; });
-        MARKS[id + dir].push({ g, gi, k: nd.depth, node: nd, w: Math.max(...lines.map(l => l.length)) * LBL_CW + 4 });
+        MARKS[id + dir].push({ g, tx, gi, k: nd.depth, node: nd, w: Math.max(...lines.map(l => l.length)) * LBL_CW + 4 });
       });
     }));
     const layerT = el("g", {}, fadeG);
@@ -494,7 +533,10 @@
       svg.setAttribute("viewBox", `0 0 ${VW.toFixed(1)} ${VH.toFixed(1)}`);
       scene.setAttribute("transform", `translate(${cx.toFixed(1)},${cy.toFixed(1)})`);
       maskRect.setAttribute("x", -cx); maskRect.setAttribute("y", -cy); maskRect.setAttribute("width", VW); maskRect.setAttribute("height", VH);
-      if (titleEl) { titleEl.setAttribute("x", 0); titleEl.setAttribute("y", 54 - cy); }
+      if (titleEl) {                                                  // v3.54: top centre of the map; a long name shrinks to leave room for the direction words either side
+        const fs = Math.max(15, Math.min(26, (VW - 2 * 150) / (STN.name.length * 0.52)));
+        titleEl.style.fontSize = fs.toFixed(1) + "px"; titleEl.setAttribute("x", 0); titleEl.setAttribute("y", 50 - cy);
+      }
       if (!RADIAL) fitLinear();
       setBase(); buildLanes();
       dirEls.forEach(([we, ee], i) => {
@@ -581,7 +623,7 @@
     let XK = 200, RAD = 280;
     function placeMarks() {
       const cx = VW / 2, X1 = RADIAL ? 92 : 86;   // Linear: X1 is just past the ramp's foot
-      RAD = Math.min(VW, VH) / 2; XK = (RADIAL ? RAD : cx) * 0.72;
+      RAD = Math.min(VW, VH) / 2; XK = RADIAL ? RAD * 0.72 : cx * LIN_K;
       const step = (XK - X1) / (z - 1);
       const f0 = Math.max(0.02, Math.min(0.45, (cx - (XK + 14)) / VW));
       fadeStops[1].setAttribute("offset", f0.toFixed(4)); fadeStops[2].setAttribute("offset", (1 - f0).toFixed(4));
@@ -608,10 +650,10 @@
             const x = X1 + (m.k - 1) * step;
             // v3.41: a name needs room: when the stops are closer than the name is wide (zoomed out) it fades out with its icon
             const room = Math.max(0, Math.min(1, (step / (m.w * zf) - 0.8) / 0.2));
-            const op = Math.max(0, Math.min(1, z - (m.k - 1))) * (m.k === 1 ? 1 : room) * pathOp(m.node);   // marker k fades in as z goes from k - 1 to k
+            const op = Math.max(0, Math.min(1, z - (m.k - 1))) * pathOp(m.node);   // marker k fades in as z goes from k - 1 to k; v3.55: only its name fades for lack of room, never the icon
             if (op <= 0.001) { m.g.setAttribute("display", "none"); return; }
-            const my0 = mainY(VERTS[id], sign * x) + m.node.row * rowUnit(m.gi);
-            m.g.removeAttribute("display"); m.g.setAttribute("opacity", op.toFixed(3));
+            const my0 = lvl(VERTS[id], sign, x, m.node.row * rowUnit(m.gi));
+            m.g.removeAttribute("display"); m.g.setAttribute("opacity", op.toFixed(3)); m.tx.setAttribute("opacity", (m.k === 1 ? 1 : room).toFixed(3));
             const [mx, my] = rp(id, sign * x, my0);
             m.g.setAttribute("transform", `translate(${mx.toFixed(1)},${my.toFixed(1)}) scale(${zf.toFixed(3)})`);
           });
@@ -650,7 +692,7 @@
       GK.forEach((k, i) => { if (!DEAD[i].W) dirs.push(ANG[i]); if (!DEAD[i].E) dirs.push(ANG[i] + Math.PI); });
       const norm = a => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
       const sr = svg.getBoundingClientRect(), kk = sr.height ? VH / sr.height : 1;
-      const avoid = [document.querySelector(".zoom-ctl"), layoutCtl].filter(n => n && n.offsetParent).map(n => n.getBoundingClientRect()).filter(r => r.width);
+      const avoid = [document.querySelector(".zoom-ctl"), layoutCtl, titleEl].filter(n => n && (n === titleEl || n.offsetParent)).map(n => n.getBoundingClientRect()).filter(r => r.width);
       endEls.forEach((pair, i) => pair.forEach((t, j) => {
         const sgn = j ? 1 : -1, th = norm(ANG[i] + (j ? 0 : Math.PI));
         let cw = 7, ccw = 7;                                    // gaps (radians) to the nearest other track end, clockwise and anticlockwise
@@ -791,6 +833,20 @@
     }
     function dropTrain(t) { if (sel === t) clearSel(); t.g.remove(); trains.delete(t.key); }
     let lastFrame = performance.now();
+    // v3.54: after the page has been idle for over a minute (a hidden tab, a sleeping device) the drawn positions are stale and the trains would all rush
+    // to catch up and pile up. Instead every train fades out and the feed is read again: new trains start where their times put them, and fade in
+    const IDLE_MS = 60000, ghosts = [];
+    let lastWall = Date.now();
+    function idleRefresh() {
+      lastWall = Date.now();
+      if (trains.size) {
+        if (sel) clearSel();
+        const t0 = performance.now();
+        for (const t of trains.values()) ghosts.push({ g: t.g, t0, op: +t.op || 0 });
+        trains.clear();
+      }
+      poll();
+    }
     // how many stops out a train is (fractional). The feed's location picks the gap; inside it the train moves steadily from the far marker to
     // the near one over the time it should take (its time to Hammersmith shared evenly over the stops left), easing in to the platform
     const gF = e => e <= 0 ? 0 : e >= TDEC ? e - TDEC / 2 : e * e / (2 * TDEC);
@@ -831,6 +887,7 @@
       return { x, y, ang: p.ang + (ROT[k] || 0), lx: p.x };
     }
     function frame(ts) {
+      const wall = Date.now(); if (wall - lastWall > IDLE_MS) idleRefresh(); lastWall = wall;
       const dt = Math.min(0.25, (ts - lastFrame) / 1000); lastFrame = ts;
       zoomTick(dt);
       const now = Date.now(), half = RADIAL ? Math.hypot(VW, VH) / 2 + 70 : VW / 2 + 70;
@@ -864,7 +921,7 @@
       }
       for (const k in byLane) {                                // trains in one lane keep their arrival order and queue nose to tail (v3.29: ordered by arrival time, so they never swap)
         const L = byLane[k].sort((a, b) => a.tts - b.tts);
-        const gap = GAP * zf;
+        const gap = (RADIAL ? GAP_R : GAP) * zf;
         for (let i = 1; i < L.length; i++) if (L[i].s > L[i-1].s - gap) L[i].s = L[i-1].s - gap;
         // v3.30: the drawn position follows within speed limits, so a train held up behind another slows to a stop rather than being shoved back,
         // and pulls away smoothly when the one in front moves on or leaves (zooming and resizing move everything at once)
@@ -885,11 +942,15 @@
         let o = Math.abs(p.lx) < half + 60 ? op.toFixed(2) : "0";
         if (laneOf(t).deadBefore && t.tts > 90) o = "0";          // v3.40: a train that will leave from a terminus is not drawn until it is nearly due
         const deg = p.ang * 180 / Math.PI, a = ((deg % 360) + 360) % 360, flip = a > 90 && a < 270;   // label turns with the train and is never upside down, as on the line pages
-        t.g.setAttribute("transform", `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${deg.toFixed(1)}) scale(${(SC * zf).toFixed(3)})`);
+        t.g.setAttribute("transform", `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${deg.toFixed(1)}) scale(${((RADIAL ? SC_R : SC) * zf).toFixed(3)})`);
         t.g.setAttribute("opacity", o); t.op = +o;
         if (t.flip !== flip) { t.txt.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)"); t.flip = flip; }
         const lab = mode === "num" ? String(t.vid || "").slice(-3) : codeOf(t.dest);
         if (t.lab !== lab) { t.txt.textContent = lab; t.lab = lab; }
+      }
+      for (let i = ghosts.length - 1; i >= 0; i--) {             // the old trains fade out over 0.4 s
+        const q = ghosts[i], k = 1 - (performance.now() - q.t0) / 400;
+        if (k <= 0) { q.g.remove(); ghosts.splice(i, 1); } else q.g.setAttribute("opacity", (q.op * k).toFixed(2));
       }
       scope.frame(frame);
     }

@@ -1,4 +1,7 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.56: Station page, Linear: smaller trains (scale 0.64, was 0.78) and the lanes and separators close in proportionally; Radial unchanged.
+   v3.55: Station page: a line keeps its place in a shared ribbon on the main row, so stripes no longer jog where a branch joins; stops spaced further out (last stop at 86% of the way to the edge, was 72%); a stop's icon never fades for lack of room, only its name.
+   v3.54: Station page: the station's name at the top of the map; a branch's row is flat at its own level (a branch goes down once, diagonally, then across, never down and up again); smaller branches are drawn behind the main line where they join it; tapping a stop opens that station's page; after a minute or more idle (hidden tab, sleeping device) the trains fade out and are read again from the feed instead of rushing to catch up.
    v3.53: Elizabeth line (Reading and Heathrow to Abbey Wood and Shenfield; five routes, solid style). Engine: a station the feed lists under two IDs at the same moment is one stop (a repeat prediction for the same train and station within 6 s is dropped). More hub groups (lines/hubs.js): Paddington, Bond Street, Tottenham Court Road, Farringdon, Canary Wharf, Ealing Broadway, Heathrow, plus the Elizabeth line's second IDs at Liverpool Street and Whitechapel.
    v3.52: Overground lines drawn hollow (coloured outline, the map background showing through the middle, as on TfL's map; 'hollow' in the line file). The master Thames has long straight tails at both ends so the river runs past both edges of every map at any zoom; the six Overground rivers re-placed to match.
    v3.51: Windrush line (Highbury & Islington to New Cross, Crystal Palace, West Croydon and Clapham Junction; shares track with the Mildmay from Highbury & Islington to Canonbury). Shared-track rules for Bakerloo/Lioness, District/Mildmay and Mildmay/Windrush added.
@@ -78,7 +81,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.53";
+  const VERSION = "3.56";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
