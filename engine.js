@@ -1,4 +1,13 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.65: Full Map stage 5: live trains. Inside the live range (view under 8 km wide) every line crossing the screen is asked for its trains from the per-train line feed and each train is drawn on the real track between its stops (fullmap-live.js); Uber Boat routes follow the Thames centreline; DLR stays static (its feed has no train numbers).
+   v3.64: Full Map lines, step 3: stations that sat on a stub move to where the paths part, hand overrides (tools/geo/line_overrides.json, audit_waivers.json), and tools/geo/lines_pipeline.sh rebuilds the lines and runs the audit as a regression test.
+   v3.63: Full Map lines, step 2: the shared network is smoothed (steps where a line joins or leaves a corridor become gentle ramps), a line never runs twice side by side (same-line tracks within 26 m merge), short spurs and loops in a path are cut; audit now measures order from the lanes as drawn and overlap as closer than a line is wide.
+   v3.62: Full Map lines, step 1: tracks within 12 m (different lines, or the same line) are conflated into one shared track, every shared stretch has one fixed left-to-right order along its whole length, and paths are simplified once for all lines (tools/geo/conflate.py, audit_lines.py).
+   v3.61: Full Map: rail lines follow one consistent track (each station keeps the track point it was first given, lines that share rails prefer the same track, nearer track preferred), so no more doubled Elizabeth line band, hooks, steps or gaps at stations; shared-track stripes ease in and out instead of jumping.
+   v3.60: Full Map: rail lines are now drawn over the tiles (thicker, smoother, joined at every station, side by side on shared track) so they can be switched off; a Layers button in the left panel opens a pop-up with the zone and boundary switches (no sub-lines), All icons, each icon type, Tube lines and Tube labels; fare zones alternate white and grey, boroughs get a light tint (four colours, neighbours differ).
+   v3.59: Full Map stage 4: switches for fare zones (approximate), the Congestion Charge zone, the ULEZ zone (the LEZ is merged into it) and the boroughs, all off to start with; landmark icons and labels (our own glyphs, public structures only, brand-named ones left out for now); Heathrow and London City marked, with arrows at the edge to Gatwick, Stansted and Luton (tap to go there).
+   v3.58: Full Map page (stage 3 of the geographic Greater London map): ?map=full and the menu's Full Map card open a pannable, zoomable static map of Greater London on pre-rendered tiles (geo/tiles, light and dark, four zoom levels, loaded only for the part on screen); drag, wheel, pinch and arrow keys, or step buttons on less capable screens (a Drag or Buttons switch, remembered per device); stations and their names are drawn over the tiles; attribution line. fullmap.js; live trains and filters come in later stages.
+   v3.57: facts for the 268 generated station pages (Wikipedia, fetched 16 Oct 2026, 8 to 10 each, unverified); tools/make_station.py reads them from tools/station_facts.json.
    v3.56: Station page, Linear: smaller trains (scale 0.64, was 0.78) and the lanes and separators close in proportionally; Radial unchanged.
    v3.55: Station page: a line keeps its place in a shared ribbon on the main row, so stripes no longer jog where a branch joins; stops spaced further out (last stop at 86% of the way to the edge, was 72%); a stop's icon never fades for lack of room, only its name.
    v3.54: Station page: the station's name at the top of the map; a branch's row is flat at its own level (a branch goes down once, diagonally, then across, never down and up again); smaller branches are drawn behind the main line where they join it; tapping a stop opens that station's page; after a minute or more idle (hidden tab, sleeping device) the trains fade out and are read again from the feed instead of rushing to catch up.
@@ -81,7 +90,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.56";
+  const VERSION = "3.65";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -269,7 +278,7 @@
     { id: "line", name: "Line", sub: "One line, every train", live: true, icon: '<path d="M8 44 H28 L40 20 H56"/><circle cx="8" cy="44" r="5"/><circle cx="30" cy="44" r="5"/><circle cx="40" cy="20" r="5"/><circle cx="56" cy="20" r="5"/>' },
     { id: "station", name: "Station", sub: "One station, every arrival and departure", live: true, go: "station", icon: '<circle cx="32" cy="32" r="9"/><path d="M6 32 H21 M43 32 H58 M14 24 L6 32 L14 40 M50 24 L58 32 L50 40"/>' },
     { id: "region", name: "Region", sub: "A part of the live network", icon: '<rect x="6" y="10" width="52" height="44" rx="8"/><path d="M6 40 H24 L34 26 H58 M28 10 V26"/><circle cx="24" cy="40" r="4"/><circle cx="34" cy="26" r="4"/>' },
-    { id: "full", name: "Full Map", sub: "The whole network at once", icon: '<path d="M6 20 H30 L44 34 H58 M10 50 L26 34 H58 M32 6 V58 M6 42 H26"/><circle cx="32" cy="20" r="4"/><circle cx="26" cy="34" r="4"/><circle cx="44" cy="34" r="4"/>' }
+    { id: "full", name: "Full Map", sub: "All of Greater London, pan and zoom", live: true, go: "fullmap", icon: '<path d="M6 20 H30 L44 34 H58 M10 50 L26 34 H58 M32 6 V58 M6 42 H26"/><circle cx="32" cy="20" r="4"/><circle cx="26" cy="34" r="4"/><circle cx="44" cy="34" r="4"/>' }
   ];
   const win = (x, y, n, w, h, g) => Array.from({ length: n }, (_, i) => `<rect x="${x + i * (w + g)}" y="${y}" width="${w}" height="${h}" rx="1.5" fill="#F4F1EA"/>`).join("");
   const BAND_ICON = {
@@ -480,6 +489,7 @@
     const go = b.dataset.go;
     if (b.dataset.station) { const sid = b.dataset.station; closeMenu(() => { location.assign(location.pathname + "?station=" + encodeURIComponent(sid)); }); return; }
     if (b.dataset.chip) { stnState.line = stnState.line === b.dataset.chip ? "" : b.dataset.chip; renderStations(); const l = document.getElementById("stn-list"); if (l) l.scrollTop = 0; return; }   // v3.40
+    if (go === "fullmap") { closeMenu(() => { location.assign(location.pathname + "?map=full"); }); return; }   // v3.58: the Full Map page is a full page load, like a station page
     if (go === "station") { showView("stations"); return; }       // v3.31: the card opens the station picker
     if (go === "close") closeMenu(); else if (go) showView(go);
   });
@@ -2471,6 +2481,10 @@
   const FADE_SEL = ".line-title, .status, .status-reason, .updated, .stats, #pop-sections, #pop-note, #facts";
   const popSections = document.getElementById("pop-sections");
   // v3.24: a station page is mounted by station.js into the same shell
+  function mountFullMap(MAP, scope) {
+    if (!window.UndercurrentFullMap) throw new Error("fullmap.js did not load");
+    return window.UndercurrentFullMap.mount(MAP, scope, { svg, panelsApi, updateClock, lineStyle, factBar, tickPicker, VERSION, reduceMotion: reduceMotionPref, debug: DEBUG_ON });
+  }
   function mountStation(STN, scope) {
     if (!window.UndercurrentStation) throw new Error("station.js did not load");
     return window.UndercurrentStation.mount(STN, scope, { svg, panelsApi, updateClock, lineStyle, factBar, tickPicker, VERSION, reduceMotion: reduceMotionPref, debug: DEBUG_ON });
@@ -2478,11 +2492,11 @@
   function mount(LINE, arrival) {
     const gen = ++guard.mounts, scope = makeScope(gen);
     const prev = guard.gen; guard.gen = gen;                // timers started while building are stamped with this line
-    try { cur = { id: LINE.id, LINE, scope, api: null }; cur.api = LINE.kind === "station" ? mountStation(LINE, scope) : mountLine(LINE, scope, arrival); }
+    try { cur = { id: LINE.id, LINE, scope, api: null }; cur.api = LINE.kind === "fullmap" ? mountFullMap(LINE, scope) : LINE.kind === "station" ? mountStation(LINE, scope) : mountLine(LINE, scope, arrival); }
     finally { guard.gen = prev; }
     // self-check: every line runs the same number of repeating timers as the first one did
     const n = guard.intervals.size;
-    if (LINE.kind === "station") { /* a station page runs its own set of timers */ }
+    if (LINE.kind === "station" || LINE.kind === "fullmap") { /* a station page or the Full Map runs its own set of timers */ }
     else if (guard.baseIntervals === null) guard.baseIntervals = n;
     else if (n !== guard.baseIntervals) guard.problems.push(`${n} repeating timers after mount ${gen} (the first line had ${guard.baseIntervals})`);
   }
@@ -2508,7 +2522,7 @@
 
   /* ---------- Switching lines without reloading ---------- */
   function lineURL(id, arrival) {
-    const q = new URLSearchParams(location.search); q.set("line", id); q.delete("from"); q.delete("station");
+    const q = new URLSearchParams(location.search); q.set("line", id); q.delete("from"); q.delete("station"); q.delete("map");
     if (arrival) q.set("from", `${arrival.naptan}~${Math.round(arrival.px)}~${Math.round(arrival.py)}`);
     return location.pathname + "?" + q + location.hash;
   }
@@ -2558,6 +2572,8 @@
   let pendingURL = false;
   function followURL() {
     if (new URLSearchParams(location.search).get("station") && cur && cur.LINE.kind !== "station") { location.reload(); return; }   // back to a station page: load it fresh
+    if (new URLSearchParams(location.search).get("map") === "full" && cur && cur.LINE.kind !== "fullmap") { location.reload(); return; }   // v3.58: back to the Full Map: load it fresh
+    if (cur && cur.LINE.kind === "fullmap" && !new URLSearchParams(location.search).get("map")) { location.reload(); return; }
     const id = new URLSearchParams(location.search).get("line");
     if (knownLine(id) && cur && id !== cur.id) plainSwitch(id, false);
   }
@@ -2569,7 +2585,7 @@
     const why = guard.problems[0] || `${guard.strays} timer callback(s) from a closed line`;
     if (DEBUG_ON) { if (!guard.reported) { guard.reported = true; console.warn("Undercurrent leak check:", why); } return; }
     console.warn("Undercurrent: reloading cleanly:", why);
-    location.replace(cur && cur.LINE.kind === "station" ? location.href : lineURL(cur ? cur.id : new URLSearchParams(location.search).get("line") || ""));
+    location.replace(cur && (cur.LINE.kind === "station" || cur.LINE.kind === "fullmap") ? location.href : lineURL(cur ? cur.id : new URLSearchParams(location.search).get("line") || ""));
   }, 5000);
 
   /* ---------- Debug readout (?debug) ---------- */

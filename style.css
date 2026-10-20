@@ -653,3 +653,66 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .stn-layout button:hover:not([aria-pressed="true"]) { background: color-mix(in srgb, var(--pill-bg) 70%, var(--ink)); }
 .stn-layout button:focus-visible { outline: 2px solid var(--line); outline-offset: -3px; }
 @media (max-width: 860px) { .stn-layout button span { display: none; } .stn-layout button { padding: 0 8px; } }
+
+/* ---------- Full Map page (v3.58): canvas map, how-to-move switch, step buttons, attribution ---------- */
+.fm { position: absolute; inset: 16px 24px; border-radius: 14px; overflow: hidden; background: var(--bg); outline: none; touch-action: none; cursor: grab; }
+.fm[data-mode="buttons"] { cursor: default; touch-action: auto; }
+.fm.grabbing { cursor: grabbing; }
+.fm:focus-visible { box-shadow: 0 0 0 2px var(--line); }
+.fm-canvas { display: block; width: 100%; height: 100%; }
+.fm-attr { position: absolute; left: 10px; bottom: 8px; margin: 0; max-width: calc(100% - 90px); font-size: 11px; line-height: 1.35; color: var(--muted); pointer-events: none; text-shadow: 0 0 4px var(--bg), 0 0 4px var(--bg); }
+.fm-ctl { position: absolute; left: 22px; top: 18px; z-index: 5; display: flex; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--pill-bg); opacity: .6; transition: opacity .15s; }
+.fm-ctl:hover, .fm-ctl:focus-within { opacity: 1; }
+.fm-ctl button { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; background: none; color: var(--ink); font: 600 13px/1 var(--sans); cursor: pointer; }
+.fm-ctl button + button { border-left: 1px solid var(--rule); }
+.fm-ctl button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.fm-ctl button:hover:not([aria-pressed="true"]) { background: color-mix(in srgb, var(--pill-bg) 70%, var(--ink)); }
+.fm-ctl button:focus-visible { outline: 2px solid var(--line); outline-offset: -3px; }
+.fm-pad { position: absolute; right: 22px; bottom: 124px; z-index: 5; display: grid; grid-template-columns: repeat(3, 34px); grid-template-rows: repeat(3, 32px); gap: 0; border-radius: 10px; opacity: .85; }
+.fm-pad[hidden] { display: none; }
+.fm-pad button { display: grid; place-items: center; padding: 0; border: 1px solid var(--rule); background: var(--pill-bg); color: var(--ink); cursor: pointer; }
+.fm-pad button:hover { background: color-mix(in srgb, var(--pill-bg) 70%, var(--ink)); }
+.fm-pad button:focus-visible { outline: 2px solid var(--line); outline-offset: -2px; }
+.fm-pad button[data-d="up"] { grid-column: 2; grid-row: 1; border-radius: 10px 10px 0 0; }
+.fm-pad button[data-d="left"] { grid-column: 1; grid-row: 2; border-radius: 10px 0 0 10px; }
+.fm-pad button[data-d="right"] { grid-column: 3; grid-row: 2; border-radius: 0 10px 10px 0; }
+.fm-pad button[data-d="down"] { grid-column: 2; grid-row: 3; border-radius: 0 0 10px 10px; }
+@media (max-width: 860px) { .fm-ctl button span { display: none; } .fm-ctl button { padding: 0 8px; } .fm { inset: 8px 12px; } }
+@media (max-width: 860px) { html.fm-page .map-wrap { height: 68vh; height: 68dvh; min-height: 360px; } html.fm-page .zoom-ctl { bottom: 26px; } .fm-pad { bottom: 132px; } }
+
+/* Full Map filters (v3.59): switches in the left panel, all off to start with */
+.fm-filters { margin: 4px 0 10px; display: grid; gap: 6px; }
+.fm-filters .sub-label { margin: 0 0 2px; }
+.fm-sw { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--pill-bg); color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.fm-sw i { width: 12px; height: 12px; border-radius: 50%; background: var(--c); opacity: .5; }
+.fm-sw[aria-checked="true"] i { opacity: 1; }
+.fm-sw span { display: grid; gap: 1px; }
+.fm-sw b { font: 600 14px/1.2 var(--sans); }
+.fm-sw small { font: 400 12px/1.2 var(--sans); color: var(--muted); }
+.fm-sw em { position: relative; width: 34px; height: 20px; border-radius: 10px; background: var(--rule); transition: background .15s; }
+.fm-sw em::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent); transition: transform .15s; }
+.fm-sw[aria-checked="true"] em { background: var(--ink); }
+.fm-sw[aria-checked="true"] em::after { transform: translateX(14px); }
+.fm-sw:hover { background: color-mix(in srgb, var(--pill-bg) 70%, var(--ink)); }
+.fm-sw:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+
+/* Full Map Layers pop-up (v3.60) */
+.fm-layers-btn { width: 100%; }
+.fm-sheet { width: min(560px, calc(100vw - 32px)); }
+.fm-sheet .sheet-body { max-height: min(78vh, 720px); overflow-y: auto; }
+.fm-sws { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fm-sws .fm-sw { padding: 10px 12px; }
+.fm-sw i:not([style]) { display: none; }
+.fm-sw:has(i:not([style])) { grid-template-columns: 1fr auto; }
+.fm-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.fm-chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 999px; background: var(--pill-bg); color: var(--muted); font: 600 13px/1 var(--sans); cursor: pointer; }
+.fm-chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.fm-chip:disabled { opacity: .35; cursor: default; }
+.fm-chip:not(:disabled):hover { border-color: var(--ink); }
+.fm-chip:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+@media (max-width: 520px) { .fm-sws { grid-template-columns: 1fr; } }
+
+/* Full Map live trains (v3.65) */
+.fm-live { position: absolute; inset: 0; pointer-events: none; }
+.fm-tip { position: absolute; z-index: 6; pointer-events: none; background: var(--tip-bg); color: var(--tip-ink); padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; transform: translate(-50%, calc(-100% - 14px)); white-space: nowrap; }
+.fm-tip[hidden] { display: none; }
