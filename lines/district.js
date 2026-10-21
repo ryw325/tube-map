@@ -68,7 +68,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "NHG", "naptan": "940GZZLUNHG", "code": "NHG", "name": "Notting Hill Gate", "x": 60, "y": -220, "pref": "left"},
   {"id": "BWT", "naptan": "940GZZLUBWT", "code": "BWT", "name": "Bayswater", "x": 120, "y": -280, "pref": "left"},
   {"id": "PAC", "naptan": "940GZZLUPAC", "code": "PAD", "name": "Paddington", "x": 180, "y": -340, "pref": "left"},
-  {"id": "ERC", "naptan": "940GZZLUERC", "code": "ERD", "name": "Edgware Road", "x": 240, "y": -400, "pref": "right"}
+  {"id": "ERC", "naptan": "940GZZLUERC", "code": "EGR", "name": "Edgware Road", "x": 240, "y": -400, "pref": "right"}
  ],
  "routes": [
   ["EBY", "ECM", "ACT", "CWP", "TNG", "SFB", "RVP", "HSD", "BSC", "WKN", "ECT", "GTR", "SKS", "SSQ", "VIC", "SJP", "WSM", "EMB", "TMP", "BKF", "MSH", "CST", "MMT", "TWH", "ADE", "WPL", "SGN", "MED", "BWR", "BBB", "WHM", "PLW", "UPK", "EHM", "BKG", "UPY", "BEC", "DGY", "DGE", "EPK", "HCH", "UPB", "UPM"],

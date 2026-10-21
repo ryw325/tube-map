@@ -11,7 +11,7 @@ window.UNDERCURRENT_LINE = {
  "stations": [
   {"id": "LST", "naptan": "910GLIVST", "code": "LST", "name": "Liverpool Street", "x": 0, "y": 0, "pref": "top", "lines": ["Liverpool", "Street"]},
   {"id": "BTG", "naptan": "910GBTHNLGR", "code": "BTG", "name": "Bethnal Green", "x": 80, "y": 0, "pref": "bottom", "lines": ["Bethnal", "Green"]},
-  {"id": "CAM", "naptan": "910GCAMHTH", "code": "CAM", "name": "Cambridge Heath", "x": 160, "y": 0, "pref": "top", "lines": ["Cambridge", "Heath"]},
+  {"id": "CAM", "naptan": "910GCAMHTH", "code": "CMH", "name": "Cambridge Heath", "x": 160, "y": 0, "pref": "top", "lines": ["Cambridge", "Heath"]},
   {"id": "LFD", "naptan": "910GLONFLDS", "code": "LFD", "name": "London Fields", "x": 240, "y": 0, "pref": "bottom", "lines": ["London", "Fields"]},
   {"id": "HKD", "naptan": "910GHAKNYNM", "code": "HKD", "name": "Hackney Downs", "x": 320, "y": 0, "pref": "top", "lines": ["Hackney", "Downs"]},
   {"id": "CLA", "naptan": "910GCLAPTON", "code": "CLA", "name": "Clapton", "x": 400, "y": 80, "pref": "bottom"},

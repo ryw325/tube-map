@@ -23,7 +23,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "MVL", "naptan": "940GZZLUMVL", "code": "MVL", "name": "Maida Vale",         "x": 450, "y": 730,  "pref": "right", "lines": ["Maida", "Vale"]},
   {"id": "WKA", "naptan": "940GZZLUWKA", "code": "WAV", "name": "Warwick Avenue",     "x": 500, "y": 780,  "pref": "right", "lines": ["Warwick", "Avenue"]},
   {"id": "PAC", "naptan": "940GZZLUPAC", "code": "PAD", "name": "Paddington",         "x": 550, "y": 830,  "pref": "bottom"},
-  {"id": "ERB", "naptan": "940GZZLUERB", "code": "EDG", "name": "Edgware Road",       "x": 640, "y": 830,  "pref": "top", "lines": ["Edgware", "Road"]},
+  {"id": "ERB", "naptan": "940GZZLUERB", "code": "EGR", "name": "Edgware Road",       "x": 640, "y": 830,  "pref": "top", "lines": ["Edgware", "Road"]},
   {"id": "MYB", "naptan": "940GZZLUMYB", "code": "MYB", "name": "Marylebone",         "x": 730, "y": 830,  "pref": "top"},
   {"id": "BST", "naptan": "940GZZLUBST", "code": "BST", "name": "Baker Street",       "x": 820, "y": 830,  "pref": "top", "lines": ["Baker", "Street"]},
   {"id": "RGP", "naptan": "940GZZLURGP", "code": "RPK", "name": "Regent's Park",      "x": 820, "y": 910,  "pref": "right", "lines": ["Regent's", "Park"]},

@@ -1,4 +1,9 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.70: One master station code list (tools/station_codes.json, tools/station_codes.py): every station has one code, unique across the network, used by the line maps, station pages and Full Map. Paddington PAD, Edgware Road EGR, Finchley Road FNR, Rayners Lane RAY, Hillingdon HIL; 12 clashing stations got new codes; DLR and Tram stops now have codes.
+   v3.69: Full Map: train labels sit inside the train icons and use the line maps' own station shorthand (geo/codes.js, made by tools/geo/make_codes.js from the line files and hubs); vehicle IDs are the last 3 digits as on the station pages.
+   v3.68: Full Map: trains have a rounded point at the front; train labels (destination, vehicle ID or off) in the Layers pop-up; Uber Boat routes keep to the middle of the river and only come to the bank at piers; no white square on boat icons.
+   v3.67: Full Map: live at every zoom (no width limit): lines crossing the screen are always fetched; trains are drawn unless too many overlap (blur rule, hide above 60% overlapping, show below 50%), so quiet outer areas show trains when zoomed well out and the busy centre only from about 10 km wide.
+   v3.66: Full Map: Elizabeth line station at Tottenham Court Road back on the through track (prefer_track override); Uber Boat routes run through the real river water (shortest path that stays on the water), boats have their own hull icon; trains are wider than the track at every zoom and sit on their own stripe lane on shared track.
    v3.65: Full Map stage 5: live trains. Inside the live range (view under 8 km wide) every line crossing the screen is asked for its trains from the per-train line feed and each train is drawn on the real track between its stops (fullmap-live.js); Uber Boat routes follow the Thames centreline; DLR stays static (its feed has no train numbers).
    v3.64: Full Map lines, step 3: stations that sat on a stub move to where the paths part, hand overrides (tools/geo/line_overrides.json, audit_waivers.json), and tools/geo/lines_pipeline.sh rebuilds the lines and runs the audit as a regression test.
    v3.63: Full Map lines, step 2: the shared network is smoothed (steps where a line joins or leaves a corridor become gentle ramps), a line never runs twice side by side (same-line tracks within 26 m merge), short spurs and loops in a path are cut; audit now measures order from the lanes as drawn and overlap as closer than a line is wide.
@@ -90,7 +95,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.65";
+  const VERSION = "3.70";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

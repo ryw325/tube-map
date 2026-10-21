@@ -1,5 +1,5 @@
 /* Project Undercurrent: Full Map live layer (v3.65, stage 5). Loaded before fullmap.js, which calls UndercurrentFullMapLive.create(opts).
-   Inside the live range (the view is no wider than MAX_WIDTH_M) every line that crosses the screen is asked for its trains, from the per-train line feed
+   Live at every zoom: every line that crosses the screen (and 1.5 km round it) is asked for its trains, from the per-train line feed
    (/Line/a,b/Arrivals, never the station feeds), and each train is drawn on the real track between its stops.
    How a train is placed: the feed lists, for each train, the stops it will call at and when (absolute times). The stops are joined by the shortest route over the
    line's real track (geo/rail_graph.json). The train starts at the stop before its first predicted stop (the neighbour of that stop on the track, using the
@@ -9,7 +9,7 @@
    DLR has no train numbers in the feed (no way to tell one train from another), so it stays static for now. */
 (function () {
   "use strict";
-  const MAX_WIDTH_M = 8000;               // live only when the view is no wider than this (metres); tuned in testing
+  const BLUR_HIDE = 0.60, BLUR_SHOW = 0.50;   // trains are hidden when more than this share of the trains on screen overlap another (they would blur into the lines); shown again below the second figure
   const HORIZON_MS = 20 * 60000;           // a train whose first stop is further off than this has not started its trip: not drawn
   const TICK_MS = 5000, MIN_AGE_MS = 12000, GROUP_KB = 2000, PAD_M = 1500, MISS_LIMIT = 3, DWELL_S = 20;
   const NO_FEED = new Set(["dlr", "woolwich-ferry"]);
@@ -31,8 +31,9 @@
       for (const sg of L.segments) {
         const p = sg.path; if (!p || p.length < 2) continue;
         let len = 0; for (let i = 1; i < p.length; i++) len += dist(p[i - 1], p[i]);
-        (adj.get(sg.a) || adj.set(sg.a, []).get(sg.a)).push({ to: sg.b, pts: p, len });
-        (adj.get(sg.b) || adj.set(sg.b, []).get(sg.b)).push({ to: sg.a, pts: p.slice().reverse(), len });
+        const u = sg.u || [], vl = p.map((_, j) => ((u[j - 1] || 0) + (u[j] || 0)) / (j > 0 && j < p.length - 1 ? 2 : 1));      // stripe lane at each point (shared track side by side)
+        (adj.get(sg.a) || adj.set(sg.a, []).get(sg.a)).push({ to: sg.b, pts: p, vl, len });
+        (adj.get(sg.b) || adj.set(sg.b, []).get(sg.b)).push({ to: sg.a, pts: p.slice().reverse(), vl: vl.map(x => -x).reverse(), len });
         for (const q of p) { if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; }
       }
       A[lid] = adj; BOX[lid] = [x0, y0, x1, y1];
@@ -56,8 +57,9 @@
       return out.reverse();
     }
     function buildRoute(t) {
-      const lid = t.line, plan = t.plan, pts = [], stopAt = [];
-      const push = p => { if (!pts.length || dist(pts[pts.length - 1], p) > 0.05) pts.push(p); };
+      const lid = t.line, plan = t.plan, pts = [], lanes = [], stopAt = [];
+      const push = (p, l) => { if (!pts.length || dist(pts[pts.length - 1], p) > 0.05) { pts.push(p); lanes.push(l || 0); } };
+      const pushE = e => e.pts.forEach((p, j) => push(p, e.vl[j]));
       let prevId = null;
       if (plan.length) {                                              // where the train comes from: the neighbour of its first stop that is not its next one
         const first = plan[0].sid, second = plan[1] && plan[1].sid, ns = (A[lid].get(first) || []).filter(e => e.to !== second);
@@ -67,17 +69,17 @@
           prevId = (pick || ns[0]).to;
         }
         t.prevId = prevId; t.prevFirst = first;
-        if (prevId !== null) { const e = (A[lid].get(first) || []).find(x => x.to === prevId); if (e) e.pts.slice().reverse().forEach(push); }
+        if (prevId !== null) { const e = (A[lid].get(first) || []).find(x => x.to === prevId); if (e) { const r = { pts: e.pts.slice().reverse(), vl: e.vl.map(x => -x).reverse() }; pushE(r); } }
       }
       if (!pts.length) push(XY[lid][plan[0].sid]);
       stopAt.push(cum(pts));
       for (let i = 1; i < plan.length; i++) {
         const r = shortest(lid, plan[i - 1].sid, plan[i].sid);
-        if (r) r.forEach(e => e.pts.forEach(push)); else push(XY[lid][plan[i].sid]);
+        if (r) r.forEach(pushE); else push(XY[lid][plan[i].sid], 0);
         stopAt.push(cum(pts));
       }
       const c = [0]; for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + dist(pts[i - 1], pts[i]));
-      t.pts = pts; t.cum = c; t.stopAt = stopAt.map(x => x);
+      t.pts = pts; t.lanes = lanes; t.cum = c; t.stopAt = stopAt.map(x => x);
       t.D = stopAt.map(x => c.length ? Math.min(x, c[c.length - 1]) : 0);
       // timeline: [time, distance] knots
       const v0 = speedOf(lid); let v = v0;
@@ -103,7 +105,7 @@
       let lo = 0, hi = c.length - 1; d = Math.max(0, Math.min(c[hi], d));
       while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= d) lo = m; else hi = m; }
       const u = (d - c[lo]) / Math.max(1e-6, c[hi] - c[lo]), a = p[lo], b = p[hi];
-      return [[a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u], Math.atan2(b[1] - a[1], b[0] - a[0])];
+      return [[a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u], Math.atan2(b[1] - a[1], b[0] - a[0]), t.lanes[lo] + (t.lanes[hi] - t.lanes[lo]) * u];
     }
     function project(t, xy) {                                         // distance along the route of the point nearest xy (keeps a train where it is when its route is rebuilt)
       let best = 1e18, bd = 0; const p = t.pts;
@@ -135,7 +137,7 @@
         if (!t) { t = { key, line: lid, vid, born: now, disp: null, alpha: 0 }; trains.set(key, t); }
         const oldFirst = t.plan && t.plan[0] && t.plan[0].sid;
         if (oldFirst && oldFirst !== plan[0].sid && !seen.has(oldFirst)) t.hint = oldFirst;        // the stop it has just passed
-        t.plan = plan; t.dest = (last.destinationName || "").replace(/ (Underground Station|Rail Station|DLR Station|Tram Stop)$/, ""); t.loc = last.currentLocation || ""; t.seen = now; t.miss = 0; t.dead = 0;
+        t.plan = plan; t.dest = (last.destinationName || "").replace(/ (Underground Station|Rail Station|DLR Station|Tram Stop)$/, ""); t.destNap = last.destinationNaptanId || ""; t.code = null; t.loc = last.currentLocation || ""; t.seen = now; t.miss = 0; t.dead = 0;
         buildRoute(t);
         if (old) { const [pd, off] = project(t, old); t.disp = off < 150 ? pd : posAt(t, now); } else t.disp = posAt(t, now);       // its route changed (far from where it was): follow the new timeline
         if (old) { const nw = xyAt(t, t.disp)[0], dj = dist(old, nw); if (dj > 60) { S.reproj = (S.reproj || 0) + 1; (S.reprojLog = S.reprojLog || []).push([Math.round(dj), t.key]); } }
@@ -169,9 +171,7 @@
 
     /* ---------- the view decides what is live ---------- */
     function setView(v, widthM) {
-      const live = widthM <= MAX_WIDTH_M;
-      const was = S.live; S.live = live;
-      if (!live) { if (was) { trains.clear(); S.wanted = []; } return; }
+      const was = S.live; S.live = true;                                      // live at every zoom: only blurring decides whether trains are drawn
       const x0 = v.x0 - PAD_M, x1 = v.x1 + PAD_M, y0 = v.y0 - PAD_M, y1 = v.y1 + PAD_M;
       const want = LIVE.filter(l => { const b = BOX[l]; return !(b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1); });
       const changed = want.length !== S.wanted.length || want.some((l, i) => l !== S.wanted[i]);
@@ -180,7 +180,26 @@
     }
 
     /* ---------- drawing ---------- */
-    const BODY = new Path2D("M-12,-7 H10 L17,0 L10,7 H-12 A6 6 0 0 1 -18,1 V-1 A6 6 0 0 1 -12,-7 Z");
+    /* ---------- destination shorthand: the line maps' own codes (see tools/geo/make_codes.js) ---------- */
+    function destCode(t) {
+      const CODES = window.UC_CODES || { lines: {}, names: {} }, L = CODES.lines[t.line], nm = norm(t.dest);
+      return (L && ((t.destNap && L.n[t.destNap]) || L.m[nm])) || CODES.names[nm] || (t.dest || "").replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "";
+    }
+    const darkText = hex => { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 165; };
+    function lineWidthPx(pxPerM) { return Math.max(2, Math.min(6.5, 24 * pxPerM)); }      // the same as the track lines drawn by fullmap.js
+    function where(t, pxPerM) {                                      // map position of the train, moved to its own stripe lane on shared track
+      const [p, ang, lane] = xyAt(t, t.disp), lw = lineWidthPx(pxPerM), off = (pxPerM >= 0.05 ? lw * 0.92 : 0) * lane / pxPerM;
+      return [[p[0] - Math.sin(ang) * off, p[1] + Math.cos(ang) * off], ang];
+    }
+    function pathFor(boat, L, W) {
+      const p = new Path2D(), r = W / 2, rr = r * 0.7, n = r * 1.15;
+      if (boat) { p.moveTo(-L / 2, -r * 0.8); p.quadraticCurveTo(-L / 2, -r, -L / 2 + r * 0.6, -r); p.lineTo(L * 0.12, -r); p.quadraticCurveTo(L * 0.42, -r * 0.8, L / 2, 0); p.quadraticCurveTo(L * 0.42, r * 0.8, L * 0.12, r); p.lineTo(-L / 2 + r * 0.6, r); p.quadraticCurveTo(-L / 2, r, -L / 2, r * 0.8); p.closePath(); }
+      else {                                                           // a train: square rear, a slightly rounded point at the front
+        p.moveTo(-L / 2 + rr, -r); p.lineTo(L / 2 - n, -r); p.quadraticCurveTo(L / 2 - n * 0.15, -r * 0.92, L / 2, 0); p.quadraticCurveTo(L / 2 - n * 0.15, r * 0.92, L / 2 - n, r);
+        p.lineTo(-L / 2 + rr, r); p.quadraticCurveTo(-L / 2, r, -L / 2, r - rr); p.lineTo(-L / 2, -r + rr); p.quadraticCurveTo(-L / 2, -r, -L / 2 + rr, -r); p.closePath();
+      }
+      return p;
+    }
     function advance(now) {
       const dt = Math.min(0.25, Math.max(0, (now - (S.lastNow || now)) / 1000)); S.lastNow = now;
       for (const [k, t] of trains) {
@@ -189,22 +208,52 @@
         // forward: close the gap within about 25 s, never faster than 40 m/s; behind schedule: wait in place (a train never runs backwards); far out of step: follow the timeline
         if (d >= 0) { if (d > 1500) t.disp = target; else t.disp += Math.min(d, Math.min(40, Math.max(t.v * 1.8, d / 25)) * dt); }
         else if (d < -1200) { t.disp = target; S.snaps = (S.snaps || 0) + 1; }
+        else t.disp += Math.max(d, -t.v * 0.5 * dt);
         t.alpha = t.dead ? Math.max(0, 1 - (now - t.dead) / 600) : Math.min(1, (now - t.born) / 600);
         if (t.dead && t.alpha <= 0) trains.delete(k);
         else if (!t.dead && t.knots.length && now - t.knots[t.knots.length - 1][0] > 90000) t.dead = now;     // its last stop was long ago: the trip is over
       }
     }
-    function draw(c, toX, toY, view, pxPerM, now, bg, outline) {
-      advance(now);
-      const size = Math.max(0.46, Math.min(0.9, 0.4 + pxPerM * 1.1)); let n = 0;
+    function draw(c, toX, toY, view, pxPerM, now, bg, outline, font) {
+      advance(now); S.px = pxPerM;
+      // wider than the track on purpose: even zoomed out a train is an obvious bulge, and on shared track it reaches over its neighbours' stripes
+      const W = Math.max(10, lineWidthPx(pxPerM) * 2.6 + 3), L = W * 2.1; let n = 0;
+      const shapes = { train: pathFor(false, L, W), boat: pathFor(true, L * 1.05, W * 0.95) };
+      const vis = [];
       for (const t of trains.values()) {
         if (!t.pts || t.pts.length < 2 || t.alpha <= 0 || t.plan[0].eta - now > HORIZON_MS) continue;
-        const [p, ang] = xyAt(t, t.disp);
+        const [p, ang] = where(t, pxPerM);
         if (p[0] < view.x0 || p[0] > view.x1 || p[1] < view.y0 || p[1] > view.y1) continue;
-        n++;
-        c.save(); c.globalAlpha = t.alpha; c.translate(toX(p[0]), toY(p[1])); c.rotate(-ang); c.scale(size, size);
-        c.fillStyle = colour(t.line); c.strokeStyle = outline; c.lineWidth = 3.4; c.lineJoin = "round"; c.stroke(BODY); c.fill(BODY);
+        vis.push({ t, x: toX(p[0]), y: toY(p[1]), ang });
+      }
+      // blurring: if too many trains sit on top of each other at this zoom the picture turns to mush, so trains are not drawn (data keeps coming in)
+      const cell = W * 1.1, grid = new Map(); let overl = 0;
+      for (const v of vis) { const k = Math.floor(v.x / cell) + "," + Math.floor(v.y / cell); (grid.get(k) || grid.set(k, []).get(k)).push(v); }
+      for (const v of vis) {
+        const cx = Math.floor(v.x / cell), cy = Math.floor(v.y / cell); let hit = false;
+        for (let i = -1; i <= 1 && !hit; i++) for (let j = -1; j <= 1 && !hit; j++) for (const w of grid.get((cx + i) + "," + (cy + j)) || []) if (w !== v && Math.hypot(w.x - v.x, w.y - v.y) < cell) { hit = true; break; }
+        if (hit) overl++;
+      }
+      const share = vis.length > 8 ? overl / vis.length : 0;
+      S.blurShare = share; S.blur = S.blur ? share > BLUR_SHOW : share > BLUR_HIDE;
+      if (S.blur) return 0;
+      for (const { t, x, y, ang } of vis) {
+        n++; const boat = /^rb|ferry/.test(t.line);
+        c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(-ang);
+        c.fillStyle = colour(t.line); c.strokeStyle = outline; c.lineWidth = 2.6; c.lineJoin = "round"; const sh = boat ? shapes.boat : shapes.train; c.stroke(sh); c.fill(sh);
         c.restore();
+      }
+      // labels sit inside the train: the destination code (the same shorthand as the line maps) or the last 3 digits of the vehicle number (as on the station pages)
+      const mode = S.labelMode || "off", fs = Math.max(8.5, W * 0.56);
+      if (mode !== "off" && W >= 15) {
+        c.font = `700 ${fs}px ${font || "sans-serif"}`; c.textBaseline = "middle"; c.textAlign = "center";
+        for (const { t, x, y, ang } of vis) {
+          const txt = mode === "vid" ? String(t.vid).slice(-3) : (t.code || (t.code = destCode(t)));
+          if (!txt || /^rb|ferry|cable/.test(t.line) && mode === "vid") continue;
+          const flip = Math.cos(ang) < 0;                                   // keep the text the right way up
+          c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(flip ? -ang + Math.PI : -ang);
+          c.fillStyle = darkText(colour(t.line)) ? "#23272B" : "#FFFFFF"; c.fillText(txt, -L * 0.04, 0.5); c.restore();
+        }
       }
       return n;
     }
@@ -212,20 +261,21 @@
       let best = null, bd = 18 * 18;
       for (const t of trains.values()) {
         if (!t.pts || t.pts.length < 2 || t.dead || t.plan[0].eta - Date.now() > HORIZON_MS) continue;
-        const p = xyAt(t, t.disp)[0], dx = toX(p[0]) - x, dy = toY(p[1]) - y, d = dx * dx + dy * dy;
+        const p = where(t, S.px || 0.1)[0], dx = toX(p[0]) - x, dy = toY(p[1]) - y, d = dx * dx + dy * dy;
         if (d < bd) { bd = d; best = t; }
       }
       if (!best) return null;
       const next = best.plan.find(s => s.eta > now - 5000) || best.plan[best.plan.length - 1], secs = Math.round((next.eta - now) / 1000);
-      return { line: best.line, dest: best.dest, next: NAME[best.line][next.sid], secs, x: toX(xyAt(best, best.disp)[0][0]), y: toY(xyAt(best, best.disp)[0][1]) };
+      return { line: best.line, dest: best.dest, next: NAME[best.line][next.sid], secs, x: toX(where(best, S.px || 0.1)[0][0]), y: toY(where(best, S.px || 0.1)[0][1]) };
     }
     return {
       setView, draw, hit, poll: () => poll(true),
       snapshot(now) { const out = []; for (const t of trains.values()) { if (!t.pts || t.pts.length < 2 || t.dead || t.plan[0].eta - now > HORIZON_MS) continue; const p = xyAt(t, t.disp)[0]; out.push({ key: t.key, line: t.line, x: p[0], y: p[1], plan: t.plan.map(s => ({ sid: s.sid, eta: s.eta, x: (XY[t.line][s.sid] || [0, 0])[0], y: (XY[t.line][s.sid] || [0, 0])[1] })) }); } return out; },
       get live() { return S.live; }, get trains() { return trains.size; }, get state() { return S; }, get lines() { return S.wanted.length; },
       count(view) { let n = 0; const now = Date.now(); for (const t of trains.values()) { if (!t.pts || t.dead || t.plan[0].eta - now > HORIZON_MS) continue; const p = xyAt(t, t.disp)[0]; if (p[0] >= view.x0 && p[0] <= view.x1 && p[1] >= view.y0 && p[1] <= view.y1) n++; } return n; },
-      maxWidth: MAX_WIDTH_M
+      setLabels(m) { S.labelMode = m; },
+      get blur() { return !!S.blur; }
     };
   }
-  window.UndercurrentFullMapLive = { create, MAX_WIDTH_M };
+  window.UndercurrentFullMapLive = { create };
 })();

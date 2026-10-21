@@ -24,7 +24,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "HAW", "naptan": "910GHROW", "code": "HAW", "name": "Harrow & Wealdstone", "x": -880, "y": -240, "pref": "bottom", "lines": ["Harrow &", "Wealdstone"]},
   {"id": "HDL", "naptan": "910GHEDSTNL", "code": "HDL", "name": "Headstone Lane", "x": -940, "y": -300, "pref": "left"},
   {"id": "HTE", "naptan": "910GHTCHEND", "code": "HTE", "name": "Hatch End", "x": -1000, "y": -360, "pref": "left"},
-  {"id": "CPK", "naptan": "910GCRPNDPK", "code": "CPK", "name": "Carpenders Park", "x": -1000, "y": -440, "pref": "right"},
+  {"id": "CPK", "naptan": "910GCRPNDPK", "code": "CPD", "name": "Carpenders Park", "x": -1000, "y": -440, "pref": "right"},
   {"id": "BSH", "naptan": "910GBUSHYDC", "code": "BSH", "name": "Bushey", "x": -1000, "y": -520, "pref": "right"},
   {"id": "WHS", "naptan": "910GWATFDHS", "code": "WHS", "name": "Watford High Street", "x": -1000, "y": -600, "pref": "right", "lines": ["Watford", "High Street"]},
   {"id": "WFJ", "naptan": "910GWATFJDC", "code": "WFJ", "name": "Watford Junction", "x": -1000, "y": -680, "pref": "right"}

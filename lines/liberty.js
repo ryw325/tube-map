@@ -10,7 +10,7 @@ window.UNDERCURRENT_LINE = {
  "spacing": 1.3,
  "stations": [
   {"id": "ROM", "naptan": "910GROMFORD", "code": "ROM", "name": "Romford", "x": 0, "y": 0, "pref": "top"},
-  {"id": "EPK", "naptan": "910GEMRSPKH", "code": "EPK", "name": "Emerson Park", "x": 200, "y": 0, "pref": "top", "lines": ["Emerson", "Park"]},
+  {"id": "EPK", "naptan": "910GEMRSPKH", "code": "EMP", "name": "Emerson Park", "x": 200, "y": 0, "pref": "top", "lines": ["Emerson", "Park"]},
   {"id": "UPM", "naptan": "910GUPMNSTR", "code": "UPM", "name": "Upminster", "x": 320, "y": 120, "pref": "bottom"}
  ],
  "routes": [

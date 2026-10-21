@@ -39,7 +39,7 @@ window.UNDERCURRENT_LINE = {
   {
    "id": "HGD",
    "naptan": "940GZZLUHGD",
-   "code": "HDN",
+   "code": "HIL",
    "name": "Hillingdon",
    "x": 60,
    "y": -180,
@@ -88,7 +88,7 @@ window.UNDERCURRENT_LINE = {
   {
    "id": "RYL",
    "naptan": "940GZZLURYL",
-   "code": "RLN",
+   "code": "RAY",
    "name": "Rayners Lane",
    "x": 60,
    "y": 220,
@@ -114,7 +114,7 @@ window.UNDERCURRENT_LINE = {
   {
    "id": "SUH",
    "naptan": "940GZZLUSUH",
-   "code": "SHL",
+   "code": "SDH",
    "name": "Sudbury Hill",
    "x": 180,
    "y": 340,
@@ -162,7 +162,7 @@ window.UNDERCURRENT_LINE = {
   {
    "id": "NEN",
    "naptan": "940GZZLUNEN",
-   "code": "NEA",
+   "code": "NEG",
    "name": "North Ealing",
    "x": 420,
    "y": 580,

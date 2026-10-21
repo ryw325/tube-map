@@ -74,7 +74,7 @@
     /* ---------- What is shown (v3.59 filters; v3.60: Layers pop-up with icon, line and label switches) ---------- */
     const on = { fare: false, cc: false, ulez: false, boroughs: false };      // zones and boundaries: off to start with
     const TYPES = [["bridge", "Bridges"], ["worship", "Places of worship"], ["palace", "Palaces and castles"], ["monument", "Monuments"], ["tower", "Towers"], ["museum", "Museums"], ["theatre", "Theatres and halls"], ["civic", "Civic buildings"], ["stadium", "Stadiums"], ["attraction", "Attractions"], ["airport", "Airports"]];
-    const show = { lines: true, labels: true, icons: true, types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
+    const show = { lines: true, labels: true, icons: true, train: "dest", types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
     const typeOn = k => show.icons && show.types[k];
     let F = null, fLoading = false, LM = null, RG = null, edgeHits = [], LIVE = null, liveRunning = false, liveLast = 0;
 
@@ -362,7 +362,7 @@
       if (now - liveLast >= 30) {
         liveLast = now;
         ctxL.setTransform(1, 0, 0, 1, 0, 0); ctxL.clearRect(0, 0, liveCanvas.width, liveCanvas.height); ctxL.setTransform(dpr, 0, 0, dpr, 0, 0);
-        LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", theme === "dark" ? "#E6EAED" : "#FFFFFF");
+        LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", theme === "dark" ? "#E6EAED" : "#FFFFFF", cols ? cols.sans : "Outfit");
       }
       scope.frame(liveFrame);
     }
@@ -370,18 +370,12 @@
       if (!LIVE) return;
       const S = LIVE.state, live = LIVE.live, n = LIVE.count(viewRect());
       statMode.textContent = live ? "Live" : "Static";
-      statStations.textContent = live ? n : "–";
-      if (!live) {
-        pill.textContent = "Static map"; pill.dataset.level = "unknown"; reasonEl.hidden = true;
-        upEl.textContent = `Zoom in to under ${LIVE.maxWidth / 1000} km wide to see live trains`; delete upEl.dataset.error;
-        $("pop-note").textContent = "Live trains, the cable car and boats appear here when you zoom in.";
-        return;
-      }
+      statStations.textContent = LIVE.blur ? "–" : n;
       if (S.err) { upEl.dataset.error = ""; upEl.textContent = S.err; }
       else if (S.ok) { delete upEl.dataset.error; const a = Math.round((Date.now() - S.ok) / 1000); upEl.textContent = a < 5 ? "Updated just now" : `Updated ${a} seconds ago`; }
       else { delete upEl.dataset.error; upEl.textContent = "Connecting to TfL…"; }
       pill.textContent = S.err ? "Live data trouble" : S.ok ? "Live" : "Connecting"; pill.dataset.level = S.err ? "minor" : S.ok ? "good" : "unknown"; reasonEl.hidden = true;
-      $("pop-note").textContent = `${n} train${n === 1 ? "" : "s"} on screen, ${LIVE.lines} line${LIVE.lines === 1 ? "" : "s"} asked for. Tap a train for its next stop.`;
+      $("pop-note").textContent = LIVE.blur ? "Live data is flowing for the whole map. Zoom in a little further to see individual trains." : `${n} train${n === 1 ? "" : "s"} on screen, ${LIVE.lines} line${LIVE.lines === 1 ? "" : "s"} asked for. Tap a train for its next stop.`;
     }
     scope.every(livePanel, 1000);
     if (ctx.debug) window.__fmLive = { get live() { return LIVE; } };
@@ -398,12 +392,14 @@
         <div class="sheet-body"><p class="sub-label">Zones and boundaries</p><div class="fm-sws">${sw("f", "fare", "Fare zones", "#4E6576")}${sw("f", "cc", "Congestion Charge", "#D52B1E")}${sw("f", "ulez", "ULEZ zone", "#1E9E5A")}${sw("f", "boroughs", "Boroughs", "#97AEBC")}</div>
         <p class="sub-label">Icons</p><div class="fm-sws">${sw("s", "icons", "All icons")}</div>
         <div class="fm-chips">${TYPES.map(([k, n]) => `<button type="button" class="fm-chip" aria-pressed="true" data-t="${k}"><svg width="20" height="20" viewBox="0 0 24 24" fill="${k === "airport" ? "currentColor" : "none"}" stroke="${k === "airport" ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${k === "airport" ? PLANE : GLYPH[k]}"/></svg>${n}</button>`).join("")}</div>
-        <p class="sub-label">Rail</p><div class="fm-sws">${sw("s", "lines", "Tube lines")}${sw("s", "labels", "Tube labels")}</div></div>`;
+        <p class="sub-label">Rail</p><div class="fm-sws">${sw("s", "lines", "Tube lines")}${sw("s", "labels", "Tube labels")}</div>
+        <p class="sub-label">Train labels</p><div class="seg seg3" role="radiogroup" aria-label="Train labels"><input type="radio" name="fm-tl" id="fm-tl-dest" value="dest"><label for="fm-tl-dest">Destination</label><input type="radio" name="fm-tl" id="fm-tl-vid" value="vid"><label for="fm-tl-vid">Vehicle ID</label><input type="radio" name="fm-tl" id="fm-tl-off" value="off"><label for="fm-tl-off">Off</label></div></div>`;
       document.body.appendChild(sheet);
       let isOpen = false;
       const paint = () => {
         sheet.querySelectorAll("[data-f]").forEach(b => b.setAttribute("aria-checked", String(on[b.dataset.f])));
         sheet.querySelectorAll("[data-s]").forEach(b => b.setAttribute("aria-checked", String(show[b.dataset.s])));
+        sheet.querySelectorAll('input[name="fm-tl"]').forEach(r => { r.checked = r.value === show.train; });
         sheet.querySelectorAll("[data-t]").forEach(b => { b.setAttribute("aria-pressed", String(show.types[b.dataset.t])); b.disabled = !show.icons; });
       };
       const open = () => { if (isOpen) return; isOpen = true; paint(); scrim.hidden = false; sheet.hidden = false; void sheet.offsetWidth; scrim.classList.add("in"); sheet.classList.add("in"); sheet.querySelector(".sheet-x").focus({ preventScroll: true }); };
@@ -413,6 +409,7 @@
       };
       scope.on(btn, "click", open); scope.on(sheet.querySelector("[data-close]"), "click", close); scope.on(scrim, "click", close);
       scope.on(document, "keydown", e => { if (isOpen && e.key === "Escape") close(); });
+      scope.on(sheet, "change", e => { const r = e.target; if (r && r.name === "fm-tl") { show.train = r.value; if (LIVE) LIVE.setLabels(show.train); try { const p = document.getElementById(r.value === "vid" ? "lbl-num" : "lbl-dest"); if (p && r.value !== "off") p.checked = true; } catch (x) {} dirty(); } });
       scope.on(sheet, "click", e => {
         const b = e.target.closest("button"); if (!b || b.disabled) return;
         if (b.dataset.f) { const k = b.dataset.f; on[k] = !on[k]; if (on[k] && !F && !fLoading) { fLoading = true; loadJS("geo/filters.js", "UC_FILTERS", d => { F = prepFilters(d); dirty(); }, () => { fLoading = false; }); } }
@@ -593,10 +590,11 @@
       meta = m; have = m.scales.map((_, z) => new Set((m.tiles[z] || []).map(t => t[0] * 100000 + t[1])));
       resize(); dirty();
     }, () => { upEl.textContent = "The map tiles could not be loaded"; upEl.dataset.error = "1"; });
+    loadJS("geo/codes.js", "UC_CODES", () => {});
     loadJS("geo/landmarks.js", "UC_LANDMARKS", d => { LM = d; dirty(); });
     loadJS("geo/rail_graph.js", "UC_RAILGRAPH", d => {
       RG = prepRG(d);
-      if (window.UndercurrentFullMapLive) LIVE = window.UndercurrentFullMapLive.create({ scope, graph: d, apiUrl, colour: l => LINE_COL[l], onChange: livePanel });
+      if (window.UndercurrentFullMapLive) { LIVE = window.UndercurrentFullMapLive.create({ scope, graph: d, apiUrl, colour: l => LINE_COL[l], onChange: livePanel }); try { const c = document.querySelector('input[name="lbl"]:checked'); if (c && c.value === "num") show.train = "vid"; } catch (x) {} LIVE.setLabels(show.train); }
       dirty();
     });
     setupLayers();

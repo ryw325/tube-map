@@ -561,7 +561,7 @@ window.UNDERCURRENT_LINE = {
   {
    "id": "CWL",
    "naptan": "940GZZLUCWL",
-   "code": "CHG",
+   "code": "CGW",
    "name": "Chigwell",
    "x": 1790,
    "y": 70,

@@ -23,7 +23,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "HR5", "naptan": "910GHTRWTM5", "code": "HT5", "name": "Heathrow Terminal 5", "x": 480, "y": 440, "pref": "left", "lines": ["Heathrow", "Terminal 5"]},
   {"id": "HR4", "naptan": "910GHTRWTM4", "code": "HT4", "name": "Heathrow Terminal 4", "x": 600, "y": 440, "pref": "right", "lines": ["Heathrow", "Terminal 4"]},
   {"id": "SHL", "naptan": "910GSTHALL", "code": "SHL", "name": "Southall", "x": 620, "y": 300, "pref": "bottom"},
-  {"id": "HNW", "naptan": "910GHANWELL", "code": "HNW", "name": "Hanwell", "x": 700, "y": 300, "pref": "top"},
+  {"id": "HNW", "naptan": "910GHANWELL", "code": "HAN", "name": "Hanwell", "x": 700, "y": 300, "pref": "top"},
   {"id": "WEL", "naptan": "910GWEALING", "code": "WEL", "name": "West Ealing", "x": 780, "y": 300, "pref": "bottom", "lines": ["West", "Ealing"]},
   {"id": "EAL", "naptan": "910GEALINGB", "code": "EBY", "name": "Ealing Broadway", "x": 860, "y": 300, "pref": "top", "lines": ["Ealing", "Broadway"]},
   {"id": "ACM", "naptan": "910GACTONML", "code": "ACM", "name": "Acton Main Line", "x": 940, "y": 300, "pref": "bottom", "lines": ["Acton", "Main Line"]},

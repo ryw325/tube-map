@@ -12,7 +12,7 @@ window.UNDERCURRENT_LINE = {
  "spacing": 1.3,
  "labelFromDir": true,
  "stations": [
-  {"id": "ERC", "naptan": "940GZZLUERC", "code": "ERD", "name": "Edgware Road", "x": 96.7, "y": 0, "pref": "top", "lines": ["Edgware", "Road"]},
+  {"id": "ERC", "naptan": "940GZZLUERC", "code": "EGR", "name": "Edgware Road", "x": 96.7, "y": 0, "pref": "top", "lines": ["Edgware", "Road"]},
   {"id": "BST", "naptan": "940GZZLUBST", "code": "BST", "name": "Baker Street", "x": 193.3, "y": 0, "pref": "top", "lines": ["Baker", "Street"]},
   {"id": "GPS", "naptan": "940GZZLUGPS", "code": "GPS", "name": "Great Portland Street", "x": 290.0, "y": 0, "pref": "top", "lines": ["Great Portland", "Street"]},
   {"id": "ESQ", "naptan": "940GZZLUESQ", "code": "ESQ", "name": "Euston Square", "x": 386.7, "y": 0, "pref": "top", "lines": ["Euston", "Square"]},
@@ -40,7 +40,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "BWT", "naptan": "940GZZLUBWT", "code": "BWT", "name": "Bayswater", "x": -80, "y": 120, "pref": "right"},
   {"id": "PAD", "naptan": "940GZZLUPAH", "code": "PAD", "name": "Paddington", "x": 0, "y": 0, "pref": "top", "alias": ["940GZZLUPAC"]},
   {"id": "RYO", "naptan": "940GZZLURYO", "code": "ROK", "name": "Royal Oak", "x": -80, "y": 0, "pref": "top", "lines": ["Royal", "Oak"]},
-  {"id": "WSP", "naptan": "940GZZLUWSP", "code": "WSP", "name": "Westbourne Park", "x": -160, "y": 0, "pref": "top", "lines": ["Westbourne", "Park"]},
+  {"id": "WSP", "naptan": "940GZZLUWSP", "code": "WBP", "name": "Westbourne Park", "x": -160, "y": 0, "pref": "top", "lines": ["Westbourne", "Park"]},
   {"id": "LAD", "naptan": "940GZZLULAD", "code": "LGV", "name": "Ladbroke Grove", "x": -220, "y": 60, "pref": "left"},
   {"id": "LRD", "naptan": "940GZZLULRD", "code": "LRD", "name": "Latimer Road", "x": -280, "y": 120, "pref": "left"},
   {"id": "WLA", "naptan": "940GZZLUWLA", "code": "WLA", "name": "Wood Lane", "x": -340, "y": 180, "pref": "right"},
@@ -48,7 +48,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "GHK", "naptan": "940GZZLUGHK", "code": "GHR", "name": "Goldhawk Road", "x": -340, "y": 340, "pref": "right"},
   {"id": "HSC", "naptan": "940GZZLUHSC", "code": "HMS", "name": "Hammersmith", "x": -340, "y": 420, "pref": "right"},
   {"id": "PAD2", "naptan": "940GZZLUPAC", "code": "PAD", "name": "Paddington", "x": 0, "y": 40, "pref": "top", "of": "PAD"},
-  {"id": "ERC2", "naptan": "940GZZLUERC", "code": "ERD", "name": "Edgware Road", "x": 96.7, "y": 40, "pref": "top", "of": "ERC"}
+  {"id": "ERC2", "naptan": "940GZZLUERC", "code": "EGR", "name": "Edgware Road", "x": 96.7, "y": 40, "pref": "top", "of": "ERC"}
  ],
  "routes": [
   ["HSC", "GHK", "SBM", "WLA", "LRD", "LAD", "WSP", "RYO", "PAD", "ERC", "BST", "GPS", "ESQ", "KSX", "FCN", "BBN", "MGT", "LVT", "ALD", "TWH", "MMT", "CST", "MSH", "BKF", "TMP", "EMB", "WSM", "SJP", "VIC", "SSQ", "SKS", "GTR", "HSK", "NHG", "BWT", "PAD2", "ERC2"]

@@ -19,7 +19,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "WIG", "naptan": "940GZZLUWIG", "code": "WLG", "name": "Willesden Green",   "x": 270, "y": 550, "pref": "right", "lines": ["Willesden", "Green"]},
   {"id": "KBN", "naptan": "940GZZLUKBN", "code": "KIL", "name": "Kilburn",           "x": 320, "y": 600, "pref": "right"},
   {"id": "WHP", "naptan": "940GZZLUWHP", "code": "WHD", "name": "West Hampstead",    "x": 370, "y": 650, "pref": "right", "lines": ["West", "Hampstead"]},
-  {"id": "FYR", "naptan": "940GZZLUFYR", "code": "FRD", "name": "Finchley Road",     "x": 420, "y": 700, "pref": "right", "lines": ["Finchley", "Road"]},
+  {"id": "FYR", "naptan": "940GZZLUFYR", "code": "FNR", "name": "Finchley Road",     "x": 420, "y": 700, "pref": "right", "lines": ["Finchley", "Road"]},
   {"id": "SWC", "naptan": "940GZZLUSWC", "code": "SWC", "name": "Swiss Cottage",     "x": 420, "y": 790, "pref": "right", "lines": ["Swiss", "Cottage"]},
   {"id": "SJW", "naptan": "940GZZLUSJW", "code": "SJW", "name": "St. John's Wood",   "x": 420, "y": 880, "pref": "right", "lines": ["St. John's", "Wood"]},
   {"id": "BST", "naptan": "940GZZLUBST", "code": "BST", "name": "Baker Street",      "x": 420, "y": 970, "pref": "right", "lines": ["Baker", "Street"]},

@@ -12,7 +12,7 @@ window.UNDERCURRENT_LINE = {
   {"id": "GOK", "naptan": "910GGOSPLOK", "code": "GOK", "name": "Gospel Oak", "x": 0, "y": 0, "pref": "bottom"},
   {"id": "UHW", "naptan": "910GUPRHLWY", "code": "UHW", "name": "Upper Holloway", "x": 60, "y": -60, "pref": "left"},
   {"id": "CRH", "naptan": "910GCROUCHH", "code": "CRH", "name": "Crouch Hill", "x": 120, "y": -120, "pref": "left"},
-  {"id": "HGL", "naptan": "910GHRGYGL", "code": "HGL", "name": "Harringay Green Lanes", "x": 200, "y": -120, "pref": "bottom", "lines": ["Harringay", "Green Lanes"]},
+  {"id": "HGL", "naptan": "910GHRGYGL", "code": "HGN", "name": "Harringay Green Lanes", "x": 200, "y": -120, "pref": "bottom", "lines": ["Harringay", "Green Lanes"]},
   {"id": "STT", "naptan": "910GSTOTNHM", "code": "STT", "name": "South Tottenham", "x": 280, "y": -120, "pref": "top", "lines": ["South", "Tottenham"]},
   {"id": "BLR", "naptan": "910GBLCHSRD", "code": "BLR", "name": "Blackhorse Road", "x": 360, "y": -120, "pref": "bottom", "lines": ["Blackhorse", "Road"]},
   {"id": "WQR", "naptan": "910GWLTHQRD", "code": "WQR", "name": "Walthamstow Queen's Road", "x": 420, "y": -60, "pref": "right", "lines": ["Walthamstow", "Queen's Road"]},

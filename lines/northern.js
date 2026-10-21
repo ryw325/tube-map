@@ -74,7 +74,7 @@ window.UNDERCURRENT_LINE = {
   {
    "id": "BTX",
    "naptan": "940GZZLUBTX",
-   "code": "BRX",
+   "code": "BCR",
    "name": "Brent Cross",
    "x": -400,
    "y": -320,
@@ -148,7 +148,7 @@ window.UNDERCURRENT_LINE = {
   {
    "id": "TAW",
    "naptan": "940GZZLUTAW",
-   "code": "TOT",
+   "code": "TTW",
    "name": "Totteridge & Whetstone",
    "x": 720,
    "y": -320,
