@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.71: Full Map styles. A Map style choice in the Layers pop-up (Geographic, the default, or Fantasy Parchment), remembered per device; each style has base tiles and a separate road tile layer, and "Cut roads at lines" (off by default) stops the roads short of every drawn line.
    v3.70: One master station code list (tools/station_codes.json, tools/station_codes.py): every station has one code, unique across the network, used by the line maps, station pages and Full Map. Paddington PAD, Edgware Road EGR, Finchley Road FNR, Rayners Lane RAY, Hillingdon HIL; 12 clashing stations got new codes; DLR and Tram stops now have codes.
    v3.69: Full Map: train labels sit inside the train icons and use the line maps' own station shorthand (geo/codes.js, made by tools/geo/make_codes.js from the line files and hubs); vehicle IDs are the last 3 digits as on the station pages.
    v3.68: Full Map: trains have a rounded point at the front; train labels (destination, vehicle ID or off) in the Layers pop-up; Uber Boat routes keep to the middle of the river and only come to the bank at piers; no white square on boat icons.
@@ -95,7 +96,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.70";
+  const VERSION = "3.71";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

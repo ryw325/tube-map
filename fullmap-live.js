@@ -214,7 +214,14 @@
         else if (!t.dead && t.knots.length && now - t.knots[t.knots.length - 1][0] > 90000) t.dead = now;     // its last stop was long ago: the trip is over
       }
     }
-    function draw(c, toX, toY, view, pxPerM, now, bg, outline, font) {
+    let glowSprite = null;                                             // v3.71 (Parchment): a soft lantern glow under each train, drawn from one cached sprite
+    function glowFor(col, R) {
+      if (glowSprite && glowSprite.col === col && glowSprite.R === R) return glowSprite.cv;
+      const cv = document.createElement("canvas"); cv.width = cv.height = Math.ceil(R * 2); const g = cv.getContext("2d"), gr = g.createRadialGradient(R, R, 0, R, R, R);
+      gr.addColorStop(0, col); gr.addColorStop(1, col.replace(/[\d.]+\)$/, "0)")); g.fillStyle = gr; g.fillRect(0, 0, cv.width, cv.height);
+      glowSprite = { col, R, cv }; return cv;
+    }
+    function draw(c, toX, toY, view, pxPerM, now, bg, outline, font, glow) {
       advance(now); S.px = pxPerM;
       // wider than the track on purpose: even zoomed out a train is an obvious bulge, and on shared track it reaches over its neighbours' stripes
       const W = Math.max(10, lineWidthPx(pxPerM) * 2.6 + 3), L = W * 2.1; let n = 0;
@@ -237,6 +244,7 @@
       const share = vis.length > 8 ? overl / vis.length : 0;
       S.blurShare = share; S.blur = S.blur ? share > BLUR_SHOW : share > BLUR_HIDE;
       if (S.blur) return 0;
+      if (glow) { const R = Math.round(W * 1.5), sp = glowFor(glow, R); for (const { t, x, y } of vis) { c.globalAlpha = t.alpha; c.drawImage(sp, x - R, y - R); } c.globalAlpha = 1; }
       for (const { t, x, y, ang } of vis) {
         n++; const boat = /^rb|ferry/.test(t.line);
         c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(-ang);

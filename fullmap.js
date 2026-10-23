@@ -2,12 +2,20 @@
    Loaded before engine.js; the engine calls UndercurrentFullMap.mount(LINE, scope, ctx) when the page data has kind "fullmap" (index.html?map=full).
    The map is static for now: the live layer (stage 5) and the filters (stage 4) come later. Everything this file starts goes through `scope`, so unmount undoes it all.
    Projection: British National Grid (EPSG:27700), metres. The view is a centre (x, y in metres) and a scale (CSS pixels per metre).
-   Tiles: 512 px WebP, four zoom levels (geo/tiles/meta.json), light and dark, no stations or labels in them; stations and names are drawn here on top. */
+   Tiles: 512 px WebP, four zoom levels (geo/tiles/meta.json), light and dark, no stations or labels in them; stations and names are drawn here on top.
+   v3.71: map styles (Geographic, Fantasy Parchment; more can be added to STYLES) and a separate road tile layer per style, so "Cut roads at lines" can
+   erase the roads along every drawn line. Tile sets: geo/tiles/{set}/{base|roads}/{z}/{i}/{j}.webp (set = light, dark or parchment). */
 (function () {
   "use strict";
-  const TILE_URL = (theme, z, i, j) => `geo/tiles/${theme}/${z}/${i}/${j}.webp`;
+  const TILE_URL = (set, layer, z, i, j) => `geo/tiles/${set}/${layer}/${z}/${i}/${j}.webp`;
+  // map styles: the tile set for light and dark pages (Parchment has one look), listed in the Layers pop-up in this order
+  const STYLES = [{ id: "geographic", name: "Geographic", light: "light", dark: "dark" }, { id: "parchment", name: "Fantasy Parchment", light: "parchment", dark: "parchment" }];
+  const LS_STYLE = "uc-fm-style", LS_CUT = "uc-fm-roadcut";
+  const CUT_GAP = 3;                     // "Cut roads at lines": roads stop this many screen px short of each side of a drawn line
+  const PAPER = "#EAD8AD", INK = "#3B2A1A";
+  const mixHex = (a, b, t) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), A = p(a), B = p(b); return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, "0")).join(""); };
   const MAX_SCALE = 1.1;                 // CSS px per metre at the closest zoom (the finest tiles are 1.1 px per metre)
-  const CACHE_MAX = 420, MAX_INFLIGHT = 8;
+  const CACHE_MAX = 640, MAX_INFLIGHT = 8;              // v3.71: two layers per view (base and roads)
   const BOUNDS = { x0: 503000, y0: 155000, x1: 562000, y1: 201000 };   // Greater London (boroughs), from geo/boroughs.json
   const PAD = 4000;                      // the centre may drift this far past the edge
   const LS_CTL = "uc-fm-controls";
@@ -43,7 +51,7 @@
     scope.later(() => {
       sw.style.background = ""; dts.forEach((d, i) => { d.textContent = dtOld[i]; });
       popTitle.textContent = popTitleOld; $("pop-note").hidden = true; $("pop-note").textContent = ""; factsEl.hidden = false;
-      svg.style.display = ""; root.classList.remove("fm-page"); statMode.textContent = "–";
+      svg.style.display = ""; root.classList.remove("fm-page"); statMode.textContent = "–"; if (window.__fm) delete window.__fm;
     });
 
     /* ---------- Scene: one canvas for tiles and overlay, controls, attribution ---------- */
@@ -74,7 +82,11 @@
     /* ---------- What is shown (v3.59 filters; v3.60: Layers pop-up with icon, line and label switches) ---------- */
     const on = { fare: false, cc: false, ulez: false, boroughs: false };      // zones and boundaries: off to start with
     const TYPES = [["bridge", "Bridges"], ["worship", "Places of worship"], ["palace", "Palaces and castles"], ["monument", "Monuments"], ["tower", "Towers"], ["museum", "Museums"], ["theatre", "Theatres and halls"], ["civic", "Civic buildings"], ["stadium", "Stadiums"], ["attraction", "Attractions"], ["airport", "Airports"]];
-    const show = { lines: true, labels: true, icons: true, train: "dest", types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
+    const show = { lines: true, labels: true, icons: true, cut: false, train: "dest", types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
+    let style = "geographic";
+    try { const v = localStorage.getItem(LS_STYLE); if (STYLES.some(t => t.id === v)) style = v; show.cut = localStorage.getItem(LS_CUT) === "1"; } catch (e) {}
+    const parch = () => style === "parchment";
+    let LB = null, lbLoading = false;          // park and water names (Parchment only), from geo/labels.js
     const typeOn = k => show.icons && show.types[k];
     let F = null, fLoading = false, LM = null, RG = null, edgeHits = [], LIVE = null, liveRunning = false, liveLast = 0;
 
@@ -82,7 +94,8 @@
     let W = 800, H = 500, dpr = 1;
     const view = { cx: (BOUNDS.x0 + BOUNDS.x1) / 2, cy: (BOUNDS.y0 + BOUNDS.y1) / 2, s: 0.02 };
     let user = false;                       // the view has been moved by the user (enables the fit button)
-    let meta = null, stations = [], have = null, theme = "light", cols = null;
+    let meta = null, stations = [], have = null, emptyRoads = {}, theme = "light", set = "light", cols = null;
+    const roadCanvas = document.createElement("canvas"), ctxR = roadCanvas.getContext("2d");   // the road layer, cut along the lines when "Cut roads at lines" is on
     let mode = "drag";
     try { const m = localStorage.getItem(LS_CTL); if (m === "drag" || m === "buttons") mode = m; else if (lowPower()) mode = "buttons"; } catch (e) { if (lowPower()) mode = "buttons"; }
     function lowPower() { return (navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2); }
@@ -99,12 +112,12 @@
     /* ---------- Tiles: load only what is on screen, keep a small cache ---------- */
     const cache = new Map();                // key -> { img, state: "loading" | "ok" | "missing", used }
     let inflight = 0, frameNo = 0, wanted = [];
-    const keyOf = (z, i, j) => `${theme}/${z}/${i}/${j}`;
-    function exists(z, i, j) { return !have || have[z].has(i * 100000 + j); }
-    function request(z, i, j) {
-      const k = keyOf(z, i, j); let e = cache.get(k);
+    const keyOf = (layer, z, i, j) => `${set}/${layer}/${z}/${i}/${j}`;
+    function exists(layer, z, i, j) { const k = i * 100000 + j; return (!have || have[z].has(k)) && !(layer === "roads" && emptyRoads[set] && emptyRoads[set][z].has(k)); }
+    function request(layer, z, i, j) {
+      const k = keyOf(layer, z, i, j); let e = cache.get(k);
       if (e) { e.used = frameNo; return e; }
-      e = { img: null, state: "queued", used: frameNo, z, i, j }; cache.set(k, e); return e;
+      e = { img: null, state: "queued", used: frameNo, set, layer, z, i, j }; cache.set(k, e); return e;
     }
     function pump() {
       while (inflight < MAX_INFLIGHT && wanted.length) {
@@ -114,7 +127,7 @@
         const img = new Image(); e.img = img; img.decoding = "async";
         img.onload = () => { inflight--; e.state = "ok"; dirty(); pump(); };
         img.onerror = () => { inflight--; e.state = "missing"; pump(); };
-        img.src = TILE_URL(theme, e.z, e.i, e.j);
+        img.src = TILE_URL(e.set, e.layer, e.z, e.i, e.j);
       }
     }
     function evict() {
@@ -143,17 +156,17 @@
     const onScreen = f => { const a = toScreenX(f.box[0]), b = toScreenY(f.box[3]), e = toScreenX(f.box[2]), d = toScreenY(f.box[1]); return !(e < -10 || a > W + 10 || d < -10 || b > H + 10); };
     function drawFilters() {
       if (!F) return;
-      const c = ctx2, dark = theme === "dark", labels = [];
+      const c = ctx2, pa = parch(), dark = theme === "dark" && !pa, labels = [];
       c.lineJoin = "round";
-      if (on.fare) F.fare.forEach((f, i) => {            // rings: white, grey, white, grey ...
+      if (on.fare) F.fare.forEach((f, i) => {            // rings: white, grey, white, grey ... (Parchment: cream and a brown wash)
         if (!onScreen(f)) return;
-        tracePolys(c, f.g); c.fillStyle = i % 2 === 0 ? (dark ? "rgba(255,255,255,.11)" : "rgba(255,255,255,.75)") : (dark ? "rgba(0,0,0,.26)" : "rgba(95,108,120,.17)"); c.fill("evenodd");
-        c.strokeStyle = dark ? "rgba(185,199,210,.5)" : "rgba(78,101,118,.45)"; c.lineWidth = 1.1; c.stroke();
-        labels.push(["Zone " + f.n + (f.n === "7" ? " +" : ""), f.an.top, dark ? "#B9C7D2" : "#4E6576"]);
+        tracePolys(c, f.g); c.fillStyle = pa ? (i % 2 === 0 ? "rgba(255,248,225,.4)" : "rgba(120,90,50,.13)") : i % 2 === 0 ? (dark ? "rgba(255,255,255,.11)" : "rgba(255,255,255,.75)") : (dark ? "rgba(0,0,0,.26)" : "rgba(95,108,120,.17)"); c.fill("evenodd");
+        c.strokeStyle = pa ? "rgba(59,42,26,.45)" : dark ? "rgba(185,199,210,.5)" : "rgba(78,101,118,.45)"; c.lineWidth = 1.1; c.stroke();
+        labels.push(["Zone " + f.n + (f.n === "7" ? " +" : ""), f.an.top, pa ? "#5B4630" : dark ? "#B9C7D2" : "#4E6576"]);
       });
       if (on.boroughs) {                                    // a light tint per borough, four colours so that neighbours differ
-        const T4 = ["244,160,160", "150,196,240", "160,214,150", "246,214,120"];
-        for (const f of F.boroughs) if (onScreen(f)) { tracePolys(c, f.g); c.fillStyle = `rgba(${T4[f.ci % 4]},${dark ? 0.2 : 0.32})`; c.fill("evenodd"); }
+        const T4 = pa ? ["196,120,90", "100,150,140", "150,170,90", "210,165,85"] : ["244,160,160", "150,196,240", "160,214,150", "246,214,120"];
+        for (const f of F.boroughs) if (onScreen(f)) { tracePolys(c, f.g); c.fillStyle = `rgba(${T4[f.ci % 4]},${pa ? 0.24 : dark ? 0.2 : 0.32})`; c.fill("evenodd"); }
       }
       const zone = (k, col, name, dash) => {
         if (!on[k]) return; const f = F[k][0]; if (!onScreen(f)) return;
@@ -161,16 +174,16 @@
         c.strokeStyle = col; c.lineWidth = 1.8; c.setLineDash(dash); c.stroke(); c.setLineDash([]);
         labels.push([name, k === "cc" ? f.an.top : f.an.top, col]);
       };
-      zone("ulez", dark ? "#3DBB7A" : "#1E9E5A", "ULEZ zone", [7, 5]);
-      zone("cc", dark ? "#E0473B" : "#D52B1E", "Congestion Charge", []);
+      zone("ulez", pa ? "#4E6B2C" : dark ? "#3DBB7A" : "#1E9E5A", "ULEZ zone", [7, 5]);
+      zone("cc", pa ? "#9B2D20" : dark ? "#E0473B" : "#D52B1E", "Congestion Charge", []);
       if (on.boroughs) {
-        c.strokeStyle = dark ? "rgba(230,234,237,.4)" : "rgba(35,39,43,.38)"; c.lineWidth = 1; c.setLineDash([2, 3]);
+        c.strokeStyle = pa ? "rgba(59,42,26,.5)" : dark ? "rgba(230,234,237,.4)" : "rgba(35,39,43,.38)"; c.lineWidth = 1; c.setLineDash([2, 3]);
         for (const f of F.boroughs) if (onScreen(f)) { tracePolys(c, f.g); c.stroke(); }
         c.setLineDash([]);
-        if (view.s < 0.3) { c.font = `600 ${view.s < 0.05 ? 9 : 11}px ${cols.sans}`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = dark ? "rgba(230,234,237,.62)" : "rgba(35,39,43,.6)";
-          for (const f of F.boroughs) if (onScreen(f)) { const x = toScreenX(f.an.mid[0]), y = toScreenY(f.an.mid[1]); if (x > 20 && x < W - 20 && y > 10 && y < H - 10) c.fillText(f.n.toUpperCase(), x, y); } c.textAlign = "left"; }
+        if (view.s < 0.3) { c.font = `${cols.wt} ${(view.s < 0.05 ? 9 : 11) + cols.fs}px ${cols.sans}`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = pa ? "rgba(59,42,26,.72)" : dark ? "rgba(230,234,237,.62)" : "rgba(35,39,43,.6)";
+          for (const f of F.boroughs) if (onScreen(f)) { const x = toScreenX(f.an.mid[0]), y = toScreenY(f.an.mid[1]); if (x > 20 && x < W - 20 && y > 10 && y < H - 10) c.fillText(pa ? f.n : f.n.toUpperCase(), x, y); } c.textAlign = "left"; }
       }
-      c.font = `600 12px ${cols.sans}`; c.textAlign = "center"; c.textBaseline = "middle";
+      c.font = `${cols.wt} ${12 + cols.fs}px ${cols.sans}`; c.textAlign = "center"; c.textBaseline = "middle";
       for (const [t, p, col] of labels) {
         const x = toScreenX(p[0]), y = toScreenY(p[1]) + 12; if (x < 0 || x > W || y < 0 || y > H) continue;
         c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.85; c.strokeText(t, x, y); c.globalAlpha = 1; c.fillStyle = col; c.fillText(t, x, y);
@@ -186,10 +199,11 @@
     };
     const PLANE = "M12 2.5c1 0 1.6 1 1.6 2.2v4.2l7.4 4.3v2.3l-7.4-2.3v4.2l2 1.9v1.7L12 20l-3.6 1v-1.7l2-1.9v-4.2L3 14.5v-2.3l7.4-4.3V4.7C10.4 3.5 11 2.5 12 2.5z";
     const glyphs = {}; for (const k in GLYPH) glyphs[k] = new Path2D(GLYPH[k]); const planePath = new Path2D(PLANE);
-    function badge(x, y, r, kind) {
-      const c = ctx2; c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fillStyle = cols.ink; c.fill(); c.lineWidth = 1.6; c.strokeStyle = cols.bg; c.stroke();
+    function badge(x, y, r, kind) {             // Geographic: a dark disc with a light glyph; Parchment: a cream disc with the glyph in ink
+      const c = ctx2, pa = parch(), disc = pa ? cols.fill : cols.ink, mark = pa ? cols.ink : cols.bg;
+      c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fillStyle = disc; c.fill(); c.lineWidth = pa ? 1.4 : 1.6; c.strokeStyle = pa ? cols.ink : cols.bg; c.stroke();
       c.save(); c.translate(x, y); const k = r * 1.5 / 24; c.scale(k, k); c.translate(-12, -12);
-      if (kind === "plane") { c.fillStyle = cols.bg; c.fill(planePath); } else { c.strokeStyle = cols.bg; c.lineWidth = 1.9; c.lineCap = "round"; c.lineJoin = "round"; c.stroke(glyphs[kind] || glyphs.attraction); }
+      if (kind === "plane") { c.fillStyle = mark; c.fill(planePath); } else { c.strokeStyle = mark; c.lineWidth = 1.9; c.lineCap = "round"; c.lineJoin = "round"; c.stroke(glyphs[kind] || glyphs.attraction); }
       c.restore();
     }
     function labelBox(c, text, x, y, placed, font) {   // returns false when it would sit on something already placed
@@ -201,7 +215,7 @@
     function layoutLandmarks(placed) {
       const items = [];
       if (!LM) return items;
-      const c = ctx2, s = view.s, r = s < 0.1 ? 9 : 11.5, font = `600 12px ${cols.sans}`;
+      const c = ctx2, s = view.s, r = s < 0.1 ? 9 : 11.5, font = `${cols.wt} ${12 + cols.fs}px ${cols.sans}`;
       if (s < 0.028) return items;
       const vis = LM.landmarks.filter(l => typeOn(l.c) && !(l.t === 2 && s < 0.1)).map(l => ({ l, x: toScreenX(l.x), y: toScreenY(l.y) })).filter(o => o.x > -20 && o.y > -20 && o.x < W + 20 && o.y < H + 20);
       vis.sort((p, q) => p.l.t - q.l.t);
@@ -227,11 +241,11 @@
         const x = toScreenX(a.x), y = toScreenY(a.y), near = LM.airports.includes(a);
         if (x > 18 && x < W - 18 && y > 18 && y < H - 18) {
           badge(x, y, 12.5, "plane");
-          const font = `700 12px ${cols.sans}`; c.font = font; c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(a.n, x + 18, y); c.globalAlpha = 1; c.fillStyle = cols.ink; c.fillText(a.n, x + 18, y);
+          const font = `${parch() ? 400 : 700} ${12 + cols.fs}px ${cols.sans}`; c.font = font; c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(a.n, x + 18, y); c.globalAlpha = 1; c.fillStyle = cols.ink; c.fillText(a.n, x + 18, y);
           continue;
         }
         const km = Math.hypot(a.x - view.cx, a.y - view.cy) / 1000, text = `${a.n} · ${Math.round(km)} km`;
-        c.font = `600 12px ${cols.sans}`; const tw = c.measureText(text).width, pw = tw + 38, ph = 26;
+        c.font = `${cols.wt} ${12 + cols.fs}px ${cols.sans}`; const tw = c.measureText(text).width, pw = tw + 38, ph = 26;
         const dx = x - W / 2, dy = y - H / 2, ex = W / 2 - pw / 2 - 10, ey = H / 2 - ph / 2 - 10, k = Math.min(dx ? ex / Math.abs(dx) : 1e9, dy ? ey / Math.abs(dy) : 1e9);
         let px = W / 2 + dx * k, py = H / 2 + dy * k;
         py = Math.max(58, Math.min(H - 36, py)); if (py < 80) px = Math.max(px, 190 + pw / 2);   // keep clear of the Drag / Buttons switch and the attribution line
@@ -248,9 +262,34 @@
       for (let z = 0; z < meta.scales.length; z++) if (meta.scales[z] >= need) return z;
       return meta.scales.length - 1;
     }
-    function readColours() {
+    function readColours() {               // the drawing colours and type for the current style (Geographic follows the page's light or dark theme)
+      if (parch()) { cols = { bg: PAPER, ink: INK, muted: "#6B5A44", fill: "#F1E4C1", sans: '"IM Fell English SC", Georgia, serif', italic: '"IM Fell English", Georgia, serif', wt: 400, fs: 1.5, halo: "rgba(234,216,173,.85)" }; return; }
       const cs = getComputedStyle(root), v = n => cs.getPropertyValue(n).trim();
-      cols = { bg: v("--bg") || "#F1F2EF", ink: v("--ink") || "#23272B", muted: v("--muted") || "#697177", fill: v("--station-fill") || "#fff", sans: v("--sans") || "Outfit, sans-serif" };
+      cols = { bg: v("--bg") || "#F1F2EF", ink: v("--ink") || "#23272B", muted: v("--muted") || "#697177", fill: v("--station-fill") || "#fff", sans: v("--sans") || "Outfit, sans-serif", wt: 600, fs: 0 };
+    }
+    const lineColour = lid => parch() ? mixHex(LINE_COL[lid] || "#888888", PAPER, 0.15) : LINE_COL[lid];
+    // park, lake and river names (Parchment): italic, placed after the stations so they never push a station name off
+    function drawAreaLabels(placed) {
+      if (!LB || !parch() || !show.labels) return;
+      const c = ctx2, s = view.s; c.textBaseline = "middle"; c.textAlign = "center"; c.lineJoin = "round";
+      let n = 0;
+      for (const l of LB.labels) {
+        if (n > 60) break;
+        const river = l.k === "river";
+        if (river ? s < 0.035 : l.a * s * s < 2600 || l.a * s * s > W * H * 0.8) continue;
+        const x = toScreenX(l.x), y = toScreenY(l.y); if (x < 30 || y < 14 || x > W - 30 || y > H - 14) continue;
+        const fsz = river ? Math.min(20, 13 + s * 14) : Math.min(16, 11.5 + Math.log10(l.a * s * s / 2600 + 1) * 3.2);
+        c.font = `italic ${fsz.toFixed(1)}px ${cols.italic}`; const w = c.measureText(l.n).width;
+        let ang = river ? -l.r * Math.PI / 180 : 0; if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+        const bw = Math.abs(Math.cos(ang)) * w + Math.abs(Math.sin(ang)) * fsz, bh = Math.abs(Math.sin(ang)) * w + Math.abs(Math.cos(ang)) * fsz, bx = x - bw / 2, by = y - bh / 2;
+        if (bx < 6 || by < 6 || bx + bw > W - 6 || by + bh > H - 6) continue;          // whole name on the map
+        if (placed.some(q => bx < q[0] + q[2] + 2 && bx + bw + 2 > q[0] && by < q[1] + 14 && by + bh > q[1])) continue;
+        placed.push([bx, by, bw]); n++;
+        c.save(); c.translate(x, y); c.rotate(ang);
+        c.lineWidth = 3.5; c.strokeStyle = l.k === "park" ? "rgba(200,215,160,.8)" : "rgba(190,222,215,.75)"; c.strokeText(l.n, 0, 0);
+        c.fillStyle = l.k === "park" ? "#2F3C18" : "#24433F"; c.fillText(l.n, 0, 0); c.restore();
+      }
+      c.textAlign = "left";
     }
     function drawStations(dprv, placed) {
       const s = view.s, lvl = s < 0.05 ? 0 : s < 0.5 ? 1 : 2;
@@ -268,13 +307,13 @@
         c.beginPath();
         if (pier) { c.moveTo(x, y - r - 1); c.lineTo(x + r + 1, y); c.lineTo(x, y + r + 1); c.lineTo(x - r - 1, y); c.closePath(); }
         else c.arc(x, y, r, 0, 6.2832);
-        c.fillStyle = cols.fill; c.fill(); c.lineWidth = live ? 1.6 : 1.1; c.strokeStyle = live ? cols.ink : cols.muted; c.stroke();
+        c.fillStyle = cols.fill; c.fill(); c.lineWidth = live ? (parch() ? 1.4 : 1.6) : 1.1; c.strokeStyle = live ? cols.ink : cols.muted; c.stroke();
         if (lvl > 0 && (live || lvl === 2)) labels.push([st, x, y, r, hub ? 0 : live ? 1 : 2]);
       }
       statStations.textContent = shown;
       if (lvl === 0 || !show.labels) return;
       labels.sort((a, b) => a[4] - b[4]);
-      c.font = `${lvl === 2 ? 13 : 11}px ${cols.sans}`; c.textBaseline = "middle"; c.textAlign = "left"; c.lineJoin = "round";
+      c.font = `${(lvl === 2 ? 13 : 11) + cols.fs}px ${cols.sans}`; c.textBaseline = "middle"; c.textAlign = "left"; c.lineJoin = "round";
       for (const [st, x, y, r] of labels) {
         const w = c.measureText(st.name).width, bx = x + r + 4, by = y - 7;
         if (bx > W || bx + w < 0) continue;
@@ -323,27 +362,50 @@
       for (let i = 1; i < Q.length - 1; i++) c.quadraticCurveTo(Q[i][0], Q[i][1], (Q[i][0] + Q[i + 1][0]) / 2, (Q[i][1] + Q[i + 1][1]) / 2);
       c.lineTo(Q[Q.length - 1][0], Q[Q.length - 1][1]);
     }
+    const lineW = () => Math.max(2, Math.min(6.5, 24 * view.s));
+    const casingW = lw => lw + Math.max(1.8, lw * 0.6);        // Parchment: the brown ink casing round each line
+    function traceLine(c, L, stripe, bx) {        // one line's track, smoothed, moved onto its stripe lane on shared track
+      const [x0, y0, x1, y1] = bx;
+      for (const sg of L.segments) {
+        const b = sg._b; if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue;
+        const P = sg.path.map(p => [toScreenX(p[0]), toScreenY(p[1])]);
+        smoothTo(c, stripe && sg._u.some(u => u) ? offsetPts(P, sg._u.map(u => u * stripe)) : P);
+      }
+      for (const pts of L._joins) for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {   // close the little gaps where neighbouring pairs met the track at slightly different points
+        const d = Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]);
+        if (d > 0.3 && d < 150 && pts[i][0] > x0 && pts[i][0] < x1 && pts[i][1] > y0 && pts[i][1] < y1) { c.moveTo(toScreenX(pts[i][0]), toScreenY(pts[i][1])); c.lineTo(toScreenX(pts[j][0]), toScreenY(pts[j][1])); }
+      }
+    }
+    function lineBox() { const s = view.s, pad = 60 / s; return [view.cx - W / 2 / s - pad, view.cy - H / 2 / s - pad, view.cx + W / 2 / s + pad, view.cy + H / 2 / s + pad]; }
     function drawLines() {
       if (!RG || !show.lines) return;
-      const c = ctx2, s = view.s, lw = Math.max(2, Math.min(6.5, 24 * s)), stripe = s < 0.05 ? 0 : lw * 0.92, pad = 60 / s;
-      const x0 = view.cx - W / 2 / s - pad, x1 = view.cx + W / 2 / s + pad, y0 = view.cy - H / 2 / s - pad, y1 = view.cy + H / 2 / s + pad;
+      const c = ctx2, s = view.s, lw = lineW(), stripe = s < 0.05 ? 0 : lw * 0.92, bx = lineBox(), pa = parch();
       c.lineCap = "round"; c.lineJoin = "round";
+      if (pa) {                                    // all the casings first, so side-by-side stripes keep their colours
+        c.strokeStyle = INK; c.lineWidth = casingW(lw); c.beginPath();
+        for (const lid of RG.ids) if (!/^rb/.test(lid)) traceLine(c, RG.d.lines[lid], stripe, bx);
+        c.stroke();
+      }
       for (const lid of RG.ids) {
         const L = RG.d.lines[lid];
-        for (const pass of (theme === "dark" && lid === "northern") ? [0, 1] : [1]) {
-          const boat = /^rb/.test(lid); c.strokeStyle = pass === 0 ? "#69737C" : LINE_COL[lid]; c.lineWidth = pass === 0 ? lw + 2 : boat ? Math.max(1.4, lw * 0.5) : lw; c.setLineDash(boat ? [6, 5] : []); c.beginPath();
-          for (const sg of L.segments) {
-            const b = sg._b; if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue;
-            const P = sg.path.map(p => [toScreenX(p[0]), toScreenY(p[1])]);
-            smoothTo(c, stripe && sg._u.some(u => u) ? offsetPts(P, sg._u.map(u => u * stripe)) : P);
-          }
-          for (const pts of L._joins) for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {   // close the little gaps where neighbouring pairs met the track at slightly different points
-            const d = Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]);
-            if (d > 0.3 && d < 150 && pts[i][0] > x0 && pts[i][0] < x1 && pts[i][1] > y0 && pts[i][1] < y1) { c.moveTo(toScreenX(pts[i][0]), toScreenY(pts[i][1])); c.lineTo(toScreenX(pts[j][0]), toScreenY(pts[j][1])); }
-          }
+        for (const pass of (theme === "dark" && !pa && lid === "northern") ? [0, 1] : [1]) {
+          const boat = /^rb/.test(lid); c.strokeStyle = pass === 0 ? "#69737C" : lineColour(lid); c.lineWidth = pass === 0 ? lw + 2 : boat ? Math.max(1.4, lw * 0.5) : lw; c.setLineDash(boat ? [6, 5] : []); c.beginPath();
+          traceLine(c, L, stripe, bx);
           c.stroke(); c.setLineDash([]);
         }
       }
+    }
+    // "Cut roads at lines": the road tiles are drawn onto their own canvas and erased along every drawn line (not the boats, which pass under the bridges),
+    // so the lines sit clear of the roads like an overpass. Only redrawn with the map (pan, zoom, style, switches), never per train frame.
+    function cutRoads() {
+      if (!RG || !show.lines) return;
+      const c = ctxR, lw = lineW(), stripe = view.s < 0.05 ? 0 : lw * 0.92, bx = lineBox(), pa = parch();
+      c.save(); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalCompositeOperation = "destination-out"; c.lineCap = "round"; c.lineJoin = "round"; c.strokeStyle = "#000";
+      c.lineWidth = (pa ? casingW(lw) : lw) + 2 * CUT_GAP; c.beginPath();
+      for (const lid of RG.ids) if (!/^rb/.test(lid) && !(theme === "dark" && !pa && lid === "northern")) traceLine(c, RG.d.lines[lid], stripe, bx);
+      c.stroke();
+      if (theme === "dark" && !pa && RG.d.lines.northern) { c.lineWidth = lw + 2 + 2 * CUT_GAP; c.beginPath(); traceLine(c, RG.d.lines.northern, stripe, bx); c.stroke(); }
+      c.restore();
     }
     /* ---------- Live trains (v3.65): fullmap-live.js does the feed and the motion; this draws them on their own canvas so the map is not redrawn every frame ---------- */
     function apiUrl(path) {
@@ -362,7 +424,7 @@
       if (now - liveLast >= 30) {
         liveLast = now;
         ctxL.setTransform(1, 0, 0, 1, 0, 0); ctxL.clearRect(0, 0, liveCanvas.width, liveCanvas.height); ctxL.setTransform(dpr, 0, 0, dpr, 0, 0);
-        LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", theme === "dark" ? "#E6EAED" : "#FFFFFF", cols ? cols.sans : "Outfit");
+        LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", parch() ? INK : theme === "dark" ? "#E6EAED" : "#FFFFFF", parch() ? "Outfit, sans-serif" : cols ? cols.sans : "Outfit", parch() ? "rgba(255,190,80,.5)" : null);
       }
       scope.frame(liveFrame);
     }
@@ -380,6 +442,19 @@
     scope.every(livePanel, 1000);
     if (ctx.debug) window.__fmLive = { get live() { return LIVE; } };
 
+    /* ---------- Map style (v3.71): swaps the tile set and the drawing colours in place, keeping the view ---------- */
+    function setStyle(id) {
+      if (!STYLES.some(t => t.id === id)) return;
+      style = id; try { localStorage.setItem(LS_STYLE, id); } catch (e) {}
+      cols = null; prepStyle(); dirty();
+    }
+    function prepStyle() {                     // Parchment needs its fonts and the park and water names
+      if (!parch()) return;
+      if (document.fonts && document.fonts.load) Promise.all([document.fonts.load('14px "IM Fell English SC"'), document.fonts.load('italic 14px "IM Fell English"')]).then(() => { if (!scope.dead) { cols = null; dirty(); } }, () => {});
+      if (!LB && !lbLoading) { lbLoading = true; loadJS("geo/labels.js", "UC_LABELS", d => { LB = d; dirty(); }, () => { lbLoading = false; }); }
+    }
+    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); } };
+
     /* ---------- Layers pop-up (left panel button) ---------- */
     function setupLayers() {
       const scrim = $("sheet-scrim"), btnBox = document.querySelector(".panel-btns");
@@ -389,10 +464,11 @@
       const sw = (attr, k, label, col) => `<button type="button" class="fm-sw" role="switch" aria-checked="false" data-${attr}="${k}">${col ? `<i style="--c:${col}"></i>` : "<i></i>"}<span><b>${label}</b></span><em aria-hidden="true"></em></button>`;
       const sheet = document.createElement("section"); sheet.className = "sheet fm-sheet"; sheet.hidden = true; sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-labelledby", "sheet-map-h");
       sheet.innerHTML = `<div class="sheet-head"><h2 id="sheet-map-h">Layers</h2><button type="button" class="sheet-x" data-close aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-        <div class="sheet-body"><p class="sub-label">Zones and boundaries</p><div class="fm-sws">${sw("f", "fare", "Fare zones", "#4E6576")}${sw("f", "cc", "Congestion Charge", "#D52B1E")}${sw("f", "ulez", "ULEZ zone", "#1E9E5A")}${sw("f", "boroughs", "Boroughs", "#97AEBC")}</div>
+        <div class="sheet-body"><p class="sub-label">Map style</p><div class="seg fm-style" role="radiogroup" aria-label="Map style" style="grid-template-columns: repeat(${STYLES.length}, 1fr)">${STYLES.map(t => `<input type="radio" name="fm-style" id="fm-style-${t.id}" value="${t.id}"><label for="fm-style-${t.id}">${t.name}</label>`).join("")}</div>
+        <p class="sub-label">Zones and boundaries</p><div class="fm-sws">${sw("f", "fare", "Fare zones", "#4E6576")}${sw("f", "cc", "Congestion Charge", "#D52B1E")}${sw("f", "ulez", "ULEZ zone", "#1E9E5A")}${sw("f", "boroughs", "Boroughs", "#97AEBC")}</div>
         <p class="sub-label">Icons</p><div class="fm-sws">${sw("s", "icons", "All icons")}</div>
         <div class="fm-chips">${TYPES.map(([k, n]) => `<button type="button" class="fm-chip" aria-pressed="true" data-t="${k}"><svg width="20" height="20" viewBox="0 0 24 24" fill="${k === "airport" ? "currentColor" : "none"}" stroke="${k === "airport" ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${k === "airport" ? PLANE : GLYPH[k]}"/></svg>${n}</button>`).join("")}</div>
-        <p class="sub-label">Rail</p><div class="fm-sws">${sw("s", "lines", "Tube lines")}${sw("s", "labels", "Tube labels")}</div>
+        <p class="sub-label">Rail</p><div class="fm-sws">${sw("s", "lines", "Tube lines")}${sw("s", "labels", "Tube labels")}${sw("s", "cut", "Cut roads at lines")}</div>
         <p class="sub-label">Train labels</p><div class="seg seg3" role="radiogroup" aria-label="Train labels"><input type="radio" name="fm-tl" id="fm-tl-dest" value="dest"><label for="fm-tl-dest">Destination</label><input type="radio" name="fm-tl" id="fm-tl-vid" value="vid"><label for="fm-tl-vid">Vehicle ID</label><input type="radio" name="fm-tl" id="fm-tl-off" value="off"><label for="fm-tl-off">Off</label></div></div>`;
       document.body.appendChild(sheet);
       let isOpen = false;
@@ -400,6 +476,7 @@
         sheet.querySelectorAll("[data-f]").forEach(b => b.setAttribute("aria-checked", String(on[b.dataset.f])));
         sheet.querySelectorAll("[data-s]").forEach(b => b.setAttribute("aria-checked", String(show[b.dataset.s])));
         sheet.querySelectorAll('input[name="fm-tl"]').forEach(r => { r.checked = r.value === show.train; });
+        sheet.querySelectorAll('input[name="fm-style"]').forEach(r => { r.checked = r.value === style; });
         sheet.querySelectorAll("[data-t]").forEach(b => { b.setAttribute("aria-pressed", String(show.types[b.dataset.t])); b.disabled = !show.icons; });
       };
       const open = () => { if (isOpen) return; isOpen = true; paint(); scrim.hidden = false; sheet.hidden = false; void sheet.offsetWidth; scrim.classList.add("in"); sheet.classList.add("in"); sheet.querySelector(".sheet-x").focus({ preventScroll: true }); };
@@ -409,11 +486,11 @@
       };
       scope.on(btn, "click", open); scope.on(sheet.querySelector("[data-close]"), "click", close); scope.on(scrim, "click", close);
       scope.on(document, "keydown", e => { if (isOpen && e.key === "Escape") close(); });
-      scope.on(sheet, "change", e => { const r = e.target; if (r && r.name === "fm-tl") { show.train = r.value; if (LIVE) LIVE.setLabels(show.train); try { const p = document.getElementById(r.value === "vid" ? "lbl-num" : "lbl-dest"); if (p && r.value !== "off") p.checked = true; } catch (x) {} dirty(); } });
+      scope.on(sheet, "change", e => { const r = e.target; if (r && r.name === "fm-style") { setStyle(r.value); return; } if (r && r.name === "fm-tl") { show.train = r.value; if (LIVE) LIVE.setLabels(show.train); try { const p = document.getElementById(r.value === "vid" ? "lbl-num" : "lbl-dest"); if (p && r.value !== "off") p.checked = true; } catch (x) {} dirty(); } });
       scope.on(sheet, "click", e => {
         const b = e.target.closest("button"); if (!b || b.disabled) return;
         if (b.dataset.f) { const k = b.dataset.f; on[k] = !on[k]; if (on[k] && !F && !fLoading) { fLoading = true; loadJS("geo/filters.js", "UC_FILTERS", d => { F = prepFilters(d); dirty(); }, () => { fLoading = false; }); } }
-        else if (b.dataset.s) show[b.dataset.s] = !show[b.dataset.s];
+        else if (b.dataset.s) { show[b.dataset.s] = !show[b.dataset.s]; if (b.dataset.s === "cut") { try { localStorage.setItem(LS_CUT, show.cut ? "1" : "0"); } catch (x) {} } }
         else if (b.dataset.t) show.types[b.dataset.t] = !show.types[b.dataset.t];
         else return;
         paint(); dirty();
@@ -441,39 +518,46 @@
     function draw() {
       if (!meta) return;
       frameNo++;
-      const t = isDark() ? "dark" : "light";
-      if (t !== theme || !cols) { theme = t; readColours(); }
+      const t = isDark() ? "dark" : "light", st = STYLES.find(q => q.id === style) || STYLES[0], ns = st[t];
+      if (t !== theme || ns !== set || !cols) { theme = t; set = ns; readColours(); box.classList.toggle("fm-parch", parch()); }
       const c = ctx2, z = levelFor(), M = meta.tile / meta.scales[z], ox = meta.origin[0], oy = meta.origin[1];
       c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = cols.bg; c.fillRect(0, 0, canvas.width, canvas.height);
       c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
       const x0 = view.cx - W / 2 / view.s, x1 = view.cx + W / 2 / view.s, y0 = view.cy - H / 2 / view.s, y1 = view.cy + H / 2 / view.s;
-      const levels = [];
+      // two layers per style: the base, then the roads on top (on their own canvas when they are cut at the lines)
+      const cut = show.cut && show.lines && !!RG;
       // finer tiles that are not here yet fall back to the coarser ones already loaded
       let missing = false;
       const want = [];
       const span = lv => { const m = meta.tile / meta.scales[lv]; return [Math.floor((x0 - ox) / m), Math.floor((x1 - ox) / m), Math.floor((oy - y1) / m), Math.floor((oy - y0) / m), m]; };
       { const [i0, i1, j0, j1] = span(z);
-        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { if (!exists(z, i, j)) continue; const e = request(z, i, j); if (e.state === "queued" || e.state === "loading") missing = true; if (e.state === "queued") want.push([e, Math.hypot((ox + (i + .5) * M) - view.cx, (oy - (j + .5) * M) - view.cy)]); } }
+        for (const layer of ["base", "roads"]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { if (!exists(layer, z, i, j)) continue; const e = request(layer, z, i, j); if (e.state === "queued" || e.state === "loading") missing = true; if (e.state === "queued") want.push([e, Math.hypot((ox + (i + .5) * M) - view.cx, (oy - (j + .5) * M) - view.cy) + (layer === "roads" ? 1 : 0)]); } }
       want.sort((a, b) => a[1] - b[1]); wanted = want.map(a => a[0]);
-      const drawLevel = lv => {
+      const drawLevel = (lv, layer, g) => {
         const [i0, i1, j0, j1, m] = span(lv);
         for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-          if (!exists(lv, i, j)) continue;
-          const e = cache.get(keyOf(lv, i, j)); if (!e || e.state !== "ok") continue; e.used = frameNo;
+          if (!exists(layer, lv, i, j)) continue;
+          const e = cache.get(keyOf(layer, lv, i, j)); if (!e || e.state !== "ok") continue; e.used = frameNo;
           const ax = Math.floor(toScreenX(ox + i * m) * dpr), ay = Math.floor(toScreenY(oy - j * m) * dpr);
           const bx = Math.ceil(toScreenX(ox + (i + 1) * m) * dpr), by = Math.ceil(toScreenY(oy - (j + 1) * m) * dpr);
-          c.drawImage(e.img, ax, ay, bx - ax, by - ay);
+          g.drawImage(e.img, ax, ay, bx - ax, by - ay);
         }
       };
-      if (missing) for (let lv = Math.max(0, z - 2); lv < z; lv++) { const [i0, i1, j0, j1] = span(lv); for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(lv, i, j)) request(lv, i, j); drawLevel(lv); }
-      drawLevel(z);
-      if (missing) for (let lv = Math.max(0, z - 2); lv < z; lv++) { const [i0, i1, j0, j1] = span(lv); const q = []; for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(lv, i, j)) { const e = cache.get(keyOf(lv, i, j)); if (e && e.state === "queued") q.push(e); } wanted = q.concat(wanted); }
+      const lvs = []; if (missing) for (let lv = Math.max(0, z - 2); lv < z; lv++) lvs.push(lv); lvs.push(z);
+      if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); for (const layer of ["base", "roads"]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j)) request(layer, lv, i, j); }
+      for (const lv of lvs) drawLevel(lv, "base", c);
+      let g = c;
+      if (cut) { if (roadCanvas.width !== canvas.width || roadCanvas.height !== canvas.height) { roadCanvas.width = canvas.width; roadCanvas.height = canvas.height; } g = ctxR; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, roadCanvas.width, roadCanvas.height); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"; }
+      for (const lv of lvs) drawLevel(lv, "roads", g);
+      if (cut) { cutRoads(); c.drawImage(roadCanvas, 0, 0); }
+      if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); const q = []; for (const layer of ["base", "roads"]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j)) { const e = cache.get(keyOf(layer, lv, i, j)); if (e && e.state === "queued") q.push(e); } wanted = q.concat(wanted); }
       pump(); evict();
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawFilters();
       drawLines();
       const placed = [], lmItems = layoutLandmarks(placed);
       if (stations.length) drawStations(dpr, placed);
+      drawAreaLabels(placed);
       drawLandmarks(lmItems);
       // panel read-outs
       const km = W / view.s / 1000;
@@ -571,8 +655,9 @@
     scope.on(window, "resize", resize);
     const ro = scope.observe(new ResizeObserver(resize)); ro.observe(wrapEl);
     // follow the page's light or dark theme
-    const mq = matchMedia("(prefers-color-scheme: dark)"); scope.on(mq, "change", dirty);
-    scope.observe(new MutationObserver(dirty)).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    const themeChange = () => { cols = null; dirty(); };          // v3.71: always re-read the drawing colours (a stale light --bg could stay on a dark page)
+    const mq = matchMedia("(prefers-color-scheme: dark)"); scope.on(mq, "change", themeChange);
+    scope.observe(new MutationObserver(themeChange)).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
     setMode(mode);
 
     // the TfL key form in Prefs works here as on the line pages
@@ -588,16 +673,17 @@
     /* ---------- Data ---------- */
     loadJS("geo/tiles/meta.js", "UC_TILE_META", m => {
       meta = m; have = m.scales.map((_, z) => new Set((m.tiles[z] || []).map(t => t[0] * 100000 + t[1])));
+      for (const k in (m.emptyRoads || {})) emptyRoads[k] = m.scales.map((_, z) => new Set(((m.emptyRoads[k] || {})[z] || []).map(t => t[0] * 100000 + t[1])));
       resize(); dirty();
     }, () => { upEl.textContent = "The map tiles could not be loaded"; upEl.dataset.error = "1"; });
     loadJS("geo/codes.js", "UC_CODES", () => {});
     loadJS("geo/landmarks.js", "UC_LANDMARKS", d => { LM = d; dirty(); });
     loadJS("geo/rail_graph.js", "UC_RAILGRAPH", d => {
       RG = prepRG(d);
-      if (window.UndercurrentFullMapLive) { LIVE = window.UndercurrentFullMapLive.create({ scope, graph: d, apiUrl, colour: l => LINE_COL[l], onChange: livePanel }); try { const c = document.querySelector('input[name="lbl"]:checked'); if (c && c.value === "num") show.train = "vid"; } catch (x) {} LIVE.setLabels(show.train); }
+      if (window.UndercurrentFullMapLive) { LIVE = window.UndercurrentFullMapLive.create({ scope, graph: d, apiUrl, colour: lineColour, onChange: livePanel }); try { const c = document.querySelector('input[name="lbl"]:checked'); if (c && c.value === "num") show.train = "vid"; } catch (x) {} LIVE.setLabels(show.train); }
       dirty();
     });
-    setupLayers();
+    setupLayers(); prepStyle();
     loadJS("geo/stations.js", "UC_STATIONS", d => {
       stations = d.stations.map(s => ({ name: s.name, x: s.x, y: s.y, lines: s.lines || [], modes: s.modes || [] })); dirty();
     });
