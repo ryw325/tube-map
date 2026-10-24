@@ -1,4 +1,8 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.75: Full screen: no margin or rounded outline round the map; it fills the page edge to edge.
+   v3.74: Full Map style 1930s Poster (Artistic): flat cream paper with a sunburst, flat teal-green parks, deep teal water with cream ripples on the Thames, roads in shades of the paper colour (no casings, main roads under 60% of the line width), cream-cased flat line colours, Josefin Sans capitals, a charcoal and red poster frame, a LONDON title plate and an UNDERCURRENT tag. Fonts: Josefin Sans 700 and Limelight.
+   v3.73: Full Map style categories. Geographical keeps the master map's detail; Artistic (Fantasy Parchment) drops small green spaces and thin water that leads nowhere by zoom, keeps an always-keep list of culturally important squares, keeps water connections (culverts as faint dotted lines) and every transport feature. Layers pop-up: Geographical | Artistic, styles underneath.
+   v3.72: Full screen button (the fourth button in the zoom stack, or the F key) on line maps, station pages and the Full Map: the map fills the screen with its own controls and a small clock; Esc, F or the button go back.
    v3.71: Full Map styles. A Map style choice in the Layers pop-up (Geographic, the default, or Fantasy Parchment), remembered per device; each style has base tiles and a separate road tile layer, and "Cut roads at lines" (off by default) stops the roads short of every drawn line.
    v3.70: One master station code list (tools/station_codes.json, tools/station_codes.py): every station has one code, unique across the network, used by the line maps, station pages and Full Map. Paddington PAD, Edgware Road EGR, Finchley Road FNR, Rayners Lane RAY, Hillingdon HIL; 12 clashing stations got new codes; DLR and Tram stops now have codes.
    v3.69: Full Map: train labels sit inside the train icons and use the line maps' own station shorthand (geo/codes.js, made by tools/geo/make_codes.js from the line files and hubs); vehicle IDs are the last 3 digits as on the station pages.
@@ -96,7 +100,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.71";
+  const VERSION = "3.75";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -172,6 +176,7 @@
     const p = Object.fromEntries(timeFmt.formatToParts(now).map(x => [x.type, x.value]));
     bigTime.innerHTML = `${p.hour}:${p.minute}<span class="secs">${p.second}</span>`;
     bigDate.textContent = dateFmt.format(now);
+    const mc = document.getElementById("max-clock"); if (mc && document.documentElement.classList.contains("uc-max")) mc.textContent = `${p.hour}:${p.minute}`;
     if (menuOpen) document.querySelectorAll(".menu-view:not([hidden]) .menu-clock").forEach(n => { n.innerHTML = `${p.hour}:${p.minute}<small>${p.second}</small>`; });
   }
   updateClock();
@@ -554,14 +559,44 @@
   (function zoomControls() {
     const box = document.createElement("div");
     box.className = "zoom-ctl";
-    box.innerHTML = '<button type="button" id="zoom-in" aria-label="Zoom in">+</button><button type="button" id="zoom-out" aria-label="Zoom out">−</button><button type="button" id="zoom-fit" aria-label="Fit the whole line" disabled><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>';
+    box.innerHTML = '<button type="button" id="zoom-in" aria-label="Zoom in">+</button><button type="button" id="zoom-out" aria-label="Zoom out">−</button><button type="button" id="zoom-fit" aria-label="Fit the whole line" disabled><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>' +
+      '<button type="button" id="zoom-max" aria-label="Full screen" aria-pressed="false" title="Full screen (F)"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path class="mx-on" d="M2 2l4 4M2 2v3M2 2h3M14 2l-4 4M14 2v3M14 2h-3M2 14l4-4M2 14v-3M2 14h3M14 14l-4-4M14 14v-3M14 14h-3"/><path class="mx-off" d="M6 6L2 2M6 6V3M6 6H3M10 6l4-4M10 6V3M10 6h3M6 10l-4 4M6 10v3M6 10H3M10 10l4 4M10 10v3M10 10h3"/></svg></button>';
     document.getElementById("map-wrap").appendChild(box);
+    // v3.72: full screen on every map mode. The whole page goes full screen (so brightness, warmth and tooltips still work) and html.uc-max lets the map
+    // fill the screen with only its own controls and a small clock. Where the browser has no full screen (iPhone Safari) the map still fills the window.
+    const maxBtn = document.getElementById("zoom-max"), de = document.documentElement;
+    const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+    let vbKeep = null;                       // the map's viewBox before full screen: a phone sizes the map from its shape, so it must come back as it was
+    const setMax = on => {
+      const svgMap = document.getElementById("map");
+      if (on && !de.classList.contains("uc-max")) vbKeep = svgMap.getAttribute("viewBox");
+      else if (!on && de.classList.contains("uc-max") && vbKeep) svgMap.setAttribute("viewBox", vbKeep);
+      de.classList.toggle("uc-max", on); maxBtn.setAttribute("aria-pressed", String(on)); maxBtn.setAttribute("aria-label", on ? "Exit full screen" : "Full screen"); maxBtn.title = on ? "Exit full screen (F or Esc)" : "Full screen (F)"; if (on) updateClock(); };
+    function toggleMax() {
+      const on = !de.classList.contains("uc-max");
+      if (on) {
+        setMax(true);
+        const req = de.requestFullscreen || de.webkitRequestFullscreen;
+        if (req) try { const r = req.call(de); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+      } else {
+        setMax(false);
+        if (fsEl()) { const ex = document.exitFullscreen || document.webkitExitFullscreen; try { const r = ex.call(document); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
+      }
+    }
+    maxBtn.addEventListener("click", toggleMax);
+    // leaving full screen with the browser's own Escape (or gesture) also puts the page back
+    const fsChange = () => { if (!fsEl() && de.classList.contains("uc-max") && de.dataset.ucFs === "1") setMax(false); de.dataset.ucFs = fsEl() ? "1" : ""; };
+    document.addEventListener("fullscreenchange", fsChange); document.addEventListener("webkitfullscreenchange", fsChange);
+    const maxClock = document.createElement("div"); maxClock.className = "max-clock"; maxClock.id = "max-clock"; maxClock.setAttribute("aria-hidden", "true");
+    document.getElementById("map-wrap").appendChild(maxClock);
     const act = fn => () => { if (cur && !txBusy) fn(cur.api); };
     document.getElementById("zoom-in").addEventListener("click", act(a => a.zoomCentre(1 / 1.4)));
     document.getElementById("zoom-out").addEventListener("click", act(a => a.zoomCentre(1.4)));
     document.getElementById("zoom-fit").addEventListener("click", act(a => a.resetView()));
     document.addEventListener("keydown", e => {
       if (e.target.closest && e.target.closest("input, select, textarea")) return;
+      if ((e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey) { toggleMax(); return; }
+      if (e.key === "Escape" && de.classList.contains("uc-max") && !fsEl() && !document.querySelector(".sheet:not([hidden])")) { toggleMax(); return; }
       if (!cur || txBusy) return;
       if (e.key === "+" || e.key === "=") cur.api.zoomCentre(1 / 1.4);
       else if (e.key === "-" || e.key === "_") cur.api.zoomCentre(1.4);

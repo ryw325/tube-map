@@ -692,7 +692,7 @@
       GK.forEach((k, i) => { if (!DEAD[i].W) dirs.push(ANG[i]); if (!DEAD[i].E) dirs.push(ANG[i] + Math.PI); });
       const norm = a => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
       const sr = svg.getBoundingClientRect(), kk = sr.height ? VH / sr.height : 1;
-      const avoid = [document.querySelector(".zoom-ctl"), layoutCtl, titleEl].filter(n => n && (n === titleEl || n.offsetParent)).map(n => n.getBoundingClientRect()).filter(r => r.width);
+      const avoid = [document.querySelector(".zoom-ctl"), document.querySelector(".max-clock"), layoutCtl, titleEl].filter(n => n && (n === titleEl || n.offsetParent)).map(n => n.getBoundingClientRect()).filter(r => r.width);
       endEls.forEach((pair, i) => pair.forEach((t, j) => {
         const sgn = j ? 1 : -1, th = norm(ANG[i] + (j ? 0 : Math.PI));
         let cw = 7, ccw = 7;                                    // gaps (radians) to the nearest other track end, clockwise and anticlockwise
