@@ -746,7 +746,7 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .fm.fm-parchment .fm-attr { z-index: 2; left: 16px; bottom: 13px; color: #5B4630; text-shadow: 0 0 4px #EAD8AD, 0 0 4px #EAD8AD; }
 .fm.fm-art .fm-tip { z-index: 6; }
 /* v3.74: 1930s Poster style: a 10 px charcoal border with a thin red inner rule, a title plate and a tag. All on screen only (not in the tiles), under the controls (z-index 5) and the attribution.
-   The sunburst is drawn on the map canvas under the tiles (fullmap.js), so it stays put while the map pans. */
+   v3.76: no sunburst; the paper is flat cream (the base tiles leave it transparent and the page paints it). */
 .fm.fm-poster { background: #EFE3C4; }
 .fm.fm-poster::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; box-sizing: border-box; border: 10px solid #2A2624; }
 .fm.fm-poster::before { content: ""; position: absolute; inset: 14px; z-index: 1; pointer-events: none; border-radius: 4px; box-sizing: border-box; border: 2px solid #B5442F; }

@@ -26,6 +26,10 @@
   const POSTER_LINE = { central: "#D0352B", victoria: "#1F8FC6", jubilee: "#8D9399", district: "#2F7D45", northern: "#2A2624" };   // flat poster tones; the others are deepened a little
   const lum = h => { const n = parseInt(h.slice(1), 16); return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255); };
   const posterLine = id => { const b = LINE_COL[id] || "#888888"; return POSTER_LINE[id] || mixHex(b, POSTER.ink, lum(b) > 170 ? 0.3 : 0.12); };
+  // best-known parks: named first when the map is zoomed out (with the biggest)
+  const FAMOUS = new Set(["hyde park", "kensington gardens", "the regent's park", "regent's park", "the green park", "green park", "st james's park", "greenwich park", "richmond park", "bushy park",
+    "hampstead heath", "victoria park", "battersea park", "clapham common", "wimbledon common", "epping forest", "queen elizabeth olympic park", "royal botanic gardens, kew", "kew gardens",
+    "primrose hill", "holland park", "crystal palace park", "alexandra park", "finsbury park", "hackney marshes", "wanstead flats", "blackheath", "dulwich park", "brockwell park", "osterley park"]);
   const LOOKS = {
     parchment: {
       cols: { bg: PAPER, ink: INK, muted: "#6B5A44", fill: "#F1E4C1", lmFill: "#F1E4C1", stW: 1.4, sans: '"IM Fell English SC", Georgia, serif', wt: 400, fs: 1.5, sw: "", ls: 0, upper: false },
@@ -44,7 +48,7 @@
       fare: ["rgba(255,255,255,.35)", "rgba(42,38,36,.08)"], fareLine: "rgba(42,38,36,.45)", fareText: POSTER.ink, ulez: "#2F7D45", cc: POSTER.red,
       boroughs: ["181,68,47", "47,108,120", "93,139,110", "200,160,70"], boroughA: 0.2, boroughLine: "rgba(42,38,36,.5)", boroughText: "rgba(42,38,36,.75)",
       trainOutline: POSTER.paper, trainFont: "Outfit, sans-serif", glow: null,
-      sunburst: true,
+      frame: true,                                       // v3.76: the sunburst rays are gone (Ryan: distracting); the paper is one flat cream
       area: { family: '"Josefin Sans", sans-serif', italic: false, wt: "700 ", ls: 2.5, upper: true, riverS: 0.07, fit: 1.5,
         park: { fill: POSTER.paper, halo: null }, water: { fill: POSTER.paper, halo: null } }
     }
@@ -286,12 +290,13 @@
         }
         const km = Math.hypot(a.x - view.cx, a.y - view.cy) / 1000, text = T(`${a.n} · ${Math.round(km)} km`);
         c.font = `${cols.wt} ${12 + cols.fs}px ${cols.sans}`; const tw = c.measureText(text).width, pw = tw + 38, ph = 26;
-        const fr = look() && look().sunburst ? 26 : 10;                                   // the Poster's frame takes more of the edge
+        const fr = look() && look().frame ? 26 : 10;                                   // the Poster's frame takes more of the edge
         const dx = x - W / 2, dy = y - H / 2, ex = W / 2 - pw / 2 - fr, ey = H / 2 - ph / 2 - fr, k = Math.min(dx ? ex / Math.abs(dx) : 1e9, dy ? ey / Math.abs(dy) : 1e9);
         let px = W / 2 + dx * k, py = H / 2 + dy * k;
-        py = Math.max(look() && look().sunburst ? 68 : 58, Math.min(H - 36, py)); if (py < 80) px = Math.max(px, 190 + pw / 2);   // keep clear of the Drag / Buttons switch and the attribution line
+        py = Math.max(look() && look().frame ? 68 : 58, Math.min(H - 36, py)); if (py < 80) px = Math.max(px, 190 + pw / 2);   // keep clear of the Drag / Buttons switch and the attribution line
         if (plate.offsetWidth && getComputedStyle(plate).display !== "none") { const pr = plate.offsetLeft + plate.offsetWidth + 10, pb = plate.offsetTop + plate.offsetHeight + 6; if (py - ph / 2 < pb && px - pw / 2 < pr) px = pr + pw / 2; }   // and the Poster's title plate
         px = Math.min(px, W - pw / 2 - fr);
+        for (let g = 0; g < 6 && edgeHits.some(q => px - pw / 2 < q[0] + q[2] + 6 && px + pw / 2 + 6 > q[0] && py - ph / 2 < q[1] + q[3] + 4 && py + ph / 2 + 4 > q[1]); g++) py += py < H / 2 ? ph + 6 : -(ph + 6);   // never on top of another airport's pill
         c.beginPath(); c.roundRect(px - pw / 2, py - ph / 2, pw, ph, 13); c.fillStyle = cols.ink; c.globalAlpha = 0.92; c.fill(); c.globalAlpha = 1;
         c.save(); c.translate(px - pw / 2 + 15, py); c.rotate(Math.atan2(dx, -dy)); const g = 15 / 24; c.scale(g, g); c.translate(-12, -12); c.fillStyle = cols.bg; c.fill(planePath); c.restore();
         c.fillStyle = cols.bg; c.fillText(text, px - pw / 2 + 28, py + 0.5);
@@ -316,10 +321,12 @@
     function drawAreaLabels(placed) {
       const LK = look(); if (!LB || !LK || !show.labels) return;
       const A = LK.area, c = ctx2, s = view.s; c.textBaseline = "middle"; c.textAlign = "center"; c.lineJoin = "round";
-      let n = 0;
-      for (const l of LB.labels) {
+      let n = 0, na = 0; const wide = isWide(), got = []; labelStats.areas = 0;
+      if (!LB.ranked) LB.ranked = LB.labels.slice().sort((p, q) => q.a * (FAMOUS.has(q.n.toLowerCase()) ? 4 : 1) - p.a * (FAMOUS.has(p.n.toLowerCase()) ? 4 : 1));
+      for (const l of LB.ranked) {
         if (n > 60) break;
         const river = l.k === "river";
+        if (wide && !river && na >= CAP_AREA) continue;
         if (river ? s < A.riverS : l.a * s * s < 2600 || l.a * s * s > W * H * 0.8) continue;
         const x = toScreenX(l.x), y = toScreenY(l.y); if (x < 30 || y < 14 || x > W - 30 || y > H - 14) continue;
         const fsz = river ? Math.min(20, 13 + s * 14) : Math.min(16, 11.5 + Math.log10(l.a * s * s / 2600 + 1) * 3.2);
@@ -329,7 +336,8 @@
         const bw = Math.abs(Math.cos(ang)) * w + Math.abs(Math.sin(ang)) * fsz, bh = Math.abs(Math.sin(ang)) * w + Math.abs(Math.cos(ang)) * fsz, bx = x - bw / 2, by = y - bh / 2;
         if (bx < 6 || by < 6 || bx + bw > W - 6 || by + bh > H - 6) continue;          // whole name on the map
         if (placed.some(q => bx < q[0] + q[2] + 2 && bx + bw + 2 > q[0] && by < q[1] + 14 && by + bh > q[1])) continue;
-        placed.push([bx, by, bw]); n++;
+        if (wide && !river && got.some(g => Math.hypot(g[0] - x, g[1] - y) < SPACE_AREA)) continue;
+        placed.push([bx, by, bw]); n++; if (!river) { na++; labelStats.areas++; got.push([x, y]); }
         const K = l.k === "park" ? A.park : A.water;
         c.save(); c.translate(x, y); c.rotate(ang);
         if (K.halo) { c.lineWidth = 3.5; c.strokeStyle = K.halo; c.strokeText(txt, 0, 0); }
@@ -337,37 +345,57 @@
       }
       c.textAlign = "left";
     }
+    // v3.78: label hierarchy. Wide or more (maps 11 km across or wider): at most 25 station names and 8 park or lake names, busiest (or biggest and best known) first,
+    // spaced out so each area shows its most important name. Closer in there is no cap; overlap is the only rule, and busier stations claim space first.
+    const WIDE_KM = 11, CAP_STN = 25, CAP_AREA = 8, SPACE_STN = 70, SPACE_AREA = 120;
+    const isWide = () => W / view.s / 1000 >= WIDE_KM;
+    const labelStats = { stations: 0, areas: 0 };                // the last frame's name counts (debug: window.__fm.labels)
     function drawStations(dprv, placed) {
-      const s = view.s, lvl = s < 0.05 ? 0 : s < 0.5 ? 1 : 2;
-      const c = ctx2, labels = [];
+      const s = view.s, lvl = s < 0.05 ? 0 : s < 0.5 ? 1 : 2, wide = isWide();
+      const c = ctx2, labels = [], cand = [];
       let shown = 0;
-      for (const st of stations) {
-        const live = st.lines.length > 0, hub = st.lines.length > 1;
-        if (lvl === 0 && (!hub || st.modes.includes("river-bus") && st.modes.length === 1)) continue;
-        if (lvl === 1 && !live && s < 0.12) continue;
-        const x = toScreenX(st.x), y = toScreenY(st.y);
-        if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-        shown++;
+      const dot = (st, x, y, r, live) => {
         const pier = st.modes.includes("river-bus") || st.modes.includes("ferry");
-        const r = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6);
         c.beginPath();
         if (pier) { c.moveTo(x, y - r - 1); c.lineTo(x + r + 1, y); c.lineTo(x, y + r + 1); c.lineTo(x - r - 1, y); c.closePath(); }
         else c.arc(x, y, r, 0, 6.2832);
         c.fillStyle = cols.fill; c.fill(); c.lineWidth = live ? (art() ? (cols.stW || 1.4) : 1.6) : (cols.stW2 || 1.1); c.strokeStyle = live ? cols.ink : cols.muted; c.stroke();
-        if (lvl > 0 && (live || lvl === 2)) labels.push([st, x, y, r, hub ? 0 : live ? 1 : 2]);
+      };
+      for (const st of stations) {
+        const live = st.lines.length > 0, hub = st.lines.length > 1;
+        const x = toScreenX(st.x), y = toScreenY(st.y);
+        if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
+        const r = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6);
+        const drawn = !(lvl === 0 && (!hub || st.modes.includes("river-bus") && st.modes.length === 1)) && !(lvl === 1 && !live && s < 0.12);
+        if (wide && live && !(st.modes.includes("river-bus") && st.modes.length === 1)) cand.push([st, x, y, r, drawn]);
+        if (!drawn) continue;
+        shown++; dot(st, x, y, r, live);
+        if (!wide && lvl > 0 && (live || lvl === 2)) labels.push([st, x, y, r, hub ? 0 : live ? 1 : 2]);
       }
-      statStations.textContent = shown;
-      if (lvl === 0 || !show.labels) return;
-      labels.sort((a, b) => a[4] - b[4]);
+      statStations.textContent = shown; labelStats.stations = 0;
+      if (!show.labels) return;
       c.font = `${cols.sw}${(lvl === 2 ? 13 : 11) + cols.fs}px ${cols.sans}`; c.textBaseline = "middle"; c.textAlign = "left"; c.lineJoin = "round";
-      for (const [st, x, y, r] of labels) {
+      const put = (st, x, y, r) => {
         const nm = T(st.name), w = c.measureText(nm).width, bx = x + r + 4, by = y - 7;
-        if (bx > W || bx + w < 0) continue;
-        if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + 14 && by + 14 > q[1])) continue;
+        if (bx > W || bx + w < 0) return false;
+        if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + 14 && by + 14 > q[1])) return false;
         placed.push([bx, by, w]);
         c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(nm, bx, y); c.globalAlpha = 1;
-        c.fillStyle = cols.ink; c.fillText(nm, bx, y);
+        c.fillStyle = cols.ink; c.fillText(nm, bx, y); labelStats.stations++; return true;
+      };
+      if (wide) {
+        cand.sort((a, b) => b[0].rank - a[0].rank);
+        const got = [];
+        for (const [st, x, y, r, drawn] of cand) {
+          if (got.length >= CAP_STN) break;
+          if (got.some(g => Math.hypot(g[0] - x, g[1] - y) < SPACE_STN)) continue;      // one name per area: a busier station nearby already has it
+          if (!drawn) dot(st, x, y, r, true);
+          if (put(st, x, y, r)) got.push([x, y]);
+        }
+        return;
       }
+      labels.sort((a, b) => a[4] - b[4] || b[0].rank - a[0].rank);
+      for (const [st, x, y, r] of labels) put(st, x, y, r);
     }
 
     /* ---------- Rail lines (v3.60): drawn here, not in the tiles, so they can be thick, smooth, side by side on shared track, and switched off ---------- */
@@ -497,7 +525,7 @@
       if (document.fonts && document.fonts.load) Promise.all(look().fonts.map(f => document.fonts.load(f))).then(() => { if (!scope.dead) { cols = null; dirty(); } }, () => {});
       if (!LB && !lbLoading) { lbLoading = true; loadJS("geo/labels.js", "UC_LABELS", d => { LB = d; dirty(); }, () => { lbLoading = false; }); }
     }
-    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); } };
+    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); } };
 
     /* ---------- Layers pop-up (left panel button) ---------- */
     function setupLayers() {
@@ -572,10 +600,6 @@
       c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = cols.bg; c.fillRect(0, 0, canvas.width, canvas.height);
       c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
       if ("letterSpacing" in c) c.letterSpacing = (cols.ls || 0) + "px";           // wide-spaced capitals in the Poster
-      if (look() && look().sunburst) {                                              // the Poster's sunburst: faint rays from the top-right corner, fixed to the screen, under the (transparent-paper) tiles
-        c.fillStyle = "rgba(222,196,140,.45)"; const ax = canvas.width - 30 * dpr, ay = 30 * dpr, R = (canvas.width + canvas.height) * 1.2, N = 28;
-        for (let k = 0; k < N; k += 2) { const a0 = Math.PI * 0.5 + k / N * Math.PI, a1 = Math.PI * 0.5 + (k + 1) / N * Math.PI; c.beginPath(); c.moveTo(ax, ay); c.lineTo(ax + Math.cos(a0) * R, ay + Math.sin(a0) * R); c.lineTo(ax + Math.cos(a1) * R, ay + Math.sin(a1) * R); c.closePath(); c.fill(); }
-      }
       const x0 = view.cx - W / 2 / view.s, x1 = view.cx + W / 2 / view.s, y0 = view.cy - H / 2 / view.s, y1 = view.cy + H / 2 / view.s;
       // two layers per style: the base, then the roads on top (on their own canvas when they are cut at the lines)
       const cut = show.cut && show.lines && !!RG;
@@ -738,7 +762,8 @@
     });
     setupLayers(); prepStyle();
     loadJS("geo/stations.js", "UC_STATIONS", d => {
-      stations = d.stations.map(s => ({ name: s.name, x: s.x, y: s.y, lines: s.lines || [], modes: s.modes || [] })); dirty();
+      stations = d.stations.map(s => { const lines = s.lines || [];      // rank: annual entries and exits (millions), more for each extra line; stations with no figure rank by their lines
+        return { name: s.name, x: s.x, y: s.y, lines, modes: s.modes || [], rank: (s.u || 0) * (1 + 0.15 * Math.max(0, lines.length - 1)) + lines.length * 0.5 }; }); dirty();
     });
 
     return {

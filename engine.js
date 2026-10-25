@@ -1,4 +1,8 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.79: Full Map: the Northern line between Elephant & Castle and Kennington no longer runs round the Kennington loop (line_overrides.json "avoid").
+   v3.78: Full Map label hierarchy: stations ranked by annual entries and exits (TfL and ORR); at All London and Wide (11 km or wider) at most 25 station names and 8 park or lake names, busiest first, one per area.
+   v3.77: Full Map finer zoom steps (Wide: A roads only, bigger parks and lakes) and bus stops in Parchment.
+   v3.76: 1930s Poster: the sunburst rays are removed; the paper is one flat cream.
    v3.75: Full screen: no margin or rounded outline round the map; it fills the page edge to edge.
    v3.74: Full Map style 1930s Poster (Artistic): flat cream paper with a sunburst, flat teal-green parks, deep teal water with cream ripples on the Thames, roads in shades of the paper colour (no casings, main roads under 60% of the line width), cream-cased flat line colours, Josefin Sans capitals, a charcoal and red poster frame, a LONDON title plate and an UNDERCURRENT tag. Fonts: Josefin Sans 700 and Limelight.
    v3.73: Full Map style categories. Geographical keeps the master map's detail; Artistic (Fantasy Parchment) drops small green spaces and thin water that leads nowhere by zoom, keeps an always-keep list of culturally important squares, keeps water connections (culverts as faint dotted lines) and every transport feature. Layers pop-up: Geographical | Artistic, styles underneath.
@@ -100,7 +104,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.75";
+  const VERSION = "3.79";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
