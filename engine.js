@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v3.81: Full Map: one shared set of road tiles for every Artistic style (four white tier masks that the page tints per style: Parchment keeps its ink casing, Night its faint glow); Geographic keeps its own coloured road tiles. geo/tiles is about 110 MB smaller.
+   v3.80: Full Map style Night City (Artistic, always dark): near-black ground, dim amber roads in shades of the background with a very faint glow, window lights along side streets at street level, dim labels with no halos, lines at 85% opacity, trains with a white core and a glow in the line colour, and a live LONDON clock in amber. Font: Barlow Condensed.
    v3.79: Full Map: the Northern line between Elephant & Castle and Kennington no longer runs round the Kennington loop (line_overrides.json "avoid").
    v3.78: Full Map label hierarchy: stations ranked by annual entries and exits (TfL and ORR); at All London and Wide (11 km or wider) at most 25 station names and 8 park or lake names, busiest first, one per area.
    v3.77: Full Map finer zoom steps (Wide: A roads only, bigger parks and lakes) and bus stops in Parchment.
@@ -104,7 +106,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.79";
+  const VERSION = "3.81";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

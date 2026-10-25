@@ -214,14 +214,15 @@
         else if (!t.dead && t.knots.length && now - t.knots[t.knots.length - 1][0] > 90000) t.dead = now;     // its last stop was long ago: the trip is over
       }
     }
-    let glowSprite = null;                                             // v3.71 (Parchment): a soft lantern glow under each train, drawn from one cached sprite
+    const glowSprites = new Map();                                     // v3.71 (Parchment): a soft glow under each train, drawn from cached sprites (v3.80: one per line colour for Night City)
     function glowFor(col, R) {
-      if (glowSprite && glowSprite.col === col && glowSprite.R === R) return glowSprite.cv;
+      const key = col + "|" + R, hit = glowSprites.get(key); if (hit) return hit;
       const cv = document.createElement("canvas"); cv.width = cv.height = Math.ceil(R * 2); const g = cv.getContext("2d"), gr = g.createRadialGradient(R, R, 0, R, R, R);
       gr.addColorStop(0, col); gr.addColorStop(1, col.replace(/[\d.]+\)$/, "0)")); g.fillStyle = gr; g.fillRect(0, 0, cv.width, cv.height);
-      glowSprite = { col, R, cv }; return cv;
+      glowSprites.set(key, cv); return cv;
     }
-    function draw(c, toX, toY, view, pxPerM, now, bg, outline, font, glow) {
+    const hexRgba = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+    function draw(c, toX, toY, view, pxPerM, now, bg, outline, font, glow, tstyle) {
       advance(now); S.px = pxPerM;
       // wider than the track on purpose: even zoomed out a train is an obvious bulge, and on shared track it reaches over its neighbours' stripes
       const W = Math.max(10, lineWidthPx(pxPerM) * 2.6 + 3), L = W * 2.1; let n = 0;
@@ -245,10 +246,13 @@
       S.blurShare = share; S.blur = S.blur ? share > BLUR_SHOW : share > BLUR_HIDE;
       if (S.blur) return 0;
       if (glow) { const R = Math.round(W * 1.5), sp = glowFor(glow, R); for (const { t, x, y } of vis) { c.globalAlpha = t.alpha; c.drawImage(sp, x - R, y - R); } c.globalAlpha = 1; }
+      if (tstyle && tstyle.glowLine) { const R = Math.round(W * 1.9); for (const { t, x, y } of vis) { c.globalAlpha = t.alpha; c.drawImage(glowFor(hexRgba(tstyle.fill(t.line), 0.6), R), x - R, y - R); } c.globalAlpha = 1; }   // a soft glow in the line colour round each train
+      if (tstyle && tstyle.core) shapes.core = pathFor(false, L * 0.8, W * 0.52), shapes.coreBoat = pathFor(true, L * 0.8, W * 0.44);
       for (const { t, x, y, ang } of vis) {
         n++; const boat = /^rb|ferry/.test(t.line);
         c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(-ang);
-        c.fillStyle = colour(t.line); c.strokeStyle = outline; c.lineWidth = 2.6; c.lineJoin = "round"; const sh = boat ? shapes.boat : shapes.train; c.stroke(sh); c.fill(sh);
+        c.fillStyle = tstyle ? tstyle.fill(t.line) : colour(t.line); c.strokeStyle = outline; c.lineWidth = 2.6; c.lineJoin = "round"; const sh = boat ? shapes.boat : shapes.train; c.stroke(sh); c.fill(sh);
+        if (tstyle && tstyle.core) { c.fillStyle = "rgba(255,255,255,.92)"; c.fill(boat ? shapes.coreBoat : shapes.core); }       // the white core: the brightest thing on screen
         c.restore();
       }
       // labels sit inside the train: the destination code (the same shorthand as the line maps) or the last 3 digits of the vehicle number (as on the station pages)
@@ -260,7 +264,7 @@
           if (!txt || /^rb|ferry|cable/.test(t.line) && mode === "vid") continue;
           const flip = Math.cos(ang) < 0;                                   // keep the text the right way up
           c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(flip ? -ang + Math.PI : -ang);
-          c.fillStyle = darkText(colour(t.line)) ? "#23272B" : "#FFFFFF"; c.fillText(txt, -L * 0.04, 0.5); c.restore();
+          c.fillStyle = tstyle && tstyle.core ? "#0D1014" : darkText(colour(t.line)) ? "#23272B" : "#FFFFFF"; c.fillText(txt, -L * 0.04, 0.5); c.restore();
         }
       }
       return n;

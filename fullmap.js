@@ -13,7 +13,7 @@
   // v3.73: two categories. Geographical keeps the master map's detail (and follows light and dark); Artistic styles share simplified green space and water
   // (tools/geo/artistic_geom.py), keep every transport feature exactly, and have one look each.
   const CATS = [{ id: "geographical", name: "Geographical" }, { id: "artistic", name: "Artistic" }];
-  const STYLES = [{ id: "geographic", cat: "geographical", name: "Geographic", light: "light", dark: "dark" }, { id: "parchment", cat: "artistic", name: "Fantasy Parchment", light: "parchment", dark: "parchment" }, { id: "poster", cat: "artistic", name: "1930s Poster", light: "poster", dark: "poster" }];
+  const STYLES = [{ id: "geographic", cat: "geographical", name: "Geographic", light: "light", dark: "dark" }, { id: "parchment", cat: "artistic", name: "Fantasy Parchment", light: "parchment", dark: "parchment" }, { id: "poster", cat: "artistic", name: "1930s Poster", light: "poster", dark: "poster" }, { id: "night", cat: "artistic", name: "Night City", light: "night", dark: "night" }];
   const LS_STYLE = "uc-fm-style", LS_CUT = "uc-fm-roadcut";
   const CUT_GAP = 3;                     // "Cut roads at lines": roads stop this many screen px short of each side of a drawn line
   const PAPER = "#EAD8AD", INK = "#3B2A1A";
@@ -30,9 +30,13 @@
   const FAMOUS = new Set(["hyde park", "kensington gardens", "the regent's park", "regent's park", "the green park", "green park", "st james's park", "greenwich park", "richmond park", "bushy park",
     "hampstead heath", "victoria park", "battersea park", "clapham common", "wimbledon common", "epping forest", "queen elizabeth olympic park", "royal botanic gardens, kew", "kew gardens",
     "primrose hill", "holland park", "crystal palace park", "alexandra park", "finsbury park", "hackney marshes", "wanstead flats", "blackheath", "dulwich park", "brockwell park", "osterley park"]);
+  // v3.80: Night City. Always dark, nothing bright: dim labels with no halos, soft grey landmarks, dark pills, lines at 85% opacity and no casing; the trains are the brightest thing on screen.
+  const NIGHT = { bg: "#0D1014", ink: "#CFD5DB", amber: "#E0A04A" };
+  const nightLine = id => id === "northern" ? "#9A9A9A" : (LINE_COL[id] || "#888888");           // the official black would vanish on near-black; the mock-up's grey
   const LOOKS = {
     parchment: {
       cols: { bg: PAPER, ink: INK, muted: "#6B5A44", fill: "#F1E4C1", lmFill: "#F1E4C1", stW: 1.4, sans: '"IM Fell English SC", Georgia, serif', wt: 400, fs: 1.5, sw: "", ls: 0, upper: false },
+      roads: { col: { 1: "#E4DCCB", 2: "#E4DCCB", 3: "#DDD5C4", 4: "#D6CFC0" }, casing: INK, hair: ["rgba(59,42,26,.5)", "rgba(59,42,26,.32)"] },
       lineColour: id => mixHex(LINE_COL[id] || "#888888", PAPER, 0.15), casing: INK, casingW: lw => lw + Math.max(1.8, lw * 0.6),
       fonts: ['14px "IM Fell English SC"', 'italic 14px "IM Fell English"'],
       fare: ["rgba(255,248,225,.4)", "rgba(120,90,50,.13)"], fareLine: "rgba(59,42,26,.45)", fareText: "#5B4630", ulez: "#4E6B2C", cc: "#9B2D20",
@@ -41,8 +45,23 @@
       area: { family: '"IM Fell English", Georgia, serif', italic: true, wt: "", ls: 0, upper: false, riverS: 0.035, fit: 0,
         park: { fill: "#2F3C18", halo: "rgba(200,215,160,.8)" }, water: { fill: "#24433F", halo: "rgba(190,222,215,.75)" } }
     },
+    night: {
+      cols: { bg: NIGHT.bg, ink: NIGHT.ink, muted: "#5F6A75", fill: NIGHT.bg, lmFill: "#12181E", lmStroke: "#3A444D", lmMark: "#7D8791", lbl: "#5F6A75", noHalo: true, pillFill: "#1A2128", pillText: "#8A95A0",
+        stW: 1, stW2: 1, sans: '"Barlow Condensed", "Outfit", sans-serif', wt: 500, fs: 1.5, sw: "500 ", ls: 4, upper: true },
+      roads: { col: { 1: "#5D4729", 2: "#543E22", 3: "#1B1917", 4: "#1B1917" }, glow: { 1: "rgba(93,71,41,.20)", 2: "rgba(84,62,34,.15)" } },
+      lineColour: nightLine, lineAlpha: 0.85, casing: null, casingW: lw => lw,
+      fonts: ['500 14px "Barlow Condensed"', '600 14px "Barlow Condensed"'],
+      fare: ["rgba(207,213,219,.025)", "rgba(0,0,0,0)"], fareLine: "rgba(120,140,160,.28)", fareText: "#5F6A75", ulez: "#2F6B4A", cc: "#7A3B35",
+      boroughs: ["110,70,70", "70,90,110", "70,100,80", "110,95,55"], boroughA: 0.1, boroughLine: "rgba(120,140,160,.22)", boroughText: "rgba(95,106,117,.85)",
+      trainOutline: NIGHT.bg, trainFont: "Outfit, sans-serif", glow: null,
+      train: { fill: id => mixHex(nightLine(id), "#FFFFFF", 0.28), core: true, glowLine: true },
+      clock: true,
+      area: { family: '"Barlow Condensed", sans-serif', italic: false, wt: "500 ", ls: 3, upper: true, riverS: 0.035, fit: 0,
+        park: { fill: "#466250", halo: null }, water: { fill: "#41657F", halo: null } }
+    },
     poster: {
       cols: { bg: POSTER.paper, ink: POSTER.ink, muted: POSTER.ink, fill: "#FFFFFF", lmFill: POSTER.paper, stW: 2, stW2: 1.6, sans: '"Josefin Sans", "Outfit", sans-serif', wt: 700, fs: 0, sw: "700 ", ls: 3.5, upper: true },
+      roads: { col: { 1: "#A49B87", 2: "#ACA18D", 3: "#E5D6B2", 4: "#E5D6B2" } },
       lineColour: posterLine, casing: POSTER.paper, casingW: lw => lw + Math.max(2.6, lw * 0.75),
       fonts: ['700 14px "Josefin Sans"'],
       fare: ["rgba(255,255,255,.35)", "rgba(42,38,36,.08)"], fareLine: "rgba(42,38,36,.45)", fareText: POSTER.ink, ulez: "#2F7D45", cc: POSTER.red,
@@ -110,7 +129,11 @@
     // the Poster's title plate and tag (CSS shows them only in that style; they never take clicks)
     const plate = document.createElement("div"); plate.className = "fm-plate"; plate.setAttribute("aria-hidden", "true"); plate.innerHTML = "<b>LONDON</b><span>EVERY TRAIN · LIVE</span>";
     const tag = document.createElement("div"); tag.className = "fm-tag"; tag.setAttribute("aria-hidden", "true"); tag.textContent = "UNDERCURRENT";
-    box.append(canvas, liveCanvas, plate, tag, attr, tipEl);
+    // Night City's live clock: LONDON and the time in amber, bottom left; only its text changes, once a second (no map redraw)
+    const nclock = document.createElement("div"); nclock.className = "fm-nclock"; nclock.setAttribute("aria-hidden", "true"); nclock.innerHTML = "<b>LONDON</b><span></span>";
+    const nclockT = nclock.querySelector("span"), clockFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    function clockTick() { if (!art() || !look().clock) return; const t = clockFmt.format(new Date()); if (nclockT.textContent !== t) nclockT.textContent = t; }
+    box.append(canvas, liveCanvas, plate, tag, nclock, attr, tipEl);
     wrapEl.append(box, ctl, pad);
     scope.later(() => { box.remove(); ctl.remove(); pad.remove(); });
     const ctx2 = canvas.getContext("2d", { alpha: false }), ctxL = liveCanvas.getContext("2d");
@@ -138,7 +161,7 @@
     let W = 800, H = 500, dpr = 1;
     const view = { cx: (BOUNDS.x0 + BOUNDS.x1) / 2, cy: (BOUNDS.y0 + BOUNDS.y1) / 2, s: 0.02 };
     let user = false;                       // the view has been moved by the user (enables the fit button)
-    let meta = null, stations = [], have = null, emptyRoads = {}, theme = "light", set = "light", cols = null;
+    let meta = null, stations = [], have = null, emptyRoads = {}, emptyTiers = {}, theme = "light", set = "light", cols = null;
     const roadCanvas = document.createElement("canvas"), ctxR = roadCanvas.getContext("2d");   // the road layer, cut along the lines when "Cut roads at lines" is on
     let mode = "drag";
     try { const m = localStorage.getItem(LS_CTL); if (m === "drag" || m === "buttons") mode = m; else if (lowPower()) mode = "buttons"; } catch (e) { if (lowPower()) mode = "buttons"; }
@@ -156,12 +179,19 @@
     /* ---------- Tiles: load only what is on screen, keep a small cache ---------- */
     const cache = new Map();                // key -> { img, state: "loading" | "ok" | "missing", used }
     let inflight = 0, frameNo = 0, wanted = [];
-    const keyOf = (layer, z, i, j) => `${set}/${layer}/${z}/${i}/${j}`;
-    function exists(layer, z, i, j) { const k = i * 100000 + j; return (!have || have[z].has(k)) && !(layer === "roads" && emptyRoads[set] && emptyRoads[set][z].has(k)); }
+    const TIERS = ["t1", "t2", "t3", "t4"], isTier = layer => layer.charCodeAt(0) === 116;       // v3.81: the Artistic styles' roads are four shared white tiers (set "art"), tinted per style by the page
+    const setOf = layer => isTier(layer) ? "art" : set;
+    const roadLayers = () => look() ? TIERS : ["roads"];
+    const keyOf = (layer, z, i, j) => `${setOf(layer)}/${layer}/${z}/${i}/${j}`;
+    function exists(layer, z, i, j) {
+      const k = i * 100000 + j; if (have && !have[z].has(k)) return false;
+      if (isTier(layer)) return !(emptyTiers[layer] && emptyTiers[layer][z].has(k));
+      return !(layer === "roads" && emptyRoads[set] && emptyRoads[set][z].has(k));
+    }
     function request(layer, z, i, j) {
       const k = keyOf(layer, z, i, j); let e = cache.get(k);
       if (e) { e.used = frameNo; return e; }
-      e = { img: null, state: "queued", used: frameNo, set, layer, z, i, j }; cache.set(k, e); return e;
+      e = { img: null, state: "queued", used: frameNo, set: setOf(layer), layer, z, i, j }; cache.set(k, e); return e;
     }
     function pump() {
       while (inflight < MAX_INFLIGHT && wanted.length) {
@@ -230,7 +260,7 @@
       c.font = `${cols.wt} ${12 + cols.fs}px ${cols.sans}`; c.textAlign = "center"; c.textBaseline = "middle";
       for (const [t, p, col] of labels) {
         const x = toScreenX(p[0]), y = toScreenY(p[1]) + 12; if (x < 0 || x > W || y < 0 || y > H) continue;
-        c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.85; c.strokeText(T(t), x, y); c.globalAlpha = 1; c.fillStyle = col; c.fillText(T(t), x, y);
+        if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.85; c.strokeText(T(t), x, y); c.globalAlpha = 1; } c.fillStyle = col; c.fillText(T(t), x, y);
       }
       c.textAlign = "left";
     }
@@ -244,8 +274,8 @@
     const PLANE = "M12 2.5c1 0 1.6 1 1.6 2.2v4.2l7.4 4.3v2.3l-7.4-2.3v4.2l2 1.9v1.7L12 20l-3.6 1v-1.7l2-1.9v-4.2L3 14.5v-2.3l7.4-4.3V4.7C10.4 3.5 11 2.5 12 2.5z";
     const glyphs = {}; for (const k in GLYPH) glyphs[k] = new Path2D(GLYPH[k]); const planePath = new Path2D(PLANE);
     function badge(x, y, r, kind) {             // Geographic: a dark disc with a light glyph; Parchment: a cream disc with the glyph in ink
-      const c = ctx2, pa = art(), disc = pa ? cols.lmFill : cols.ink, mark = pa ? cols.ink : cols.bg;
-      c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fillStyle = disc; c.fill(); c.lineWidth = pa ? (cols.stW || 1.4) : 1.6; c.strokeStyle = pa ? cols.ink : cols.bg; c.stroke();
+      const c = ctx2, pa = art(), disc = pa ? cols.lmFill : cols.ink, mark = pa ? (cols.lmMark || cols.ink) : cols.bg;
+      c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fillStyle = disc; c.fill(); c.lineWidth = pa ? (cols.stW || 1.4) : 1.6; c.strokeStyle = pa ? (cols.lmStroke || cols.ink) : cols.bg; c.stroke();
       c.save(); c.translate(x, y); const k = r * 1.5 / 24; c.scale(k, k); c.translate(-12, -12);
       if (kind === "plane") { c.fillStyle = mark; c.fill(planePath); } else { c.strokeStyle = mark; c.lineWidth = 1.9; c.lineCap = "round"; c.lineJoin = "round"; c.stroke(glyphs[kind] || glyphs.attraction); }
       c.restore();
@@ -276,7 +306,7 @@
       const c = ctx2; c.textBaseline = "middle"; c.textAlign = "left";
       for (const it of items) {
         badge(it.x, it.y, it.r, it.kind);
-        if (it.name) { c.font = it.font; c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(it.name, it.x + it.r + 5, it.y); c.globalAlpha = 1; c.fillStyle = cols.ink; c.fillText(it.name, it.x + it.r + 5, it.y); }
+        if (it.name) { c.font = it.font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(it.name, it.x + it.r + 5, it.y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(it.name, it.x + it.r + 5, it.y); }
       }
       // airports: a plane badge when on screen, otherwise an arrow pill at the edge pointing at it with the distance
       edgeHits = [];
@@ -285,7 +315,7 @@
         const x = toScreenX(a.x), y = toScreenY(a.y), near = LM.airports.includes(a);
         if (x > 18 && x < W - 18 && y > 18 && y < H - 18) {
           badge(x, y, 12.5, "plane");
-          const font = `${art() ? cols.wt : 700} ${12 + cols.fs}px ${cols.sans}`; c.font = font; c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(T(a.n), x + 18, y); c.globalAlpha = 1; c.fillStyle = cols.ink; c.fillText(T(a.n), x + 18, y);
+          const font = `${art() ? cols.wt : 700} ${12 + cols.fs}px ${cols.sans}`; c.font = font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(T(a.n), x + 18, y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(T(a.n), x + 18, y);
           continue;
         }
         const km = Math.hypot(a.x - view.cx, a.y - view.cy) / 1000, text = T(`${a.n} · ${Math.round(km)} km`);
@@ -297,9 +327,9 @@
         if (plate.offsetWidth && getComputedStyle(plate).display !== "none") { const pr = plate.offsetLeft + plate.offsetWidth + 10, pb = plate.offsetTop + plate.offsetHeight + 6; if (py - ph / 2 < pb && px - pw / 2 < pr) px = pr + pw / 2; }   // and the Poster's title plate
         px = Math.min(px, W - pw / 2 - fr);
         for (let g = 0; g < 6 && edgeHits.some(q => px - pw / 2 < q[0] + q[2] + 6 && px + pw / 2 + 6 > q[0] && py - ph / 2 < q[1] + q[3] + 4 && py + ph / 2 + 4 > q[1]); g++) py += py < H / 2 ? ph + 6 : -(ph + 6);   // never on top of another airport's pill
-        c.beginPath(); c.roundRect(px - pw / 2, py - ph / 2, pw, ph, 13); c.fillStyle = cols.ink; c.globalAlpha = 0.92; c.fill(); c.globalAlpha = 1;
-        c.save(); c.translate(px - pw / 2 + 15, py); c.rotate(Math.atan2(dx, -dy)); const g = 15 / 24; c.scale(g, g); c.translate(-12, -12); c.fillStyle = cols.bg; c.fill(planePath); c.restore();
-        c.fillStyle = cols.bg; c.fillText(text, px - pw / 2 + 28, py + 0.5);
+        c.beginPath(); c.roundRect(px - pw / 2, py - ph / 2, pw, ph, 13); c.fillStyle = cols.pillFill || cols.ink; c.globalAlpha = 0.92; c.fill(); c.globalAlpha = 1;
+        c.save(); c.translate(px - pw / 2 + 15, py); c.rotate(Math.atan2(dx, -dy)); const g = 15 / 24; c.scale(g, g); c.translate(-12, -12); c.fillStyle = cols.pillText || cols.bg; c.fill(planePath); c.restore();
+        c.fillStyle = cols.pillText || cols.bg; c.fillText(text, px - pw / 2 + 28, py + 0.5);
         edgeHits.push([px - pw / 2, py - ph / 2, pw, ph, a.x, a.y]);
       }
     }
@@ -380,8 +410,8 @@
         if (bx > W || bx + w < 0) return false;
         if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + 14 && by + 14 > q[1])) return false;
         placed.push([bx, by, w]);
-        c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(nm, bx, y); c.globalAlpha = 1;
-        c.fillStyle = cols.ink; c.fillText(nm, bx, y); labelStats.stations++; return true;
+        if (!cols.noHalo) { c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(nm, bx, y); c.globalAlpha = 1; }
+        c.fillStyle = cols.lbl || cols.ink; c.fillText(nm, bx, y); labelStats.stations++; return true;
       };
       if (wide) {
         cand.sort((a, b) => b[0].rank - a[0].rank);
@@ -453,7 +483,7 @@
       if (!RG || !show.lines) return;
       const c = ctx2, s = view.s, lw = lineW(), stripe = s < 0.05 ? 0 : lw * 0.92, bx = lineBox(), pa = art();
       c.lineCap = "round"; c.lineJoin = "round";
-      if (pa) {                                    // all the casings first, so side-by-side stripes keep their colours
+      if (pa && look().casing) {                   // all the casings first, so side-by-side stripes keep their colours
         c.strokeStyle = look().casing; c.lineWidth = casingW(lw); c.beginPath();
         for (const lid of RG.ids) if (!/^rb/.test(lid)) traceLine(c, RG.d.lines[lid], stripe, bx);
         c.stroke();
@@ -461,9 +491,9 @@
       for (const lid of RG.ids) {
         const L = RG.d.lines[lid];
         for (const pass of (theme === "dark" && !pa && lid === "northern") ? [0, 1] : [1]) {
-          const boat = /^rb/.test(lid); c.strokeStyle = pass === 0 ? "#69737C" : lineColour(lid); c.lineWidth = pass === 0 ? lw + 2 : boat ? Math.max(1.4, lw * 0.5) : lw; c.setLineDash(boat ? [6, 5] : []); c.beginPath();
+          const boat = /^rb/.test(lid); c.globalAlpha = look() && look().lineAlpha || 1; c.strokeStyle = pass === 0 ? "#69737C" : lineColour(lid); c.lineWidth = pass === 0 ? lw + 2 : boat ? Math.max(1.4, lw * 0.5) : lw; c.setLineDash(boat ? [6, 5] : []); c.beginPath();
           traceLine(c, L, stripe, bx);
-          c.stroke(); c.setLineDash([]);
+          c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
         }
       }
     }
@@ -496,7 +526,7 @@
       if (now - liveLast >= 30) {
         liveLast = now;
         ctxL.setTransform(1, 0, 0, 1, 0, 0); ctxL.clearRect(0, 0, liveCanvas.width, liveCanvas.height); ctxL.setTransform(dpr, 0, 0, dpr, 0, 0);
-        LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", look() ? look().trainOutline : theme === "dark" ? "#E6EAED" : "#FFFFFF", look() ? look().trainFont : cols ? cols.sans : "Outfit", look() ? look().glow : null);
+        LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", look() ? look().trainOutline : theme === "dark" ? "#E6EAED" : "#FFFFFF", look() ? look().trainFont : cols ? cols.sans : "Outfit", look() ? look().glow : null, look() ? look().train : null);
       }
       scope.frame(liveFrame);
     }
@@ -511,13 +541,14 @@
       pill.textContent = S.err ? "Live data trouble" : S.ok ? "Live" : "Connecting"; pill.dataset.level = S.err ? "minor" : S.ok ? "good" : "unknown"; reasonEl.hidden = true;
       $("pop-note").textContent = LIVE.blur ? "Live data is flowing for the whole map. Zoom in a little further to see individual trains." : `${n} train${n === 1 ? "" : "s"} on screen, ${LIVE.lines} line${LIVE.lines === 1 ? "" : "s"} asked for. Tap a train for its next stop.`;
     }
-    scope.every(livePanel, 1000);
+    scope.every(livePanel, 1000); scope.every(clockTick, 1000); clockTick();
     if (ctx.debug) window.__fmLive = { get live() { return LIVE; } };
 
     /* ---------- Map style (v3.71): swaps the tile set and the drawing colours in place, keeping the view ---------- */
     function setStyle(id) {
       if (!STYLES.some(t => t.id === id)) return;
       style = id; try { localStorage.setItem(LS_STYLE, id); } catch (e) {}
+      merged.clear();                                                 // the merged road tiles belong to the old style
       cols = null; prepStyle(); dirty();
     }
     function prepStyle() {                     // an Artistic style needs its fonts and the park and water names
@@ -525,7 +556,7 @@
       if (document.fonts && document.fonts.load) Promise.all(look().fonts.map(f => document.fonts.load(f))).then(() => { if (!scope.dead) { cols = null; dirty(); } }, () => {});
       if (!LB && !lbLoading) { lbLoading = true; loadJS("geo/labels.js", "UC_LABELS", d => { LB = d; dirty(); }, () => { lbLoading = false; }); }
     }
-    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); } };
+    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); }, clockTick, drawMs(n) { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, get roadsLook() { return look() && look().roads; }, get clockText() { return nclockT.textContent; } };
 
     /* ---------- Layers pop-up (left panel button) ---------- */
     function setupLayers() {
@@ -574,6 +605,58 @@
       scope.later(() => { btn.remove(); sheet.remove(); if (isOpen) { scrim.classList.remove("in"); scrim.hidden = true; } });
     }
 
+    /* ---------- Shared Artistic roads (v3.81): four white tier masks tinted per style; Parchment gets its ink casing by stamping the mask slightly offset, Night its glow the same way ---------- */
+    const clampN = (a, lo, hi) => Math.max(lo, Math.min(hi, a));
+    const GEO_W = { 4: [7, .55, 3.2], 3: [10, .8, 4.5], 2: [14, 1, 6], 1: [20, 1.3, 8] };      // the Geographic widths the Artistic road tiles were thinned from (the same maths as tools/geo/render/render.js posterRoad)
+    const geoW = (t, s) => clampN(GEO_W[t][0] * s, GEO_W[t][1], GEO_W[t][2]), tot = g => g + (g >= 2.2 ? 1.4 : 0), gg = (t, s) => 0.7 * tot(geoW(t, s));
+    function tierW(t, s) {
+      const v = Math.min(1.1, s * 1.25), cap = 0.6 * clampN(24 * v, 2, 6.5) * s / v;
+      const w2 = Math.min(cap * 0.78, gg(2, s)), w3 = Math.min(cap * 0.58, gg(3, s), w2 * 0.85), w4 = Math.min(cap * 0.42, gg(4, s), w3 * 0.85);
+      return Math.max(0.35, [0, cap, w2, w3, w4][t]);
+    }
+    const OFF8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [.7, .7], [-.7, .7], [.7, -.7], [-.7, -.7]];
+    // Per style, the four tier tiles of each map tile are tinted and merged ONCE into a single road tile (glow, ink casing and fills in the right order) and that is kept; per frame the
+    // roads are then one layer of plain tile drawing, as in Geographic. At most MERGES_PER_FRAME tiles are built in a frame, so panning onto new ground never stalls.
+    const merged = new Map(), MERGES_PER_FRAME = 3, MERGED_MAX = 260; let mergeBudget = 0, mergePending = false;
+    function buildMerged(lv, ents) {
+      const R = look().roads, sT = meta.scales[lv], n = ents[0].img.naturalWidth || 512;
+      const cv = document.createElement("canvas"); cv.width = cv.height = n; const x = cv.getContext("2d");
+      const tmp = document.createElement("canvas"); tmp.width = tmp.height = n; const y = tmp.getContext("2d");
+      const byT = {}; for (const e of ents) byT[+e.layer[1]] = e.img;
+      const layer = (t, kind, col, r) => {                          // tint tier t (stamped r px each way for casings and glows) and lay it on the merged tile
+        const img = byT[t]; if (!img) return; y.globalCompositeOperation = "source-over"; y.clearRect(0, 0, n, n);
+        if (r) for (const [dx, dy] of OFF8) y.drawImage(img, dx * r, dy * r);
+        y.drawImage(img, 0, 0); y.globalCompositeOperation = "source-in"; y.fillStyle = col; y.fillRect(0, 0, n, n); x.drawImage(tmp, 0, 0);
+      };
+      const casing = t => R.casing && tierW(t, sT) >= 2;
+      if (R.glow) for (const t of [2, 1]) if (R.glow[t]) layer(t, "glow", R.glow[t], Math.max(1.6, tierW(t, sT) * 1.3));        // a very faint glow in the road's own tint
+      if (R.casing) for (const t of [4, 3, 2, 1]) if (casing(t)) layer(t, "casing", R.casing, 0.6);                              // ink casings first, so crossing roads join cleanly
+      for (const t of [4, 3, 2, 1]) layer(t, "fill", R.casing && !casing(t) ? R.hair[t <= 2 ? 0 : 1] : R.col[t], 0);
+      return cv;
+    }
+    function mergedTile(lv, i, j) {
+      const key = style + "/" + lv + "/" + i + "/" + j, hit = merged.get(key); if (hit) { hit.used = frameNo; return hit.cv; }
+      const ents = [];
+      for (const layer of TIERS) { if (!exists(layer, lv, i, j)) continue; const e = cache.get(keyOf(layer, lv, i, j)); if (!e || e.state === "missing") continue; if (e.state !== "ok") return null; e.used = frameNo; ents.push(e); }
+      if (!ents.length) return null;
+      if (mergeBudget <= 0) { mergePending = true; return null; }
+      mergeBudget--; const cv = buildMerged(lv, ents); merged.set(key, { cv, used: frameNo });
+      if (merged.size > MERGED_MAX) { const old = [...merged.entries()].sort((a, b) => a[1].used - b[1].used).slice(0, merged.size - MERGED_MAX + 40); for (const [k] of old) merged.delete(k); }
+      return cv;
+    }
+    function artRoads(lvs, span, g) {
+      mergeBudget = MERGES_PER_FRAME; mergePending = false;
+      for (const lv of lvs) {
+        const [i0, i1, j0, j1, m] = span(lv), ox = meta.origin[0], oy = meta.origin[1];
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+          const cv = mergedTile(lv, i, j); if (!cv) continue;
+          const ax = Math.floor(toScreenX(ox + i * m) * dpr), ay = Math.floor(toScreenY(oy - j * m) * dpr), bx = Math.ceil(toScreenX(ox + (i + 1) * m) * dpr), by = Math.ceil(toScreenY(oy - (j + 1) * m) * dpr);
+          g.drawImage(cv, ax, ay, bx - ax, by - ay);
+        }
+      }
+      if (mergePending) dirty();
+    }
+
     /* ---------- Drawing (only when something changed) ---------- */
     let pending = 0, anim = null, isDirty = true;
     function dirty() { isDirty = true; if (!pending) pending = scope.frame(tick); }
@@ -608,7 +691,7 @@
       const want = [];
       const span = lv => { const m = meta.tile / meta.scales[lv]; return [Math.floor((x0 - ox) / m), Math.floor((x1 - ox) / m), Math.floor((oy - y1) / m), Math.floor((oy - y0) / m), m]; };
       { const [i0, i1, j0, j1] = span(z);
-        for (const layer of ["base", "roads"]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { if (!exists(layer, z, i, j)) continue; const e = request(layer, z, i, j); if (e.state === "queued" || e.state === "loading") missing = true; if (e.state === "queued") want.push([e, Math.hypot((ox + (i + .5) * M) - view.cx, (oy - (j + .5) * M) - view.cy) + (layer === "roads" ? 1 : 0)]); } }
+        for (const layer of ["base", ...roadLayers()]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { if (!exists(layer, z, i, j)) continue; if (isTier(layer) && merged.has(style + "/" + z + "/" + i + "/" + j)) continue; const e = request(layer, z, i, j); if (e.state === "queued" || e.state === "loading") missing = true; if (e.state === "queued") want.push([e, Math.hypot((ox + (i + .5) * M) - view.cx, (oy - (j + .5) * M) - view.cy) + (layer === "roads" ? 1 : 0)]); } }
       want.sort((a, b) => a[1] - b[1]); wanted = want.map(a => a[0]);
       const drawLevel = (lv, layer, g) => {
         const [i0, i1, j0, j1, m] = span(lv);
@@ -621,13 +704,18 @@
         }
       };
       const lvs = []; if (missing) for (let lv = Math.max(0, z - 2); lv < z; lv++) lvs.push(lv); lvs.push(z);
-      if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); for (const layer of ["base", "roads"]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j)) request(layer, lv, i, j); }
+      if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); for (const layer of ["base", ...roadLayers()]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j) && !(isTier(layer) && merged.has(style + "/" + lv + "/" + i + "/" + j))) request(layer, lv, i, j); }
       for (const lv of lvs) drawLevel(lv, "base", c);
-      let g = c;
-      if (cut) { if (roadCanvas.width !== canvas.width || roadCanvas.height !== canvas.height) { roadCanvas.width = canvas.width; roadCanvas.height = canvas.height; } g = ctxR; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, roadCanvas.width, roadCanvas.height); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"; }
-      for (const lv of lvs) drawLevel(lv, "roads", g);
-      if (cut) { cutRoads(); c.drawImage(roadCanvas, 0, 0); }
-      if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); const q = []; for (const layer of ["base", "roads"]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j)) { const e = cache.get(keyOf(layer, lv, i, j)); if (e && e.state === "queued") q.push(e); } wanted = q.concat(wanted); }
+      if (look()) {                                   // Artistic: the style's merged road tiles; on the road canvas first when they are to be cut along the lines
+        if (cut) { if (roadCanvas.width !== canvas.width || roadCanvas.height !== canvas.height) { roadCanvas.width = canvas.width; roadCanvas.height = canvas.height; } ctxR.setTransform(1, 0, 0, 1, 0, 0); ctxR.clearRect(0, 0, roadCanvas.width, roadCanvas.height); ctxR.imageSmoothingEnabled = true; ctxR.imageSmoothingQuality = "high"; artRoads(lvs, span, ctxR); cutRoads(); c.drawImage(roadCanvas, 0, 0); }
+        else artRoads(lvs, span, c);
+      } else {
+        let g = c;
+        if (cut) { if (roadCanvas.width !== canvas.width || roadCanvas.height !== canvas.height) { roadCanvas.width = canvas.width; roadCanvas.height = canvas.height; } g = ctxR; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, roadCanvas.width, roadCanvas.height); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"; }
+        for (const lv of lvs) drawLevel(lv, "roads", g);
+        if (cut) { cutRoads(); c.drawImage(roadCanvas, 0, 0); }
+      }
+      if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); const q = []; for (const layer of ["base", ...roadLayers()]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j)) { const e = cache.get(keyOf(layer, lv, i, j)); if (e && e.state === "queued") q.push(e); } wanted = q.concat(wanted); }
       pump(); evict();
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawFilters();
@@ -750,6 +838,7 @@
     /* ---------- Data ---------- */
     loadJS("geo/tiles/meta.js", "UC_TILE_META", m => {
       meta = m; have = m.scales.map((_, z) => new Set((m.tiles[z] || []).map(t => t[0] * 100000 + t[1])));
+      for (const k in (m.emptyTiers || {})) emptyTiers[k] = m.scales.map((_, z) => new Set(((m.emptyTiers[k] || {})[z] || []).map(t => t[0] * 100000 + t[1])));
       for (const k in (m.emptyRoads || {})) emptyRoads[k] = m.scales.map((_, z) => new Set(((m.emptyRoads[k] || {})[z] || []).map(t => t[0] * 100000 + t[1])));
       resize(); dirty();
     }, () => { upEl.textContent = "The map tiles could not be loaded"; upEl.dataset.error = "1"; });
