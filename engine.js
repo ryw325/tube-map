@@ -1,4 +1,24 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.04: the Full Map draws its trains from trains-core.js too (stage 4): one core for every live line (so a train TfL lists under two lines is drawn
+   once), each train's stops joined over the real track. The route table now also covers the tram, the three Uber Boat routes and the cable car
+   (stop order from TfL's Route/Sequence, run times from the real track). DLR stays static (no train numbers). ?core=0 runs the old Full Map engine.
+   v4.03: station pages draw their trains from trains-core.js too (stage 3): stops out along each lane come from the core's times, the board's
+   times are the core's arrival (or departure) times at the station, and a queued train is never drawn behind a stop the core says it has passed.
+   A terminus keeps its rule: a train waiting to leave is shown 90 s before it goes. ?core=0 runs the station page's own engine.
+   The core now keeps trains on one track in order (a train cannot arrive at or leave a stop until the one in front has left it, plus 30 s; two
+   replies in a row saying otherwise re-place both where the feed puts them), keeps one train per vehicle when TfL lists it under several lines,
+   takes a destination from its name when the feed gives no destination ID, and fixes the direction of Circle trains to Edgware Road and Paddington.
+   v4.02 (later): at the end of a line, trains waiting to leave are drawn as one icon with a count beside it (tap for the list); a train that
+   terminated mid-line goes out of service 30 s before the next train is due at that platform; a train waiting to start mid-line is not drawn
+   until a minute before it leaves; a queued train is never drawn behind a station the core says it has left.
+   v4.02: every line page draws its trains from trains-core.js (stage 2). The core picks the right visit of a station a route passes twice
+   from the prediction's own naptan (the Circle's two Paddingtons), and when the feed lists a train's first stop a long way off it uses the
+   location text only to say how far back the train can be (a station on the line: no further; a station on another line: it waits just
+   before its first stop, off this map). ?core=0 runs the old engine.
+   v4.01: one shared "train brain", trains-core.js (no DOM; it could run unchanged on a server), works out where every train is from the
+   TfL replies and says it as times: each train's stops with arrival and departure times. The Victoria line page now draws only what it
+   says (stage 1); every other line, the station pages and the Full Map still use their own engines. ?core=0 runs the old engine on Victoria.
+   The route table it works from (stop order by naptan for every route of the 18 built lines) is lines/routes.js, made by tools/make_routes.js.
    v3.81: Full Map: one shared set of road tiles for every Artistic style (four white tier masks that the page tints per style: Parchment keeps its ink casing, Night its faint glow); Geographic keeps its own coloured road tiles. geo/tiles is about 110 MB smaller.
    v3.80: Full Map style Night City (Artistic, always dark): near-black ground, dim amber roads in shades of the background with a very faint glow, window lights along side streets at street level, dim labels with no halos, lines at 85% opacity, trains with a white core and a glow in the line colour, and a live LONDON clock in amber. Font: Barlow Condensed.
    v3.79: Full Map: the Northern line between Elephant & Castle and Kennington no longer runs round the Kennington loop (line_overrides.json "avoid").
@@ -106,7 +126,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "3.81";
+  const VERSION = "4.04";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -1502,6 +1522,11 @@
       if (DEBUG) DEBUG.ageS = ageS;
       const ttsOf = p => p.timeToStation - ageS;
       const groups = new Map();
+      fillBoard(data, ttsOf, now);
+      oldIngestTrains(data, now, ttsOf, groups);
+    }
+    // Every prediction by station, for the departure boards (tap a station)
+    function fillBoard(data, ttsOf, now) {
       boardData.clear();
       data.forEach(p => {
         const idx = byNaptan[p.naptanId];
@@ -1519,6 +1544,8 @@
           pdir: platformWord(p.platformName), towards: p.towards || "",
           platform: (p.platformName || "").replace(/^\w+bound\s*-\s*/i, "") });
       });
+    }
+    function oldIngestTrains(data, now, ttsOf, groups) {
       data.forEach(p => {
         const v = (p.vehicleId || "").trim();
         const g = byNaptan[p.naptanId];
@@ -1875,6 +1902,156 @@
       t.moving = step > 0;
     }
 
+    /* ---------- v4.01: the shared train brain (trains-core.js) ----------
+       On the lines in CORE_LINES every reply goes to trains-core.js, which says where each train is as times (stops with arrival and
+       departure times, worked out by the rules in its header). This page only turns that into track distance on its own map and draws
+       it: the train's place on its route comes from the core's stops at this moment, and the page adds only what is about the drawing
+       (nose-to-tail spacing in a lane, the turn-round loop, fading across). Every line page uses it (v4.02); ?core=0 runs the old engine (above)
+       instead. One snapshot is taken after each reply, as a server would send it, and the trains run on its times until the next. */
+    const CoreLib = window.UndercurrentTrainsCore, CORE_TABLE = window.UNDERCURRENT_ROUTES;
+    const CORE = CoreLib && CORE_TABLE && CORE_TABLE.lines[LINE.api] && !/[?&]core=0\b/.test(location.search)
+      ? CoreLib.create(CORE_TABLE, { lines: [LINE.api] }) : null;
+    const tflNow = () => Date.now() + (CORE ? CORE.clockOffset : 0);
+    const perfOf = T => performance.now() + (T - tflNow());        // a time on TfL's clock as this page's animation clock
+    const napG = n => n ? byNaptan[n] : undefined;
+    function coreIngest(data, serverDate) {
+      const T = CORE.ingest(data, serverDate, Date.now(), [LINE.api]), now = performance.now();
+      fillBoard(data, p => (Date.parse(p.expectedArrival) - T) / 1000, now);
+      const snap = CORE.snapshot(T), seen = new Set();
+      snap.trains.forEach(c => {
+        const v = c.vid; seen.add(v);
+        const R = ROUTES[c.route];
+        let t = trains.get(v);
+        if (!t) {
+          t = { v, r: R, dir: c.dir, opacity: 0, x: null, y: null, ang: 0, node: null, D: null, pendingD: null, waiting: null, queued: false, alertUntil: 0, missed: 0 };
+          trains.set(v, t);
+        } else if (t.r !== R) {                                       // onto another route (a branch became known): carry it across if the track is shared
+          const pd = t.D !== null ? projectD(t, R) : null;
+          if (pd !== null) { t.dir = projDir(t, R); t.D = pd; } else t.coreSnap = true;
+          t.r = R;
+        }
+        if (t.core && c.snapAt !== t.core.snapAt) t.coreSnap = true;  // the core re-placed it: fade across
+        if (c.destChangedAt && (!t.core || c.destChangedAt !== t.core.destChangedAt) && c.state !== "fading") t.alertUntil = perfOf(c.destChangedAt) + 30000;
+        t.core = c;
+        t.dest = napG(c.dest); t.destShow = c.destShown ? napG(c.destShown) : null;
+        t.loc = c.loc; t.pdir = c.platform; t.towards = c.towards;
+        t.next = c.toK; t.tts = c.arriveAt !== null ? (c.arriveAt - T) / 1000 : 0; t.fetchedAt = now;
+        t.stops = c.stops.filter(x => x.at !== null).map(x => ({ idx: x.k, at: perfOf(x.at) }));
+        t.missed = c.state === "fading" ? 2 : 0;
+      });
+      trains.forEach((t, v) => { if (!seen.has(v)) t.missed = 2; });   // the core has let it go
+    }
+    // Every frame: where the core's times put each train now, as distance along its route, and which lane it belongs in
+    let coreWall = 0;
+    function corePlace(now, dt) {
+      const T = tflNow(), wall = Date.now(), jumped = coreWall && wall - coreWall > 10000;   // asleep or hidden for over 10 s: put trains straight back in place
+      coreWall = wall;
+      const live = [...trains.values()].filter(t => t.core);
+      const ends = new Map();                                         // route-end station -> trains standing there
+      live.forEach(t => {
+        const c = t.core, R = t.r, pos = CoreLib.positionAt(c, T);
+        t.cpos = pos;
+        t.coreD = R.cum[pos.fromK] + pos.p * (R.cum[pos.toK] - R.cum[pos.fromK]);
+        t.moving = !pos.standing;
+        t.next = pos.toK;
+        const g = R.st[pos.fromK];
+        t.lane = pos.dir;
+        t.waiting = null; t.queued = false; t.hidden = false; t.stackHidden = false; t.stack = null;
+        if (c.fadeFrom && T >= c.fadeFrom) t.missed = 2;               // the core's fade time has come (it can be set ahead)
+        const atEnd = pos.fromK === 0 || pos.fromK === R.LAST;
+        // v4.02: a train waiting to start its trip somewhere other than the end of the line is not drawn until a minute before it leaves
+        const here = c.stops[pos.i];
+        if (pos.standing && !atEnd && here && here.at === null && here.dep !== null && here.dep - T > 60000) t.hidden = true;
+        if (pos.standing && atEnd && isTermG(g) && t.missed < 2) (ends.get(g) || ends.set(g, []).get(g)).push(t);
+      });
+      // v4.02: at the end of a route every train turns round the end of the line and waits on the departure track. Trains waiting there are
+      // drawn as one icon (the one leaving next) with a small count beside it. Trains with their next trip known all count; of those with
+      // nothing known yet only the first in does (TfL often gives a train a new ID as it leaves, so the others are probably the same trains)
+      ends.forEach((list, g) => {
+        const idle = list.filter(t => t.cpos.end).sort((a, b) => (a.core.stops[a.cpos.i].at || 0) - (b.core.stops[b.cpos.i].at || 0));
+        idle.forEach((t, i) => {
+          t.waiting = g; t.waitSince = perfOf(t.core.stops[t.cpos.i].at || tflNow());
+          if (i === 0) t.lane = opp(t.cpos.arrDir); else { t.lane = t.cpos.arrDir; t.hidden = true; }
+        });
+        const stack = list.filter(t => !t.hidden && !t.loop && t.pendingD === null && t.lane === t.dir && t.D !== null && Math.abs(t.D - t.coreD) < 1)
+          .sort((a, b) => (a.cpos.end ? 1 : 0) - (b.cpos.end ? 1 : 0) || (a.core.departAt || 0) - (b.core.departAt || 0));
+        if (stack.length > 1) { stack[0].stack = stack; stack.slice(1).forEach(t => { t.stackHidden = true; }); }
+      });
+      live.forEach(t => {
+        if (t.D === null) { t.D = t.coreD; t.dir = t.lane; t.needsPlace = true; return; }
+        if (jumped && !t.loop) { t.D = t.coreD; t.dir = t.lane; t.x = null; t.pendingD = null; t.coreSnap = false; return; }
+        if (t.coreSnap && t.pendingD === null) { t.pendingD = t.coreD; t.coreSnap = false; return; }
+        if (t.loop || t.pendingD !== null || t.lane === t.dir) return;
+        // a change of lane: round the back of the station at the end of a route, otherwise fade across
+        const k = t.r.stationAt(t.D);
+        if ((k === 0 || k === t.r.LAST) && Math.abs(t.D - t.coreD) < 1) {
+          turnRound(t, now);                                          // flips t.dir to the other lane
+          const left = t.core.departAt !== null ? (t.core.departAt - tflNow()) / 1000 : LOOP_S;
+          t.loop.dur = Math.max(LOOP_FAST_S, Math.min(LOOP_S, left - 1));
+        } else t.pendingD = t.coreD;
+      });
+    }
+    // Move the drawn train towards where the core puts it: never backwards, never into the train in front, and back up to time at no more
+    // than CATCH times the normal speed after it was held (behind another train or round a turn-round)
+    // The nearest train ahead in the same lane (on any route sharing this track), and the room left behind it: { room, lead }
+    function laneAhead(t, all, D) {
+      const R = t.r, s = sgn(t.dir), Lme = R.toL(D, t.dir);
+      let room = Infinity, lead = null;
+      all.forEach(o => {
+        if (o === t || o.D === null || o.missed >= 2 || o.pendingD !== null) return;
+        if (o.hidden || o.stackHidden) return;                       // not drawn (waiting off the map, or behind the front of a stack)
+        const od = projectD(o, R);
+        if (od === null || projDir(o, R) !== t.dir) return;
+        if (o.coreD !== undefined && o.r === R && t.coreD !== undefined && s * (o.coreD - t.coreD) < 0) return;   // the core has this one ahead of it: never held behind it
+        const ahead = s * (R.toL(od, t.dir) - Lme);
+        if (ahead > 0 && ahead - GAP_L < room) { room = ahead - GAP_L; lead = o; }
+      });
+      return { room, lead };
+    }
+    // v4.02: the station a train's core position has left most recently (track distance), and the next station ahead of it
+    function stationBehind(t) {
+      const R = t.r, s = sgn(t.dir); let best = null;
+      R.cum.forEach(c => { if (s * (t.coreD - c) > 0.5 && (best === null || s * (c - best) > 0)) best = c; });
+      return best;
+    }
+    function stationAhead(t) {
+      const R = t.r, s = sgn(t.dir); let best = null;
+      R.cum.forEach(c => { if (s * (c - t.coreD) > 0.5 && (best === null || s * (c - best) < 0)) best = c; });
+      return best;
+    }
+    function coreAdvance(t, dt, all) {
+      if (t.loop || t.pendingD !== null || t.coreD === undefined) return;
+      const R = t.r, s = sgn(t.dir), D = t.D;
+      const want = s * (t.coreD - D);
+      if (want <= 0) return;
+      if (want > Math.max(220, R.segLen[R.segOf(D)] * 1.2)) { t.pendingD = t.coreD; return; }   // held far behind (a queue): fade across, as before
+      const cap = CATCH * R.nominalSpeed(R.segOf(D + s)) * dt;
+      let step = want <= cap * 1.5 ? want : cap;                     // normally exactly where the times say
+      const { room } = laneAhead(t, all, D);
+      if (room < Infinity) { const maxD = R.fromL(R.toL(D, t.dir) + s * Math.max(0, room), t.dir); step = Math.max(0, Math.min(step, s * (maxD - D))); }
+      t.D = D + s * step;
+      // v4.02: a queue may hold a train back inside its gap, but never on the wrong side of a station the core says it has left: it goes on to
+      // that station, and the train in front is nudged forward to make room (never past its own next station, never into the train ahead of it)
+      const floor = stationBehind(t);
+      if (floor !== null && s * (floor - t.D) > 0) {
+        t.D = floor;
+        const { lead } = laneAhead(t, all, t.D);
+        if (lead) nudge(lead, R.fromL(R.toL(t.D, t.dir) + s * GAP_L, t.dir), R, t.dir, all);
+      }
+    }
+    // Move train o forward to at least `need` (a track distance on route R, in direction dir), within its own gap and the room ahead of it
+    function nudge(o, need, R, dir, all) {
+      if (o.loop || o.coreD === undefined) return;
+      const Q = o.r, so = sgn(o.dir);
+      let want = Q === R ? need : projectD({ r: R, D: need }, Q);
+      if (want === null || want === undefined) return;
+      const cap = stationAhead(o);                                    // never past its own next station
+      if (cap !== null && so * (want - cap) > 0) want = cap;
+      const { room } = laneAhead(o, all, o.D);                        // never into the train ahead of it
+      if (room < Infinity) { const maxD = Q.fromL(Q.toL(o.D, o.dir) + so * Math.max(0, room), o.dir); if (so * (want - maxD) > 0) want = maxD; }
+      if (so * (want - o.D) > 0) o.D = want;
+    }
+
     /* ---------- Drawing ---------- */
     let mode = (document.querySelector('input[name="lbl"]:checked') || { value: "dest" }).value;   // kept across lines
     const labelFor = t => (t.waiting !== null && t.waiting !== undefined) ? "" : (mode === "dest" ? shownDest(t).code : t.v);
@@ -1898,6 +2075,19 @@
 
     // Yellow tag beside a train for 30 seconds after its destination changes
     const alertLayer = el("g", {});
+    // v4.02: the count beside a stack of trains waiting at the end of a line (kept upright; sits off the train's top-right corner)
+    const badgeLayer = el("g", {});
+    function drawStack(t) {
+      const n = t.stack ? t.stack.length : 0;
+      if (n < 2 || t.opacity < 0.5 || t.x === null) { if (t.badge) { t.badge.remove(); t.badge = null; } return; }
+      if (!t.badge) {
+        t.badge = el("g", { class: "stack-badge", "aria-hidden": "true" }, badgeLayer);
+        el("circle", { r: 9 }, t.badge);
+        t.badgeText = el("text", { x: 0, y: 0.5, "text-anchor": "middle", "dominant-baseline": "central" }, t.badge);
+      }
+      if (t.badgeText.textContent !== String(n)) t.badgeText.textContent = String(n);
+      t.badge.setAttribute("transform", `translate(${(t.x + 20).toFixed(1)} ${(t.y - 18).toFixed(1)})`);
+    }
     function drawAlert(t, now, dt) {
       const on = now < (t.alertUntil || 0) && (t.waiting === null || t.waiting === undefined) && t.opacity > 0.5;
       if (!on) { if (t.alert) { t.alert.remove(); t.alert = null; } t.alertSlot = null; return; }
@@ -1965,12 +2155,14 @@
       lastFrame = now;
       const fade = reduceMotion ? 1 : Math.min(1, dt * 4);
 
+      if (CORE) corePlace(now, dt);
       const all = [...trains.values()].filter(t => t.fetchedAt !== undefined && t.D !== null);
       // place newly seen trains without overlapping anyone
-      all.filter(t => t.needsPlace).sort(dataAhead).forEach(t => { t.D = clearSpot(t, t.D, all); t.needsPlace = false; });
+      all.filter(t => t.needsPlace).sort(CORE ? (a, b) => a.dir !== b.dir ? 0 : sgn(a.dir) * (b.D - a.D) : dataAhead).forEach(t => { t.D = clearSpot(t, t.D, all); t.needsPlace = false; });
       // move trains front to back so each follower sees where its leader has moved to
       all.sort((a, b) => sgn(b.dir) * b.D - sgn(a.dir) * a.D);
-      all.forEach(t => { if (t.pendingD === null) advance(t, now, dt, all); });
+      if (CORE) all.forEach(t => coreAdvance(t, dt, all));
+      else all.forEach(t => { if (t.pendingD === null) advance(t, now, dt, all); });
 
       const gone = [];
       all.forEach(t => {
@@ -1979,11 +2171,13 @@
         if (t.pendingD !== null) {
           t.opacity += (0 - t.opacity) * fade;
           if (t.opacity < 0.04 || reduceMotion) {
-            t.D = clearSpot(t, t.pendingD, all); t.pendingD = null; t.arrivedAt = null; t.x = null;
+            if (CORE) { t.dir = t.lane; t.D = clearSpot(t, t.coreD, all); } else t.D = clearSpot(t, t.pendingD, all);
+            t.pendingD = null; t.arrivedAt = null; t.x = null;
           }
         } else {
-          const wantOpacity = t.missed >= 2 ? 0 : 1;
-          t.opacity += (wantOpacity - t.opacity) * fade;
+          const wantOpacity = t.missed >= 2 || t.hidden || t.stackHidden ? 0 : 1;
+          if (CORE && t.core && t.core.fadeTo && t.missed >= 2) t.opacity = Math.min(t.opacity, Math.max(0, (t.core.fadeTo - tflNow()) / (t.core.fadeTo - t.core.fadeFrom)));
+          else t.opacity += (wantOpacity - t.opacity) * fade;
         }
         if (t.missed >= 2 && t.opacity < 0.02) { gone.push(t); return; }
 
@@ -1991,7 +2185,7 @@
         if (t.loop) {
           const L = t.loop;
           const hold = L.p >= 0.5 && L.p < 1 && !departureClear(t, all);        // wait round the back until the platform is clear
-          if (!hold) L.p = reduceMotion ? 1 : Math.min(1, L.p + dt / (t.hurry ? LOOP_FAST_S : LOOP_S));
+          if (!hold) L.p = reduceMotion ? 1 : Math.min(1, L.p + dt / (L.dur || (t.hurry ? LOOP_FAST_S : LOOP_S)));
           if (L.p >= 1) { t.loop = null; t.hurry = false; }
           else p = loopPose(L);
           t.x = p.x; t.y = p.y; t.ang = p.ang;
@@ -2013,12 +2207,16 @@
         t.text.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)");
         const label = labelFor(t);
         if (t.text.textContent !== label) t.text.textContent = label;
-        t.node.setAttribute("aria-label", t.waiting !== null && t.waiting !== undefined
+        t.node.setAttribute("aria-label", t.stack
+          ? `${t.stack.length} trains waiting to depart ${S[t.r.st[t.cpos.fromK]].name}`
+          : t.waiting !== null && t.waiting !== undefined
           ? `Train waiting to depart ${S[t.waiting].name}`
           : `Vehicle ID ${t.v}, ${dirText(t).toLowerCase()} to ${destFull(t)}, ${t.loc || "location not reported"}`);
         drawAlert(t, now, dt);
+        drawStack(t);
+        t.node.style.pointerEvents = t.opacity < 0.2 ? "none" : "";
       });
-      gone.forEach(t => { t.node && t.node.remove(); t.alert && t.alert.remove(); trains.delete(t.v); if (selected.includes(t.node)) closePop(); });
+      gone.forEach(t => { t.node && t.node.remove(); t.alert && t.alert.remove(); t.badge && t.badge.remove(); trains.delete(t.v); if (selected.includes(t.node)) closePop(); });
 
       scope.frame(frame);
     }
@@ -2026,7 +2224,7 @@
     /* ---------- Panel ---------- */
     function updatePanel() {
       let n = 0, nb = 0, sb = 0;
-      trains.forEach(t => { if (t.missed < 2) { n++; t.dir === "N" ? nb++ : sb++; } });
+      trains.forEach(t => { if (t.missed < 2 && !t.hidden) { n++; t.dir === "N" ? nb++ : sb++; } });
       document.getElementById("stat-trains").textContent = everLoaded ? n : "–";
       document.getElementById("stat-nb").textContent = everLoaded ? nb : "–";
       document.getElementById("stat-sb").textContent = everLoaded ? sb : "–";
@@ -2061,7 +2259,7 @@
         const data = await res.json();
         if (RECFRAME) recFeed(LINE.id, res.status, data, res.headers.get("date"));
         if (scope.dead) return;                              // the line was switched while this reply was on its way
-        ingest(Array.isArray(data) ? data : [], res.headers.get("date"));
+        (CORE ? coreIngest : ingest)(Array.isArray(data) ? data : [], res.headers.get("date"));
         everLoaded = true; lastOk = Date.now(); fetchError = null;
       } catch (err) {
         if (RECFRAME) recFeed(LINE.id, 0, null, null, String((err && err.message) || err));
@@ -2140,7 +2338,7 @@
     scope.on(document, "scroll", hideTip, { passive: true });
 
     if (RECFRAME) window.__ucLive = { id: LINE.id, trains, S, now: () => performance.now(), age: () => performance.now() - lastFrame };
-    if (DEBUG_ON) window.__undercurrent = { DEBUG, trains, S, ROUTES, LANES: R0.LANES, poseAtL: R0.poseAtL, cum: R0.cum, segLen: R0.segLen, TRAIN_SCALE };
+    if (DEBUG_ON) window.__undercurrent = { DEBUG, trains, S, ROUTES, LANES: R0.LANES, poseAtL: R0.poseAtL, cum: R0.cum, segLen: R0.segLen, TRAIN_SCALE, core: CORE };
 
     /* ---------- Departure board (fixed in the right panel) ---------- */
     const pop = document.getElementById("pop");
@@ -2280,6 +2478,22 @@
 
     // Train: its upcoming stops with predicted times
     function openTrain(t) {
+      if (t.stack) {                                                  // v4.02: a stack at the end of a line: list every train waiting to leave
+        const where = S[t.r.st[t.cpos.fromK]].name;
+        openPop(`${t.stack.length} trains waiting at ${where}`, t.node, () => {
+          popSections.innerHTML = "";
+          if (!t.stack) { openTrain(t); return; }
+          ledTitle(`${t.stack.length} trains waiting at ${where}`);
+          const rows = t.stack.map(m => m.cpos.end || m.core.departAt === null
+            ? ledRow([[m.waiting !== null ? "Arrived, next trip not yet known" : destFull(m), "dest"], ["", "when"]], "stop")
+            : ledRow([[destFull(m), "dest"], [whenText((m.core.departAt - tflNow()) / 1000), "when"]], "stop"));
+          const led = screen("Leaving next", rows);
+          addClock(led);
+          popNote.textContent = "Trains waiting at the end of the line are drawn as one, with the number beside it.";
+          popNote.hidden = false;
+        });
+        return;
+      }
       if (t.waiting !== null && t.waiting !== undefined) {
         openPop("", t.node, () => {
           popSections.innerHTML = "";
@@ -2350,7 +2564,7 @@
     const txNow = () => (window.__sim && __sim.realNow ? __sim.realNow() : performance.now());
     const easeIO = k => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
     const clamp01 = v => Math.max(0, Math.min(1, v));
-    const txFaders = si => [riverG, trainLayer, labelLayer, alertLayer, emptyMsg, ...stationNodes.filter((n, i) => i !== si),
+    const txFaders = si => [riverG, trainLayer, labelLayer, alertLayer, badgeLayer, emptyMsg, ...stationNodes.filter((n, i) => i !== si),
       ...document.querySelectorAll(".line-title, .status, .status-reason, .updated, .stats, #pop-sections, #pop-note, #facts")];
     const setOpacity = (nodes, o) => nodes.forEach(n => { n.style.opacity = o === "" ? "" : o.toFixed(3); });
     function txTimeline(ms, fn) {

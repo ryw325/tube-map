@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tube Live</title>
 <script>if (/[?&]from=/.test(location.search)) { document.documentElement.classList.add("tx-in", "tx-away"); setTimeout(function () { var c = document.documentElement.classList; if (c.contains("tx-in")) c.remove("tx-in", "tx-away"); }, 5000); }  /* only used if a line ever has to switch by a full page load (the fallback): keep the panels slid off screen from the first paint */</script>
-<link rel="stylesheet" href="style.css?v=3.81">
+<link rel="stylesheet" href="style.css?v=4.04">
 </head>
 <body>
 <div class="wrap">
   <aside class="panel">
     <div class="panel-head">
       <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span></h1>
-      <p class="eyebrow">Live prototype · v3.81</p>
+      <p class="eyebrow">Live prototype · v4.04</p>
     </div>
 
     <div>
@@ -195,7 +195,7 @@
   </div>
 </section>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "3.81"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "4.04"; -->
 <script src="lines/index.js"></script>
 <script src="lines/shared.js"></script>
 <script src="lines/hubs.js"></script>
@@ -206,13 +206,13 @@
     const sid = new URLSearchParams(location.search).get("station");
     if (sid && /^[a-z0-9]{3,8}$/.test(sid)) {   // v3.40: any station id; a missing file falls back to the line page (the list of stations loads on demand)
       const b = "?b=" + Date.now();
-      document.write('<script src="lines/river.js' + b + '"><\/script><script src="lines/codes.js' + b + '"><\/script><script src="lines/station-' + sid + '.js' + b + '" onerror="location.replace(location.pathname)"><\/script><script src="station.js' + b + '"><\/script><script src="engine.js' + b + '"><\/script><script src="recorder.js' + b + '"><\/script>');
+      document.write('<script src="lines/river.js' + b + '"><\/script><script src="lines/codes.js' + b + '"><\/script><script src="lines/station-' + sid + '.js' + b + '" onerror="location.replace(location.pathname)"><\/script><script src="station.js' + b + '"><\/script><script src="lines/routes.js' + b + '"><\/script><script src="trains-core.js' + b + '"><\/script><script src="engine.js' + b + '"><\/script><script src="recorder.js' + b + '"><\/script>');
       return;
     }
     /* v3.58: ?map=full opens the Full Map page (fullmap.js, tiles from geo/tiles); its page data is just the kind */
     if (new URLSearchParams(location.search).get("map") === "full") {
       const b = "?b=" + Date.now();
-      document.write('<script>window.UNDERCURRENT_LINE = { kind: "fullmap", id: "fullmap", name: "Full Map" };<\/script><script src="lines/river.js' + b + '"><\/script><script src="fullmap-live.js' + b + '"><\/script><script src="fullmap.js' + b + '"><\/script><script src="engine.js' + b + '"><\/script><script src="recorder.js' + b + '"><\/script>');
+      document.write('<script>window.UNDERCURRENT_LINE = { kind: "fullmap", id: "fullmap", name: "Full Map" };<\/script><script src="lines/river.js' + b + '"><\/script><script src="fullmap-live.js' + b + '"><\/script><script src="fullmap.js' + b + '"><\/script><script src="lines/routes.js' + b + '"><\/script><script src="trains-core.js' + b + '"><\/script><script src="engine.js' + b + '"><\/script><script src="recorder.js' + b + '"><\/script>');
       return;
     }
     const lines = window.UNDERCURRENT_LINES || [];
@@ -221,7 +221,7 @@
     if (!lines.some(l => l.id === id)) id = "victoria";
     if (!/[?&]recframe\b/.test(location.search)) try { localStorage.setItem("line", id); } catch (e) {}   // hidden recording copies never change the remembered line
     const bust = "?b=" + Date.now();
-    document.write('<script src="lines/river.js' + bust + '"><\/script><script src="lines/' + id + '.js' + bust + '"><\/script><script src="engine.js' + bust + '"><\/script><script src="recorder.js' + bust + '"><\/script>');
+    document.write('<script src="lines/river.js' + bust + '"><\/script><script src="lines/' + id + '.js' + bust + '"><\/script><script src="lines/routes.js' + bust + '"><\/script><script src="trains-core.js' + bust + '"><\/script><script src="engine.js' + bust + '"><\/script><script src="recorder.js' + bust + '"><\/script>');
   })();
 </script>
 </body>

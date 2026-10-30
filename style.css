@@ -361,6 +361,8 @@
     .panel .clock-block { padding-top: 8px; }
     .panel .big-date { margin-top: 2px; }
   }
+  .stack-badge circle { fill: var(--ink); stroke: var(--bg); stroke-width: 2; }   /* v4.02: number of trains waiting at the end of a line */
+  .stack-badge text { fill: var(--bg); font-family: var(--sans); font-weight: 700; font-size: 11px; text-rendering: geometricPrecision; }
   .dest-alert { cursor: pointer; outline: none; }
   .dest-alert:focus-visible rect { stroke-width: 3; }
   .dest-alert rect { fill: #FFD23F; stroke: #1A1A1A; stroke-width: 1.5; }

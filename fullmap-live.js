@@ -39,12 +39,23 @@
       A[lid] = adj; BOX[lid] = [x0, y0, x1, y1];
     }
     const trains = new Map();
+    // v4.04: the shared train brain (trains-core.js) works out where every train is, for every line the route table covers (one instance for the whole
+    // map, so a train TfL lists under two lines is drawn once); this layer only lays each train's stops along the real track. ?core=0: the old engine below
+    const CoreLib = window.UndercurrentTrainsCore, TABLE = window.UNDERCURRENT_ROUTES;
+    const CORE = CoreLib && TABLE && !/[?&]core=0\b/.test(location.search) ? CoreLib.create(TABLE, { lines: LIVE.filter(l => TABLE.lines[l]) }) : null;
+    const inCore = l => !!(CORE && CORE.lines[l]);
     const S = { live: false, wanted: [], fetched: {}, inflight: false, ok: 0, err: null, lastKick: 0, parseMs: 0, parseMax: 0, polls: 0, lastNow: 0 };
 
     const resolve = (lid, nap, name) => (A[lid].has(nap) ? nap : IDX[lid][norm(name)] || null);
 
     /* ---------- route over the real track ---------- */
+    const SP_CACHE = new Map();                                               // v4.04: the track between two stops never changes, so each is worked out once
     function shortest(lid, a, b) {
+      const ck = lid + "|" + a + "|" + b;
+      if (SP_CACHE.has(ck)) return SP_CACHE.get(ck);
+      const r = shortest0(lid, a, b); SP_CACHE.set(ck, r); return r;
+    }
+    function shortest0(lid, a, b) {
       if (a === b) return [];
       const adj = A[lid], d = new Map([[a, 0]]), prev = new Map(), todo = new Set([a]);
       while (todo.size) {
@@ -144,6 +155,58 @@
       }
       for (const t of trains.values()) if (t.line === lid && t.seen < now) { t.miss++; if (t.miss >= MISS_LIMIT && !t.dead) t.dead = now; }
     }
+    /* ---------- v4.04: trains from the core ----------
+       After each reply the core's snapshot gives every train's stops with times; each train's stops are joined over the real track (as before) and
+       its place is the core's: standing at a stop, or between two stops by time. Display choices made here: a train waiting to start its trip more
+       than 20 minutes ahead is not drawn (as before), nor one waiting to start somewhere other than the end of a line until a minute before it leaves
+       (as on the line pages), nor the trains of a line not refreshed for 2 minutes (panned away; drawn again with the next reply). */
+    const STALE_LINE_MS = 120000;
+    function coreApply(now) {
+      const snap = CORE.snapshot(), off = CORE.clockOffset, seen = new Set();
+      for (const c of snap.trains) {
+        const lid = c.line; if (!A[lid]) continue;
+        const key = lid + "|" + c.vid; seen.add(key);
+        let t = trains.get(key);
+        if (!t) { t = { key, line: lid, vid: c.vid, born: now, alpha: 0, core: true, disp: 0 }; trains.set(key, t); }
+        if (t.c && c.snapAt !== t.c.snapAt) t.born = now;                       // re-placed by the core: it fades in where it now is
+        t.c = c; t.dest = c.destName; t.destNap = c.dest || ""; t.code = null; t.loc = c.loc || ""; t.seen = now; t.miss = 0; t.dead = 0;
+        const Lm = CORE.lines[lid], RT = Lm.ROUTES[c.route], nm = x => Lm.S[RT.st[x.k]].name;
+        const sids = c.stops.map(x => resolve(lid, x.naptan, nm(x)));
+        t.plan = c.stops.map((x, i) => ({ sid: sids[i], eta: (x.at !== null ? x.at : x.dep !== null ? x.dep : now + off) - off })).filter(x => x.sid);
+        t.sids = sids;
+        const gk = sids.join(">");
+        if (gk !== t.gk) { t.gk = gk; coreGeom(t, sids); }
+        t.atEnd = st => RT.st[st.k] !== undefined && (st.k === 0 || st.k === RT.LAST);
+      }
+      for (const [k, t] of trains) if (t.core && !seen.has(k)) trains.delete(k);   // the core has let it go (it has faded out)
+    }
+    function coreGeom(t, sids) {                                              // its stops joined over the real track; stopAt: distance of each stop
+      const lid = t.line, pts = [], lanes = [], stopAt = [];
+      const push = (p, l) => { if (!pts.length || dist(pts[pts.length - 1], p) > 0.05) { pts.push(p); lanes.push(l || 0); } };
+      let prev = null;
+      sids.forEach((sid, i) => {
+        if (!sid || !XY[lid][sid]) { stopAt.push(stopAt.length ? stopAt[stopAt.length - 1] : 0); return; }
+        if (prev === null) push(XY[lid][sid], 0);
+        else { const r = shortest(lid, prev, sid); if (r) r.forEach(e => e.pts.forEach((q, j) => push(q, e.vl[j]))); else push(XY[lid][sid], 0); }
+        prev = sid; stopAt.push(cum(pts));
+      });
+      const c = [0]; for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + dist(pts[i - 1], pts[i]));
+      t.pts = pts.length ? pts : [[0, 0]]; t.lanes = lanes; t.cum = c; t.stopAt = stopAt; t.v = speedOf(lid);
+    }
+    function coreAdvance(t, now) {
+      const T = now + CORE.clockOffset, c = t.c, pos = CoreLib.positionAt(c, T);
+      const from = pos.standing ? pos.i : pos.i - 1, d0 = t.stopAt[from] || 0, d1 = t.stopAt[pos.i] || d0;
+      t.disp = d0 + (pos.standing ? 0 : pos.p) * (d1 - d0);
+      const here = c.stops[pos.i];
+      t.hidden = !t.sids[from] || !t.sids[pos.i] ||                                // beyond the edge of the map (Reading, Shenfield, Watford): no track to draw it on
+        (c.state === "waiting" && c.departAt !== null && c.departAt - T > HORIZON_MS) ||
+        (pos.standing && here && here.at === null && !t.atEnd(here) && here.dep !== null && here.dep - T > 60000) ||
+        now - (S.fetched[t.line] || 0) > STALE_LINE_MS;
+      if (c.fadeFrom && T >= c.fadeFrom) { t.alpha = Math.max(0, Math.min(1, (c.fadeTo - T) / Math.max(1, c.fadeTo - c.fadeFrom))); t.dead = t.dead || now; }
+      else t.alpha = Math.min(1, (now - t.born) / 600);
+    }
+    const hiddenT = (t, now) => t.core ? t.hidden : t.plan[0].eta - now > HORIZON_MS;
+
     async function poll(force) {
       if (!S.live || S.inflight) return;
       const now = Date.now(); if (!force && now - S.lastKick < 1500) return; S.lastKick = now;
@@ -159,7 +222,9 @@
         if (!res.ok) throw new Error(`TfL returned an error (${res.status}). Retrying shortly.`);
         const txt = await res.text(); if (scope.dead) return;
         const t0 = performance.now(), data = JSON.parse(txt), t1 = Date.now();
-        for (const l of group) { ingest(l, Array.isArray(data) ? data : [], t1); S.fetched[l] = t1; }
+        const cl = group.filter(inCore);
+        if (cl.length) { CORE.ingest(Array.isArray(data) ? data : [], res.headers.get("date"), t1, cl); coreApply(t1); }
+        for (const l of group) { if (!inCore(l)) ingest(l, Array.isArray(data) ? data : [], t1); S.fetched[l] = t1; }
         const ms = performance.now() - t0; S.parseMs = ms; S.parseMax = Math.max(S.parseMax, ms); S.polls++; S.ok = Date.now(); S.err = null;
       } catch (err) {
         if (scope.dead) return;
@@ -203,6 +268,7 @@
     function advance(now) {
       const dt = Math.min(0.25, Math.max(0, (now - (S.lastNow || now)) / 1000)); S.lastNow = now;
       for (const [k, t] of trains) {
+        if (t.core) { if (t.pts && t.pts.length >= 2) coreAdvance(t, now); continue; }
         if (!t.pts || t.pts.length < 2) continue;
         const target = posAt(t, now), d = target - t.disp;
         // forward: close the gap within about 25 s, never faster than 40 m/s; behind schedule: wait in place (a train never runs backwards); far out of step: follow the timeline
@@ -229,7 +295,7 @@
       const shapes = { train: pathFor(false, L, W), boat: pathFor(true, L * 1.05, W * 0.95) };
       const vis = [];
       for (const t of trains.values()) {
-        if (!t.pts || t.pts.length < 2 || t.alpha <= 0 || t.plan[0].eta - now > HORIZON_MS) continue;
+        if (!t.pts || t.pts.length < 2 || t.alpha <= 0 || !t.plan.length || hiddenT(t, now)) continue;
         const [p, ang] = where(t, pxPerM);
         if (p[0] < view.x0 || p[0] > view.x1 || p[1] < view.y0 || p[1] > view.y1) continue;
         vis.push({ t, x: toX(p[0]), y: toY(p[1]), ang });
@@ -272,7 +338,7 @@
     function hit(x, y, toX, toY, now) {
       let best = null, bd = 18 * 18;
       for (const t of trains.values()) {
-        if (!t.pts || t.pts.length < 2 || t.dead || t.plan[0].eta - Date.now() > HORIZON_MS) continue;
+        if (!t.pts || t.pts.length < 2 || t.dead || !t.plan.length || hiddenT(t, Date.now())) continue;
         const p = where(t, S.px || 0.1)[0], dx = toX(p[0]) - x, dy = toY(p[1]) - y, d = dx * dx + dy * dy;
         if (d < bd) { bd = d; best = t; }
       }
@@ -282,9 +348,9 @@
     }
     return {
       setView, draw, hit, poll: () => poll(true),
-      snapshot(now) { const out = []; for (const t of trains.values()) { if (!t.pts || t.pts.length < 2 || t.dead || t.plan[0].eta - now > HORIZON_MS) continue; const p = xyAt(t, t.disp)[0]; out.push({ key: t.key, line: t.line, x: p[0], y: p[1], plan: t.plan.map(s => ({ sid: s.sid, eta: s.eta, x: (XY[t.line][s.sid] || [0, 0])[0], y: (XY[t.line][s.sid] || [0, 0])[1] })) }); } return out; },
-      get live() { return S.live; }, get trains() { return trains.size; }, get state() { return S; }, get lines() { return S.wanted.length; },
-      count(view) { let n = 0; const now = Date.now(); for (const t of trains.values()) { if (!t.pts || t.dead || t.plan[0].eta - now > HORIZON_MS) continue; const p = xyAt(t, t.disp)[0]; if (p[0] >= view.x0 && p[0] <= view.x1 && p[1] >= view.y0 && p[1] <= view.y1) n++; } return n; },
+      snapshot(now) { const out = []; for (const t of trains.values()) { if (!t.pts || t.pts.length < 2 || t.dead || !t.plan.length || hiddenT(t, now)) continue; const p = xyAt(t, t.disp)[0]; out.push({ key: t.key, line: t.line, x: p[0], y: p[1], plan: t.plan.map(s => ({ sid: s.sid, eta: s.eta, x: (XY[t.line][s.sid] || [0, 0])[0], y: (XY[t.line][s.sid] || [0, 0])[1] })) }); } return out; },
+      get live() { return S.live; }, get core() { return CORE; }, get trains() { return trains.size; }, get state() { return S; }, get lines() { return S.wanted.length; },
+      count(view) { let n = 0; const now = Date.now(); for (const t of trains.values()) { if (!t.pts || t.dead || !t.plan.length || hiddenT(t, now)) continue; const p = xyAt(t, t.disp)[0]; if (p[0] >= view.x0 && p[0] <= view.x1 && p[1] >= view.y0 && p[1] <= view.y1) n++; } return n; },
       setLabels(m) { S.labelMode = m; },
       get blur() { return !!S.blur; }
     };
