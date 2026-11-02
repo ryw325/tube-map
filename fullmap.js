@@ -156,6 +156,12 @@
     let LB = null, lbLoading = false;          // park and water names (Parchment only), from geo/labels.js
     const typeOn = k => show.icons && show.types[k];
     let F = null, fLoading = false, LM = null, RG = null, edgeHits = [], LIVE = null, liveRunning = false, liveLast = 0;
+    // v4.05: the airport arrow pills fade out after PILL_IDLE ms with no touch, key or mouse activity, and come straight back on the next one
+    const PILL_IDLE = 10000, PILL_OUT = 900, PILL_IN = 250;
+    let lastAct = performance.now(), pillFrom = 1, pillTo = 1, pillT0 = 0, pillMs = 0;
+    const pillAlpha = now => pillMs ? pillFrom + (pillTo - pillFrom) * Math.min(1, Math.max(0, (now - pillT0) / pillMs)) : pillTo;
+    const pillMoving = now => pillMs > 0 && now - pillT0 < pillMs;
+    function pillGo(to, ms) { const now = performance.now(); if (to === pillTo) return false; pillFrom = pillAlpha(now); pillTo = to; pillT0 = now; pillMs = ms; return true; }
 
     /* ---------- State ---------- */
     let W = 800, H = 500, dpr = 1;
@@ -318,6 +324,7 @@
           const font = `${art() ? cols.wt : 700} ${12 + cols.fs}px ${cols.sans}`; c.font = font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(T(a.n), x + 18, y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(T(a.n), x + 18, y);
           continue;
         }
+        const pAl = pillAlpha(performance.now()); if (pAl < 0.02) continue;            // faded out: not drawn and not tappable until there is activity again
         const km = Math.hypot(a.x - view.cx, a.y - view.cy) / 1000, text = T(`${a.n} · ${Math.round(km)} km`);
         c.font = `${cols.wt} ${12 + cols.fs}px ${cols.sans}`; const tw = c.measureText(text).width, pw = tw + 38, ph = 26;
         const fr = look() && look().frame ? 26 : 10;                                   // the Poster's frame takes more of the edge
@@ -327,9 +334,9 @@
         if (plate.offsetWidth && getComputedStyle(plate).display !== "none") { const pr = plate.offsetLeft + plate.offsetWidth + 10, pb = plate.offsetTop + plate.offsetHeight + 6; if (py - ph / 2 < pb && px - pw / 2 < pr) px = pr + pw / 2; }   // and the Poster's title plate
         px = Math.min(px, W - pw / 2 - fr);
         for (let g = 0; g < 6 && edgeHits.some(q => px - pw / 2 < q[0] + q[2] + 6 && px + pw / 2 + 6 > q[0] && py - ph / 2 < q[1] + q[3] + 4 && py + ph / 2 + 4 > q[1]); g++) py += py < H / 2 ? ph + 6 : -(ph + 6);   // never on top of another airport's pill
-        c.beginPath(); c.roundRect(px - pw / 2, py - ph / 2, pw, ph, 13); c.fillStyle = cols.pillFill || cols.ink; c.globalAlpha = 0.92; c.fill(); c.globalAlpha = 1;
+        c.beginPath(); c.roundRect(px - pw / 2, py - ph / 2, pw, ph, 13); c.fillStyle = cols.pillFill || cols.ink; c.globalAlpha = 0.92 * pAl; c.fill(); c.globalAlpha = pAl;
         c.save(); c.translate(px - pw / 2 + 15, py); c.rotate(Math.atan2(dx, -dy)); const g = 15 / 24; c.scale(g, g); c.translate(-12, -12); c.fillStyle = cols.pillText || cols.bg; c.fill(planePath); c.restore();
-        c.fillStyle = cols.pillText || cols.bg; c.fillText(text, px - pw / 2 + 28, py + 0.5);
+        c.fillStyle = cols.pillText || cols.bg; c.fillText(text, px - pw / 2 + 28, py + 0.5); c.globalAlpha = 1;
         edgeHits.push([px - pw / 2, py - ph / 2, pw, ph, a.x, a.y]);
       }
     }
@@ -379,12 +386,58 @@
     // spaced out so each area shows its most important name. Closer in there is no cap; overlap is the only rule, and busier stations claim space first.
     const WIDE_KM = 11, CAP_STN = 25, CAP_AREA = 8, SPACE_STN = 70, SPACE_AREA = 120;
     const isWide = () => W / view.s / 1000 >= WIDE_KM;
-    const labelStats = { stations: 0, areas: 0 };                // the last frame's name counts (debug: window.__fm.labels)
+    const labelStats = { stations: 0, areas: 0, crossed: 0, rightCrossed: 0 };      // the last frame's name counts (debug: window.__fm.labels); crossed = names left with a line under them, rightCrossed = how many would have had one with the old right-of-icon rule
+    // v4.05: the drawn lines in screen space (stripe lanes included) in a coarse grid, so a station name can be tested against them
+    function lineGrid() {
+      const CELL = 48, cells = new Map(), segs = [], half = lineW() / 2 + 1.5, s = view.s, lw = lineW(), stripe = s < 0.05 ? 0 : lw * 0.92, [bx0, by0, bx1, by1] = lineBox();
+      const G = { overlap(x, y, w, h) {              // px of line lying inside the box (x, y, w, h), allowing for the line's own width
+        if (!segs.length) return 0;
+        const l = x - half, t = y - half, r = x + w + half, b = y + h + half, seen = new Set(); let sum = 0;
+        for (let i = Math.floor(l / CELL); i <= Math.floor(r / CELL); i++) for (let j = Math.floor(t / CELL); j <= Math.floor(b / CELL); j++) {
+          const list = cells.get(i * 4096 + j); if (!list) continue;
+          for (const k of list) {
+            if (seen.has(k)) continue; seen.add(k);
+            const q = segs[k], dx = q[2] - q[0], dy = q[3] - q[1]; let t0 = 0, t1 = 1, ok = true;
+            for (const [p, e] of [[-dx, q[0] - l], [dx, r - q[0]], [-dy, q[1] - t], [dy, b - q[1]]]) {         // Liang-Barsky clip of the segment to the box
+              if (p === 0) { if (e < 0) { ok = false; break; } } else { const u = e / p; if (p < 0) { if (u > t1) { ok = false; break; } if (u > t0) t0 = u; } else { if (u < t0) { ok = false; break; } if (u < t1) t1 = u; } }
+            }
+            if (ok) sum += (t1 - t0) * Math.hypot(dx, dy);
+          }
+        }
+        return sum;
+      } };
+      if (!RG || !show.lines) return G;
+      for (const lid of RG.ids) {
+        if (/^rb/.test(lid)) continue;                                                               // boats are thin dashed routes on the river, not rails
+        for (const sg of RG.d.lines[lid].segments) {
+          const b = sg._b; if (b[2] < bx0 || b[0] > bx1 || b[3] < by0 || b[1] > by1) continue;
+          let P = sg.path.map(p => [toScreenX(p[0]), toScreenY(p[1])]); if (stripe && sg._u.some(u => u)) P = offsetPts(P, sg._u.map(u => u * stripe));
+          let px = P[0][0], py = P[0][1];
+          for (let i = 1; i < P.length; i++) {
+            const qx = P[i][0], qy = P[i][1]; if (i < P.length - 1 && Math.abs(qx - px) + Math.abs(qy - py) < 4) continue;      // thin out vertices closer than 4 px
+            if (Math.max(px, qx) > -CELL && Math.min(px, qx) < W + CELL && Math.max(py, qy) > -CELL && Math.min(py, qy) < H + CELL) {
+              const id = segs.push([px, py, qx, qy]) - 1;
+              for (let ci = Math.floor(Math.min(px, qx) / CELL); ci <= Math.floor(Math.max(px, qx) / CELL); ci++) for (let cj = Math.floor(Math.min(py, qy) / CELL); cj <= Math.floor(Math.max(py, qy) / CELL); cj++) { const k = ci * 4096 + cj; (cells.get(k) || cells.set(k, []).get(k)).push(id); }
+            }
+            px = qx; py = qy;
+          }
+        }
+      }
+      return G;
+    }
     function drawStations(dprv, placed) {
       const s = view.s, lvl = s < 0.05 ? 0 : s < 0.5 ? 1 : 2, wide = isWide();
-      const c = ctx2, labels = [], cand = [];
+      const c = ctx2, labels = [], cand = [], dots = [];
       let shown = 0;
+      // v4.05: a station icon is always wider than the lines it sits on, including side-by-side stripes (RG.band: outermost stripe lane, in stripe widths)
+      const lw = lineW(), stripeW = s < 0.05 ? 0 : lw * 0.92, pad = lvl === 0 ? 1.5 : 2.5;
+      const iconR = (st, r0) => {
+        if (!show.lines || !RG) return r0;
+        if (st._bv === undefined) st._bv = Math.max(RG.band[st.id] || 0, ...st.ids.map(i => RG.band[i] || 0));
+        return Math.max(r0, lw / 2 + stripeW * st._bv + pad);
+      };
       const dot = (st, x, y, r, live) => {
+        dots.push([x, y, r, st]);
         const pier = st.modes.includes("river-bus") || st.modes.includes("ferry");
         c.beginPath();
         if (pier) { c.moveTo(x, y - r - 1); c.lineTo(x + r + 1, y); c.lineTo(x, y + r + 1); c.lineTo(x - r - 1, y); c.closePath(); }
@@ -395,23 +448,39 @@
         const live = st.lines.length > 0, hub = st.lines.length > 1;
         const x = toScreenX(st.x), y = toScreenY(st.y);
         if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-        const r = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6);
+        const r0 = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6), r = live ? iconR(st, r0) : r0;
         const drawn = !(lvl === 0 && (!hub || st.modes.includes("river-bus") && st.modes.length === 1)) && !(lvl === 1 && !live && s < 0.12);
         if (wide && live && !(st.modes.includes("river-bus") && st.modes.length === 1)) cand.push([st, x, y, r, drawn]);
         if (!drawn) continue;
         shown++; dot(st, x, y, r, live);
         if (!wide && lvl > 0 && (live || lvl === 2)) labels.push([st, x, y, r, hub ? 0 : live ? 1 : 2]);
       }
-      statStations.textContent = shown; labelStats.stations = 0;
+      statStations.textContent = shown; labelStats.stations = 0; labelStats.crossed = 0; labelStats.rightCrossed = 0;
       if (!show.labels) return;
       c.font = `${cols.sw}${(lvl === 2 ? 13 : 11) + cols.fs}px ${cols.sans}`; c.textBaseline = "middle"; c.textAlign = "left"; c.lineJoin = "round";
+      // v4.05: a name tries the right of its icon first, then the other seven sides, and takes the first one that is clear of every line, other icon and other name;
+      // if every side crosses a line it takes the one with the least line under it. Names never overlap each other (as before).
+      let grid = null;
       const put = (st, x, y, r) => {
-        const nm = T(st.name), w = c.measureText(nm).width, bx = x + r + 4, by = y - 7;
-        if (bx > W || bx + w < 0) return false;
-        if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + 14 && by + 14 > q[1])) return false;
+        const nm = T(st.name), w = c.measureText(nm).width, h = 14, d = r * 0.7 + 2, g = r + 4;
+        const sides = [[x + g, y - 7], [x - g - w, y - 7], [x + d, y - d - h], [x + d, y + d], [x - d - w, y - d - h], [x - d - w, y + d], [x - w / 2, y - r - 3 - h], [x - w / 2, y + r + 3]];
+        let best = null, bestScore = 1e9, onLine = 0;
+        for (let k = 0; k < sides.length; k++) {
+          const [bx, by] = sides[k];
+          if (bx > W || bx + w < 0) continue;
+          if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + 14 && by + 14 > q[1])) continue;
+          if (!grid) grid = lineGrid();
+          const len = grid.overlap(bx, by, w, h);
+          if (k === 0) onLine = len;
+          let score = len + k * 0.4;
+          for (const q of dots) if (q[3] !== st && q[0] + q[2] + 1 > bx && q[0] - q[2] - 1 < bx + w && q[1] + q[2] + 1 > by && q[1] - q[2] - 1 < by + h) score += 30;      // another icon
+          if (score < bestScore) { bestScore = score; best = [bx, by, len]; if (score < 0.5 + k * 0.4) break; }
+        }
+        if (!best) return false;
+        const [bx, by, len] = best;
         placed.push([bx, by, w]);
-        if (!cols.noHalo) { c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(nm, bx, y); c.globalAlpha = 1; }
-        c.fillStyle = cols.lbl || cols.ink; c.fillText(nm, bx, y); labelStats.stations++; return true;
+        if (!cols.noHalo) { c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(nm, bx, by + 7); c.globalAlpha = 1; }
+        c.fillStyle = cols.lbl || cols.ink; c.fillText(nm, bx, by + 7); labelStats.stations++; if (onLine > 0) labelStats.rightCrossed++; if (len > 0) labelStats.crossed++; return true;
       };
       if (wide) {
         cand.sort((a, b) => b[0].rank - a[0].rank);
@@ -441,7 +510,16 @@
         }
         d.lines[lid]._joins = Object.values(ends).filter(a => a.length > 1);
       }
-      return { d, ids };
+      // v4.05: how far from the centre of a station its outermost stripe lane lies (in stripe widths), from the lane and direction of every track that ends there,
+      // so the station icon can be wider than the side-by-side lines it sits on
+      const band = {};
+      for (const lid of ids) for (const sg of d.lines[lid].segments) {
+        const P = sg.path, u = sg._u, n = P.length; if (n < 2) continue;
+        const add = (id, i0, i1, k) => { const dx = P[i1][0] - P[i0][0], dy = P[i1][1] - P[i0][1], L = Math.hypot(dx, dy) || 1; (band[id] = band[id] || []).push([-dy / L * k, dx / L * k]); };
+        add(sg.a, 0, 1, u[0]); add(sg.b, n - 2, n - 1, u[u.length - 1]);
+      }
+      for (const id in band) band[id] = Math.max(...band[id].map(v => Math.hypot(v[0], v[1])));
+      return { d, ids, band };
     }
     function offsetPts(P, off) {          // each vertex moves sideways by the average of its two edges' offsets, so a stripe eases out or in instead of jumping
       const n = P.length, N = [], out = [];
@@ -556,7 +634,7 @@
       if (document.fonts && document.fonts.load) Promise.all(look().fonts.map(f => document.fonts.load(f))).then(() => { if (!scope.dead) { cols = null; dirty(); } }, () => {});
       if (!LB && !lbLoading) { lbLoading = true; loadJS("geo/labels.js", "UC_LABELS", d => { LB = d; dirty(); }, () => { lbLoading = false; }); }
     }
-    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); }, clockTick, drawMs(n) { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, get roadsLook() { return look() && look().roads; }, get clockText() { return nclockT.textContent; } };
+    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); }, get pills() { return { alpha: pillAlpha(performance.now()), to: pillTo, idleMs: performance.now() - lastAct }; }, poke: () => poke(), setIdle(ms) { lastAct = performance.now() - ms; }, clockTick, drawMs(n) { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, get roadsLook() { return look() && look().roads; }, get clockText() { return nclockT.textContent; } };
 
     /* ---------- Layers pop-up (left panel button) ---------- */
     function setupLayers() {
@@ -671,9 +749,14 @@
         clampView();
         if (u >= 1) anim = null; else isDirty = true;
       }
+      if (pillMoving(now)) isDirty = true;                      // an airport pill is fading in or out
       if (isDirty) { isDirty = false; draw(); }
-      if (anim || isDirty) pending = scope.frame(tick);
+      if (anim || isDirty || pillMoving(now)) pending = scope.frame(tick);
     }
+    // any touch, mouse, wheel or key counts as activity: it brings the airport pills back, and they fade again after PILL_IDLE of quiet
+    const poke = () => { lastAct = performance.now(); if (pillGo(1, PILL_IN)) dirty(); };
+    for (const ev of ["pointerdown", "pointermove", "wheel", "keydown"]) scope.on(window, ev, poke, { passive: true });
+    scope.every(() => { if (pillTo === 1 && performance.now() - lastAct >= PILL_IDLE && pillGo(0, PILL_OUT)) dirty(); }, 500);
     function draw() {
       if (!meta) return;
       frameNo++;
@@ -852,7 +935,7 @@
     setupLayers(); prepStyle();
     loadJS("geo/stations.js", "UC_STATIONS", d => {
       stations = d.stations.map(s => { const lines = s.lines || [];      // rank: annual entries and exits (millions), more for each extra line; stations with no figure rank by their lines
-        return { name: s.name, x: s.x, y: s.y, lines, modes: s.modes || [], rank: (s.u || 0) * (1 + 0.15 * Math.max(0, lines.length - 1)) + lines.length * 0.5 }; }); dirty();
+        return { id: s.id, ids: s.ids || [], name: s.name, x: s.x, y: s.y, lines, modes: s.modes || [], rank: (s.u || 0) * (1 + 0.15 * Math.max(0, lines.length - 1)) + lines.length * 0.5 }; }); dirty();
     });
 
     return {

@@ -323,7 +323,7 @@
       }
       // labels sit inside the train: the destination code (the same shorthand as the line maps) or the last 3 digits of the vehicle number (as on the station pages)
       const mode = S.labelMode || "off", fs = Math.max(8.5, W * 0.56);
-      if (mode !== "off" && W >= 15) {
+      if (mode !== "off" && W >= 10) {
         c.font = `700 ${fs}px ${font || "sans-serif"}`; c.textBaseline = "middle"; c.textAlign = "center";
         for (const { t, x, y, ang } of vis) {
           const txt = mode === "vid" ? String(t.vid).slice(-3) : (t.code || (t.code = destCode(t)));

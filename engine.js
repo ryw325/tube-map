@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.05: Full Map looks: the airport arrow pills fade out after 10 s with no activity and return on the next touch, key or mouse move; station icons are wider than the side-by-side lines they sit on; station names pick the side of their icon that keeps clear of the lines (fullmap.js); train destination labels show whenever trains are drawn, not only from about 5.7 km (fullmap-live.js).
    v4.04: the Full Map draws its trains from trains-core.js too (stage 4): one core for every live line (so a train TfL lists under two lines is drawn
    once), each train's stops joined over the real track. The route table now also covers the tram, the three Uber Boat routes and the cable car
    (stop order from TfL's Route/Sequence, run times from the real track). DLR stays static (no train numbers). ?core=0 runs the old Full Map engine.
@@ -126,7 +127,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.04";
+  const VERSION = "4.05";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
