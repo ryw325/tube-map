@@ -782,3 +782,15 @@ html.uc-max.fm-style-poster .fm-pad { right: 28px; bottom: 184px; }
   .fm.fm-poster .fm-tag { top: 20px; right: 20px; font-size: 8.5px; padding: 5px 5px 5px 8px; } .fm.fm-poster .fm-attr { left: 20px; bottom: 18px; max-width: calc(100% - 110px); }
   html.fm-style-poster .fm-ctl { left: 30px; top: 26px; } html.fm-style-poster .zoom-ctl { right: 30px; bottom: 40px; } html.fm-style-poster .fm-pad { right: 30px; bottom: 198px; }
 }
+
+/* v4.07: the recorder's Mark button floats over the page while a recording runs (M key too); a note can be typed after marking */
+.rec-mark { position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+.rec-mark > * { pointer-events: auto; }
+.rec-mark-btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border: 0; border-radius: 999px; background: var(--ink); color: var(--bg); font: 600 14px/1 var(--sans); box-shadow: 0 4px 14px rgba(0,0,0,.22); cursor: pointer; }
+.rec-mark-btn kbd { font: 600 11px/1 var(--sans); padding: 3px 5px; border-radius: 5px; background: color-mix(in srgb, var(--bg) 22%, transparent); }
+.rec-mark-btn.done { background: #C8102E; color: #fff; }
+.rec-mark-note { display: flex; gap: 6px; padding: 5px; border-radius: 999px; background: var(--bg); box-shadow: 0 4px 14px rgba(0,0,0,.22); }
+.rec-mark-note[hidden] { display: none; }
+.rec-mark-note input { width: min(320px, 60vw); border: 1px solid var(--rule); border-radius: 999px; padding: 7px 12px; font: 14px var(--sans); background: var(--bg); color: var(--ink); }
+.rec-mark-note button { border: 0; border-radius: 999px; padding: 7px 12px; background: var(--ink); color: var(--bg); font: 600 13px var(--sans); cursor: pointer; }
+#rec-mark { margin-top: 12px; }

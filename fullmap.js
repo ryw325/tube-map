@@ -288,7 +288,7 @@
     }
     function labelBox(c, text, x, y, placed, font) {   // returns false when it would sit on something already placed
       c.font = font; const w = c.measureText(text).width, bx = x, by = y - 7;
-      if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + 14 && by + 14 > q[1])) return null;
+      if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + (q[3] || 14) && by + 14 > q[1])) return null;
       placed.push([bx, by, w]); return w;
     }
     // landmarks are laid out first (so their names win over station names for space), painted after the stations
@@ -372,7 +372,7 @@
         let ang = river ? -l.r * Math.PI / 180 : 0; if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
         const bw = Math.abs(Math.cos(ang)) * w + Math.abs(Math.sin(ang)) * fsz, bh = Math.abs(Math.sin(ang)) * w + Math.abs(Math.cos(ang)) * fsz, bx = x - bw / 2, by = y - bh / 2;
         if (bx < 6 || by < 6 || bx + bw > W - 6 || by + bh > H - 6) continue;          // whole name on the map
-        if (placed.some(q => bx < q[0] + q[2] + 2 && bx + bw + 2 > q[0] && by < q[1] + 14 && by + bh > q[1])) continue;
+        if (placed.some(q => bx < q[0] + q[2] + 2 && bx + bw + 2 > q[0] && by < q[1] + (q[3] || 14) && by + bh > q[1])) continue;
         if (wide && !river && got.some(g => Math.hypot(g[0] - x, g[1] - y) < SPACE_AREA)) continue;
         placed.push([bx, by, bw]); n++; if (!river) { na++; labelStats.areas++; got.push([x, y]); }
         const K = l.k === "park" ? A.park : A.water;
@@ -386,7 +386,7 @@
     // spaced out so each area shows its most important name. Closer in there is no cap; overlap is the only rule, and busier stations claim space first.
     const WIDE_KM = 11, CAP_STN = 25, CAP_AREA = 8, SPACE_STN = 70, SPACE_AREA = 120;
     const isWide = () => W / view.s / 1000 >= WIDE_KM;
-    const labelStats = { stations: 0, areas: 0, crossed: 0, rightCrossed: 0 };      // the last frame's name counts (debug: window.__fm.labels); crossed = names left with a line under them, rightCrossed = how many would have had one with the old right-of-icon rule
+    const labelStats = { stations: 0, areas: 0, crossed: 0, rightCrossed: 0, wrapped: 0 };      // the last frame's name counts (debug: window.__fm.labels); crossed = names left with a line under them, rightCrossed = how many would have had one with the old right-of-icon rule
     // v4.05: the drawn lines in screen space (stripe lanes included) in a coarse grid, so a station name can be tested against them
     function lineGrid() {
       const CELL = 48, cells = new Map(), segs = [], half = lineW() / 2 + 1.5, s = view.s, lw = lineW(), stripe = s < 0.05 ? 0 : lw * 0.92, [bx0, by0, bx1, by1] = lineBox();
@@ -429,16 +429,12 @@
       const s = view.s, lvl = s < 0.05 ? 0 : s < 0.5 ? 1 : 2, wide = isWide();
       const c = ctx2, labels = [], cand = [], dots = [];
       let shown = 0;
-      // v4.05: a station icon is always wider than the lines it sits on, including side-by-side stripes (RG.band: outermost stripe lane, in stripe widths)
-      const lw = lineW(), stripeW = s < 0.05 ? 0 : lw * 0.92, pad = lvl === 0 ? 1.5 : 2.5;
-      const iconR = (st, r0) => {
-        if (!show.lines || !RG) return r0;
-        if (st._bv === undefined) st._bv = Math.max(RG.band[st.id] || 0, ...st.ids.map(i => RG.band[i] || 0));
-        return Math.max(r0, lw / 2 + stripeW * st._bv + pad);
-      };
+      // v4.06: every station icon is one size, the widest the lines call for: three stripe lanes side by side (1.5 stripe widths either side of the centre) as at Liverpool Street
+      const lw = lineW(), stripeW = s < 0.05 ? 0 : lw * 0.92, pad = lvl === 0 ? 1.5 : 2.5, bigR = lw / 2 + stripeW * 1.5 + pad;
+      const isPier = st => st.modes.includes("river-bus") || st.modes.includes("ferry");
       const dot = (st, x, y, r, live) => {
         dots.push([x, y, r, st]);
-        const pier = st.modes.includes("river-bus") || st.modes.includes("ferry");
+        const pier = isPier(st);
         c.beginPath();
         if (pier) { c.moveTo(x, y - r - 1); c.lineTo(x + r + 1, y); c.lineTo(x, y + r + 1); c.lineTo(x - r - 1, y); c.closePath(); }
         else c.arc(x, y, r, 0, 6.2832);
@@ -448,39 +444,60 @@
         const live = st.lines.length > 0, hub = st.lines.length > 1;
         const x = toScreenX(st.x), y = toScreenY(st.y);
         if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-        const r0 = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6), r = live ? iconR(st, r0) : r0;
+        const r0 = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6), r = live && !isPier(st) && show.lines && RG ? Math.max(r0, bigR) : r0;
         const drawn = !(lvl === 0 && (!hub || st.modes.includes("river-bus") && st.modes.length === 1)) && !(lvl === 1 && !live && s < 0.12);
         if (wide && live && !(st.modes.includes("river-bus") && st.modes.length === 1)) cand.push([st, x, y, r, drawn]);
         if (!drawn) continue;
         shown++; dot(st, x, y, r, live);
         if (!wide && lvl > 0 && (live || lvl === 2)) labels.push([st, x, y, r, hub ? 0 : live ? 1 : 2]);
       }
-      statStations.textContent = shown; labelStats.stations = 0; labelStats.crossed = 0; labelStats.rightCrossed = 0;
+      statStations.textContent = shown; labelStats.stations = 0; labelStats.crossed = 0; labelStats.rightCrossed = 0; labelStats.wrapped = 0;
       if (!show.labels) return;
       c.font = `${cols.sw}${(lvl === 2 ? 13 : 11) + cols.fs}px ${cols.sans}`; c.textBaseline = "middle"; c.textAlign = "left"; c.lineJoin = "round";
-      // v4.05: a name tries the right of its icon first, then the other seven sides, and takes the first one that is clear of every line, other icon and other name;
-      // if every side crosses a line it takes the one with the least line under it. Names never overlap each other (as before).
+      // v4.06: a long name can wrap onto two or three lines (balanced at word breaks) so it uses height instead of spreading across the map. Each name tries its layouts on each of eight
+      // sides of its icon and takes the first clear of every line, other icon and other name; if every try crosses a line it takes the one with the least line under it.
+      const fsz = (lvl === 2 ? 13 : 11) + cols.fs, lh = Math.round(fsz * 1.06), WRAP_AT = fsz * 7.5;
+      const wrapCache = new Map();
+      const layouts = nm => {
+        const key = c.font + "|" + nm, hit = wrapCache.get(key); if (hit) return hit;
+        const words = nm.split(" "), m = t => c.measureText(t).width, w1 = m(nm), mk = lines => ({ lines, w: Math.max(...lines.map(m)), h: lines.length === 1 ? 14 : lines.length * lh });
+        let L2 = null, L3 = null;
+        if (words.length >= 2) { let bw = 1e9; for (let a = 1; a < words.length; a++) { const l = [words.slice(0, a).join(" "), words.slice(a).join(" ")], mw = Math.max(m(l[0]), m(l[1])); if (mw < bw - 0.5) { bw = mw; L2 = l; } } }
+        if (words.length >= 4) { let bw = 1e9; for (let a = 1; a < words.length - 1; a++) for (let b = a + 1; b < words.length; b++) { const l = [words.slice(0, a).join(" "), words.slice(a, b).join(" "), words.slice(b).join(" ")], mw = Math.max(m(l[0]), m(l[1]), m(l[2])); if (mw < bw - 0.5) { bw = mw; L3 = l; } } }
+        const out = [];
+        if (w1 > WRAP_AT && L2) { out.push(mk(L2)); if (L3 && mk(L2).w > WRAP_AT * 1.2) out.push(mk(L3)); out.push(mk([nm])); }      // long: wrapped first, one line as a fallback
+        else { out.push(mk([nm])); if (L2) out.push(mk(L2)); }                                                                    // short: one line, wrapped only if that is the one that fits
+        if (wrapCache.size > 3000) wrapCache.clear(); wrapCache.set(key, out); return out;
+      };
       let grid = null;
       const put = (st, x, y, r) => {
-        const nm = T(st.name), w = c.measureText(nm).width, h = 14, d = r * 0.7 + 2, g = r + 4;
-        const sides = [[x + g, y - 7], [x - g - w, y - 7], [x + d, y - d - h], [x + d, y + d], [x - d - w, y - d - h], [x - d - w, y + d], [x - w / 2, y - r - 3 - h], [x - w / 2, y + r + 3]];
-        let best = null, bestScore = 1e9, onLine = 0;
-        for (let k = 0; k < sides.length; k++) {
-          const [bx, by] = sides[k];
-          if (bx > W || bx + w < 0) continue;
-          if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + 14 && by + 14 > q[1])) continue;
-          if (!grid) grid = lineGrid();
-          const len = grid.overlap(bx, by, w, h);
-          if (k === 0) onLine = len;
-          let score = len + k * 0.4;
-          for (const q of dots) if (q[3] !== st && q[0] + q[2] + 1 > bx && q[0] - q[2] - 1 < bx + w && q[1] + q[2] + 1 > by && q[1] - q[2] - 1 < by + h) score += 30;      // another icon
-          if (score < bestScore) { bestScore = score; best = [bx, by, len]; if (score < 0.5 + k * 0.4) break; }
+        const nm = T(st.name), d = r * 0.7 + 2, g = r + 4, opts = layouts(nm);
+        let best = null, bestScore = 1e9, onLine = 0, first = true;
+        for (let k = 0; k < 8; k++) {
+          for (let mi = 0; mi < opts.length; mi++) {
+            const { w, h } = opts[mi];
+            const side = [[x + g, y - h / 2, "l"], [x - g - w, y - h / 2, "r"], [x + d, y - d - h, "l"], [x + d, y + d, "l"], [x - d - w, y - d - h, "r"], [x - d - w, y + d, "r"], [x - w / 2, y - r - 3 - h, "c"], [x - w / 2, y + r + 3, "c"]][k];
+            const [bx, by] = side;
+            if (bx > W || bx + w < 0) continue;
+            if (placed.some(q => bx < q[0] + q[2] + 2 && bx + w + 2 > q[0] && by < q[1] + (q[3] || 14) && by + h > q[1])) continue;
+            if (!grid) grid = lineGrid();
+            const len = grid.overlap(bx, by, w, h);
+            if (first) { onLine = len; first = false; }
+            let score = len + k * 0.4 + mi * 0.6;
+            for (const q of dots) if (q[3] !== st && q[0] + q[2] + 1 > bx && q[0] - q[2] - 1 < bx + w && q[1] + q[2] + 1 > by && q[1] - q[2] - 1 < by + h) score += 30;      // another icon
+            if (score < bestScore) { bestScore = score; best = [bx, by, len, mi, side[2]]; }
+          }
+          if (bestScore < 0.5 + k * 0.4) break;
         }
         if (!best) return false;
-        const [bx, by, len] = best;
-        placed.push([bx, by, w]);
-        if (!cols.noHalo) { c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(nm, bx, by + 7); c.globalAlpha = 1; }
-        c.fillStyle = cols.lbl || cols.ink; c.fillText(nm, bx, by + 7); labelStats.stations++; if (onLine > 0) labelStats.rightCrossed++; if (len > 0) labelStats.crossed++; return true;
+        const [bx, by, len, mi, al] = best, { lines, w, h } = opts[mi], n = lines.length, lineH = n === 1 ? 14 : lh, ax = al === "l" ? bx : al === "r" ? bx + w : bx + w / 2;
+        placed.push([bx, by, w, h]); c.textAlign = al === "l" ? "left" : al === "r" ? "right" : "center";
+        lines.forEach((ln, i) => {
+          const cy = by + lineH / 2 + i * lineH;
+          if (!cols.noHalo) { c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(ln, ax, cy); c.globalAlpha = 1; }
+          c.fillStyle = cols.lbl || cols.ink; c.fillText(ln, ax, cy);
+        });
+        c.textAlign = "left"; labelStats.stations++; if (onLine > 0) labelStats.rightCrossed++; if (len > 0) labelStats.crossed++; if (n > 1) labelStats.wrapped++; return true;
       };
       if (wide) {
         cand.sort((a, b) => b[0].rank - a[0].rank);
@@ -510,16 +527,7 @@
         }
         d.lines[lid]._joins = Object.values(ends).filter(a => a.length > 1);
       }
-      // v4.05: how far from the centre of a station its outermost stripe lane lies (in stripe widths), from the lane and direction of every track that ends there,
-      // so the station icon can be wider than the side-by-side lines it sits on
-      const band = {};
-      for (const lid of ids) for (const sg of d.lines[lid].segments) {
-        const P = sg.path, u = sg._u, n = P.length; if (n < 2) continue;
-        const add = (id, i0, i1, k) => { const dx = P[i1][0] - P[i0][0], dy = P[i1][1] - P[i0][1], L = Math.hypot(dx, dy) || 1; (band[id] = band[id] || []).push([-dy / L * k, dx / L * k]); };
-        add(sg.a, 0, 1, u[0]); add(sg.b, n - 2, n - 1, u[u.length - 1]);
-      }
-      for (const id in band) band[id] = Math.max(...band[id].map(v => Math.hypot(v[0], v[1])));
-      return { d, ids, band };
+      return { d, ids };
     }
     function offsetPts(P, off) {          // each vertex moves sideways by the average of its two edges' offsets, so a stripe eases out or in instead of jumping
       const n = P.length, N = [], out = [];
@@ -621,6 +629,28 @@
     }
     scope.every(livePanel, 1000); scope.every(clockTick, 1000); clockTick();
     if (ctx.debug) window.__fmLive = { get live() { return LIVE; } };
+    // v4.07: the in-site recorder (recorder.js) reads the Full Map from here. It records this page itself, not a hidden copy, so the view and every
+    // train icon are exactly what is on screen. capture() is a small picture of the map for a mark (null where the browser forbids it, e.g. from a file).
+    let lastTap = null, lastDrawAt = 0;
+    window.__ucLive = {
+      kind: "fullmap", id: "fullmap",
+      age: () => scope.dead ? 1e9 : performance.now() - Math.max(lastDrawAt, liveLast),
+      get fields() { return LIVE ? LIVE.REC_FIELDS : []; },
+      view: () => ({ cx: Math.round(view.cx), cy: Math.round(view.cy), s: Math.round(view.s * 1e5) / 1e5, w: W, h: H, km: Math.round(W / view.s / 100) / 10, style, theme, labels: show.train, blur: !!(LIVE && LIVE.blur) }),
+      sample() {
+        if (scope.dead) return null;
+        return { view: this.view(), trains: LIVE && LIVE.live ? LIVE.recRows(toScreenX, toScreenY, viewRect(), view.s, Date.now()) : [] };
+      },
+      lastTap: () => lastTap && Date.now() - lastTap.t < 60000 ? lastTap : null,
+      capture(maxW) {
+        try {
+          const k = Math.min(1, (maxW || 1000) / canvas.width), cv = document.createElement("canvas"); cv.width = Math.round(canvas.width * k); cv.height = Math.round(canvas.height * k);
+          const g = cv.getContext("2d"); g.drawImage(canvas, 0, 0, cv.width, cv.height); g.drawImage(liveCanvas, 0, 0, cv.width, cv.height);
+          return cv.toDataURL("image/jpeg", 0.72);
+        } catch (e) { return null; }
+      }
+    };
+    scope.later && scope.later(() => { if (window.__ucLive && window.__ucLive.kind === "fullmap") window.__ucLive = null; });
 
     /* ---------- Map style (v3.71): swaps the tile set and the drawing colours in place, keeping the view ---------- */
     function setStyle(id) {
@@ -722,18 +752,6 @@
       if (merged.size > MERGED_MAX) { const old = [...merged.entries()].sort((a, b) => a[1].used - b[1].used).slice(0, merged.size - MERGED_MAX + 40); for (const [k] of old) merged.delete(k); }
       return cv;
     }
-    function artRoads(lvs, span, g) {
-      mergeBudget = MERGES_PER_FRAME; mergePending = false;
-      for (const lv of lvs) {
-        const [i0, i1, j0, j1, m] = span(lv), ox = meta.origin[0], oy = meta.origin[1];
-        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-          const cv = mergedTile(lv, i, j); if (!cv) continue;
-          const ax = Math.floor(toScreenX(ox + i * m) * dpr), ay = Math.floor(toScreenY(oy - j * m) * dpr), bx = Math.ceil(toScreenX(ox + (i + 1) * m) * dpr), by = Math.ceil(toScreenY(oy - (j + 1) * m) * dpr);
-          g.drawImage(cv, ax, ay, bx - ax, by - ay);
-        }
-      }
-      if (mergePending) dirty();
-    }
 
     /* ---------- Drawing (only when something changed) ---------- */
     let pending = 0, anim = null, isDirty = true;
@@ -759,7 +777,7 @@
     scope.every(() => { if (pillTo === 1 && performance.now() - lastAct >= PILL_IDLE && pillGo(0, PILL_OUT)) dirty(); }, 500);
     function draw() {
       if (!meta) return;
-      frameNo++;
+      frameNo++; lastDrawAt = performance.now();
       const t = isDark() ? "dark" : "light", st = STYLES.find(q => q.id === style) || STYLES[0], ns = st[t];
       if (t !== theme || ns !== set || !cols) { theme = t; set = ns; readColours(); for (const k in LOOKS) { box.classList.toggle("fm-" + k, style === k); root.classList.toggle("fm-style-" + k, style === k); } box.classList.toggle("fm-art", art()); }
       const c = ctx2, z = levelFor(), M = meta.tile / meta.scales[z], ox = meta.origin[0], oy = meta.origin[1];
@@ -776,26 +794,48 @@
       { const [i0, i1, j0, j1] = span(z);
         for (const layer of ["base", ...roadLayers()]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { if (!exists(layer, z, i, j)) continue; if (isTier(layer) && merged.has(style + "/" + z + "/" + i + "/" + j)) continue; const e = request(layer, z, i, j); if (e.state === "queued" || e.state === "loading") missing = true; if (e.state === "queued") want.push([e, Math.hypot((ox + (i + .5) * M) - view.cx, (oy - (j + .5) * M) - view.cy) + (layer === "roads" ? 1 : 0)]); } }
       want.sort((a, b) => a[1] - b[1]); wanted = want.map(a => a[0]);
-      const drawLevel = (lv, layer, g) => {
-        const [i0, i1, j0, j1, m] = span(lv);
-        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-          if (!exists(layer, lv, i, j)) continue;
-          const e = cache.get(keyOf(layer, lv, i, j)); if (!e || e.state !== "ok") continue; e.used = frameNo;
-          const ax = Math.floor(toScreenX(ox + i * m) * dpr), ay = Math.floor(toScreenY(oy - j * m) * dpr);
-          const bx = Math.ceil(toScreenX(ox + (i + 1) * m) * dpr), by = Math.ceil(toScreenY(oy - (j + 1) * m) * dpr);
-          g.drawImage(e.img, ax, ay, bx - ax, by - ay);
+      // v4.06: a coarser tile now stands in only where the finer one has not arrived yet. It used to be drawn across the whole view whenever any tile was still loading, so enlarged,
+      // fat and blurry roads showed round the sharp ones and vanished again once loading finished (the road "flash" when panning). Each layer is painted coarse-under-fine, clipped to the gaps.
+      const present = (kind, lv, i, j) => kind === "art" ? TIERS.some(t => exists(t, lv, i, j)) : exists(kind, lv, i, j);
+      const tileFor = (kind, lv, i, j) => {
+        if (kind === "art") return mergedTile(lv, i, j);
+        const e = cache.get(keyOf(kind, lv, i, j)); if (!e || e.state !== "ok") return null; e.used = frameNo; return e.img;
+      };
+      const scan = (lv, kind, within) => {          // the tiles of one level on screen: those that can be drawn now, and the screen boxes of those that cannot
+        const [a0, a1, b0, b1, mm] = span(lv), got = [], holes = [];
+        for (let i = a0; i <= a1; i++) for (let j = b0; j <= b1; j++) {
+          if (!present(kind, lv, i, j)) continue;
+          const box = [Math.floor(toScreenX(ox + i * mm) * dpr), Math.floor(toScreenY(oy - j * mm) * dpr), Math.ceil(toScreenX(ox + (i + 1) * mm) * dpr), Math.ceil(toScreenY(oy - (j + 1) * mm) * dpr)];
+          if (within && !within.some(h => box[0] < h[2] && box[2] > h[0] && box[1] < h[3] && box[3] > h[1])) continue;      // not under a gap of the finer level: not needed
+          const img = tileFor(kind, lv, i, j);
+          if (img) got.push([img, box]); else holes.push(box);
         }
+        return { got, holes };
+      };
+      const paintLevels = (g, kind) => {
+        if (kind === "art") { mergeBudget = MERGES_PER_FRAME; mergePending = false; }
+        const fine = scan(z, kind, null), l1 = fine.holes.length && z >= 1 ? scan(z - 1, kind, fine.holes) : null, l2 = l1 && l1.holes.length && z >= 2 ? scan(z - 2, kind, l1.holes) : null;
+        const put = (set, clips) => {
+          if (!set.got.length) return;
+          g.save(); for (const cs of clips) { const path = new Path2D(); for (const r of cs) path.rect(r[0], r[1], r[2] - r[0], r[3] - r[1]); g.clip(path); }
+          for (const [img, r] of set.got) g.drawImage(img, r[0], r[1], r[2] - r[0], r[3] - r[1]);
+          g.restore();
+        };
+        if (l2) put(l2, [fine.holes, l1.holes]);
+        if (l1) put(l1, [fine.holes]);
+        put(fine, []);
+        if (kind === "art" && mergePending) dirty();
       };
       const lvs = []; if (missing) for (let lv = Math.max(0, z - 2); lv < z; lv++) lvs.push(lv); lvs.push(z);
       if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); for (const layer of ["base", ...roadLayers()]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j) && !(isTier(layer) && merged.has(style + "/" + lv + "/" + i + "/" + j))) request(layer, lv, i, j); }
-      for (const lv of lvs) drawLevel(lv, "base", c);
+      paintLevels(c, "base");
       if (look()) {                                   // Artistic: the style's merged road tiles; on the road canvas first when they are to be cut along the lines
-        if (cut) { if (roadCanvas.width !== canvas.width || roadCanvas.height !== canvas.height) { roadCanvas.width = canvas.width; roadCanvas.height = canvas.height; } ctxR.setTransform(1, 0, 0, 1, 0, 0); ctxR.clearRect(0, 0, roadCanvas.width, roadCanvas.height); ctxR.imageSmoothingEnabled = true; ctxR.imageSmoothingQuality = "high"; artRoads(lvs, span, ctxR); cutRoads(); c.drawImage(roadCanvas, 0, 0); }
-        else artRoads(lvs, span, c);
+        if (cut) { if (roadCanvas.width !== canvas.width || roadCanvas.height !== canvas.height) { roadCanvas.width = canvas.width; roadCanvas.height = canvas.height; } ctxR.setTransform(1, 0, 0, 1, 0, 0); ctxR.clearRect(0, 0, roadCanvas.width, roadCanvas.height); ctxR.imageSmoothingEnabled = true; ctxR.imageSmoothingQuality = "high"; paintLevels(ctxR, "art"); cutRoads(); c.drawImage(roadCanvas, 0, 0); }
+        else paintLevels(c, "art");
       } else {
         let g = c;
         if (cut) { if (roadCanvas.width !== canvas.width || roadCanvas.height !== canvas.height) { roadCanvas.width = canvas.width; roadCanvas.height = canvas.height; } g = ctxR; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, roadCanvas.width, roadCanvas.height); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"; }
-        for (const lv of lvs) drawLevel(lv, "roads", g);
+        paintLevels(g, "roads");
         if (cut) { cutRoads(); c.drawImage(roadCanvas, 0, 0); }
       }
       if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); const q = []; for (const layer of ["base", ...roadLayers()]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j)) { const e = cache.get(keyOf(layer, lv, i, j)); if (e && e.state === "queued") q.push(e); } wanted = q.concat(wanted); }
@@ -887,7 +927,7 @@
       const h = edgeHits.find(q => x >= q[0] && x <= q[0] + q[2] && y >= q[1] && y <= q[1] + q[3]);
       if (!h) {
         const t = LIVE && LIVE.live && LIVE.hit(x, y, toScreenX, toScreenY, Date.now());
-        if (t) { const nm = (LINE_NAMES[t.line] || t.line) + (/^rb|cable/.test(t.line) ? "" : " line"), m = t.secs <= 15 ? "now" : t.secs < 90 ? `${t.secs} s` : `${Math.round(t.secs / 60)} min`;
+        if (t) { lastTap = { t: Date.now(), key: t.key, line: t.line, dest: t.dest || null }; const nm = (LINE_NAMES[t.line] || t.line) + (/^rb|cable/.test(t.line) ? "" : " line"), m = t.secs <= 15 ? "now" : t.secs < 90 ? `${t.secs} s` : `${Math.round(t.secs / 60)} min`;
           tipEl.innerHTML = ""; const a = document.createElement("div"), b = document.createElement("div"); a.textContent = `${nm} to ${t.dest || "terminus"}`; b.textContent = `Next: ${t.next} (${m})`; a.style.fontWeight = "600"; tipEl.append(a, b);
           tipEl.style.left = t.x + "px"; tipEl.style.top = t.y + "px"; tipEl.hidden = false; scope.after(() => { tipEl.hidden = true; }, 7000); }
         return;
@@ -935,7 +975,7 @@
     setupLayers(); prepStyle();
     loadJS("geo/stations.js", "UC_STATIONS", d => {
       stations = d.stations.map(s => { const lines = s.lines || [];      // rank: annual entries and exits (millions), more for each extra line; stations with no figure rank by their lines
-        return { id: s.id, ids: s.ids || [], name: s.name, x: s.x, y: s.y, lines, modes: s.modes || [], rank: (s.u || 0) * (1 + 0.15 * Math.max(0, lines.length - 1)) + lines.length * 0.5 }; }); dirty();
+        return { name: s.name, x: s.x, y: s.y, lines, modes: s.modes || [], rank: (s.u || 0) * (1 + 0.15 * Math.max(0, lines.length - 1)) + lines.length * 0.5 }; }); dirty();
     });
 
     return {

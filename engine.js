@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.07: the in-site recorder can record the Full Map (recorder.js, fullmap.js, fullmap-live.js): read from the page itself every second (the view, and for every train near it where its icon is drawn, whether it is painted and what the train brain says), plus every TfL reply; and a Mark button or the M key notes a moment that looks wrong, with a note, the train last tapped and a picture of the map.
+   v4.06: Full Map: every station icon is one size (the widest the side-by-side lines need, as at Liverpool Street); long station names wrap onto two or three lines so they use height instead of width (fullmap.js).
    v4.05: Full Map looks: the airport arrow pills fade out after 10 s with no activity and return on the next touch, key or mouse move; station icons are wider than the side-by-side lines they sit on; station names pick the side of their icon that keeps clear of the lines (fullmap.js); train destination labels show whenever trains are drawn, not only from about 5.7 km (fullmap-live.js).
    v4.04: the Full Map draws its trains from trains-core.js too (stage 4): one core for every live line (so a train TfL lists under two lines is drawn
    once), each train's stops joined over the real track. The route table now also covers the tram, the three Uber Boat routes and the cable car
@@ -127,7 +129,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.05";
+  const VERSION = "4.07";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

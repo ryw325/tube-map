@@ -207,6 +207,8 @@
     }
     const hiddenT = (t, now) => t.core ? t.hidden : t.plan[0].eta - now > HORIZON_MS;
 
+    // v4.07: every reply (and every failed request) goes to the in-site recorder too, when it is recording the Full Map
+    const recFeed = (...a) => { try { const R = window.UndercurrentRecorder; if (R && R.active) R.feed("fullmap", ...a); } catch (e) {} };
     async function poll(force) {
       if (!S.live || S.inflight) return;
       const now = Date.now(); if (!force && now - S.lastKick < 1500) return; S.lastKick = now;
@@ -222,6 +224,7 @@
         if (!res.ok) throw new Error(`TfL returned an error (${res.status}). Retrying shortly.`);
         const txt = await res.text(); if (scope.dead) return;
         const t0 = performance.now(), data = JSON.parse(txt), t1 = Date.now();
+        recFeed(res.status, data, res.headers.get("date"), null, group);
         const cl = group.filter(inCore);
         if (cl.length) { CORE.ingest(Array.isArray(data) ? data : [], res.headers.get("date"), t1, cl); coreApply(t1); }
         for (const l of group) { if (!inCore(l)) ingest(l, Array.isArray(data) ? data : [], t1); S.fetched[l] = t1; }
@@ -229,6 +232,7 @@
       } catch (err) {
         if (scope.dead) return;
         S.err = err && err.message && !/fetch|network|Load failed/i.test(err.message) ? err.message : "Can't reach TfL right now. Trains keep moving on the last data; retrying shortly.";
+        recFeed(0, null, null, S.err, group);
         for (const l of group) S.fetched[l] = Date.now() - MIN_AGE_MS + 8000;       // try again in about 8 s, not at once
       } finally { S.inflight = false; onChange(); }
     }
@@ -344,9 +348,27 @@
       }
       if (!best) return null;
       const next = best.plan.find(s => s.eta > now - 5000) || best.plan[best.plan.length - 1], secs = Math.round((next.eta - now) / 1000);
-      return { line: best.line, dest: best.dest, next: NAME[best.line][next.sid], secs, x: toX(where(best, S.px || 0.1)[0][0]), y: toY(where(best, S.px || 0.1)[0][1]) };
+      return { key: best.key, line: best.line, dest: best.dest, next: NAME[best.line][next.sid], secs, x: toX(where(best, S.px || 0.1)[0][0]), y: toY(where(best, S.px || 0.1)[0][1]) };
+    }
+    // v4.07: one row per train near the view for the in-site recorder (fields: REC_FIELDS). Map position is where the icon is drawn (on its stripe lane),
+    // screen position is in CSS pixels; drawn says whether it was actually painted (not blurred out, faded, hidden, or off screen)
+    const REC_FIELDS = ["key", "line", "vid", "dest", "code", "mx", "my", "sx", "sy", "alpha", "drawn", "hidden", "dead", "state", "from", "to", "progress", "snapAt", "fadeFrom", "nextStop", "nextEta"];
+    function recRows(toX, toY, view, pxPerM, now) {
+      const rows = [], pad = 1500, r1 = v => Math.round(v * 10) / 10;
+      for (const t of trains.values()) {
+        if (!t.pts || t.pts.length < 2 || !t.plan) continue;
+        const [p] = where(t, pxPerM || 0.1);
+        if (p[0] < view.x0 - pad || p[0] > view.x1 + pad || p[1] < view.y0 - pad || p[1] > view.y1 + pad) continue;
+        const hidden = !t.plan.length || hiddenT(t, now), inView = p[0] >= view.x0 && p[0] <= view.x1 && p[1] >= view.y0 && p[1] <= view.y1;
+        const c = t.c || {}, next = t.plan.find(x => x.eta > now - 5000);
+        rows.push([t.key, t.line, t.vid || null, t.dest || "", t.code || null, r1(p[0]), r1(p[1]), r1(toX(p[0])), r1(toY(p[1])), Math.round((t.alpha || 0) * 100) / 100,
+          !S.blur && t.alpha > 0 && !hidden && inView, !!hidden, !!t.dead, c.state || null, c.from || null, c.to || null, typeof c.progress === "number" ? Math.round(c.progress * 1000) / 1000 : null,
+          c.snapAt || null, c.fadeFrom || null, next ? (NAME[t.line][next.sid] || next.sid) : null, next ? Math.round((next.eta - now) / 100) / 10 : null]);
+      }
+      return rows;
     }
     return {
+      recRows, REC_FIELDS,
       setView, draw, hit, poll: () => poll(true),
       snapshot(now) { const out = []; for (const t of trains.values()) { if (!t.pts || t.pts.length < 2 || t.dead || !t.plan.length || hiddenT(t, now)) continue; const p = xyAt(t, t.disp)[0]; out.push({ key: t.key, line: t.line, x: p[0], y: p[1], plan: t.plan.map(s => ({ sid: s.sid, eta: s.eta, x: (XY[t.line][s.sid] || [0, 0])[0], y: (XY[t.line][s.sid] || [0, 0])[1] })) }); } return out; },
       get live() { return S.live; }, get core() { return CORE; }, get trains() { return trains.size; }, get state() { return S; }, get lines() { return S.wanted.length; },
