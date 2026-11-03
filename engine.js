@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.08: Full Map train fixes from the 3 Nov recording (trains-core.js, fullmap-live.js): replies older than one already used are left out; a train the feed puts up to 3 stops behind waits at its next station instead of jumping back; stops before a gap of over 20 minutes, or a first stop with later stops behind it, are dropped (no more stacks of Elizabeth trains at Paddington or Overground trains at Clapham Junction); "one train, one line" only joins copies listed at each other's stations (the same number on unrelated lines is another train), and lines sharing track are asked for together; a train waiting mid-line shows from a minute before it leaves and stays until 2 minutes off, fading in and out.
    v4.07: the in-site recorder can record the Full Map (recorder.js, fullmap.js, fullmap-live.js): read from the page itself every second (the view, and for every train near it where its icon is drawn, whether it is painted and what the train brain says), plus every TfL reply; and a Mark button or the M key notes a moment that looks wrong, with a note, the train last tapped and a picture of the map.
    v4.06: Full Map: every station icon is one size (the widest the side-by-side lines need, as at Liverpool Street); long station names wrap onto two or three lines so they use height instead of width (fullmap.js).
    v4.05: Full Map looks: the airport arrow pills fade out after 10 s with no activity and return on the next touch, key or mouse move; station icons are wider than the side-by-side lines they sit on; station names pick the side of their icon that keeps clear of the lines (fullmap.js); train destination labels show whenever trains are drawn, not only from about 5.7 km (fullmap-live.js).
@@ -129,7 +130,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.07";
+  const VERSION = "4.08";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

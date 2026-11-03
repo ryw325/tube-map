@@ -16,6 +16,10 @@
   const WEIGHT_KB = { elizabeth: 800, windrush: 650, northern: 780, central: 470, piccadilly: 450, jubilee: 350, mildmay: 350, district: 320, "hammersmith-city": 280, weaver: 280, lioness: 210, bakerloo: 200, metropolitan: 190, victoria: 180, circle: 130, tram: 90, suffragette: 90, liberty: 60, "waterloo-city": 10, rb1: 30, rb4: 20, rb6: 40, "london-cable-car": 5 };
   const SPEED = { tube: 11, elizabeth: 18, overground: 14, tram: 8, boat: 5, cable: 4 };
   const OVERGROUND = new Set(["liberty", "lioness", "mildmay", "suffragette", "weaver", "windrush"]);
+  // v4.08: lines that share track are asked for in one request, so the train brain's "one train, one line" rule sees every copy of a train
+  // (asked for apart, a Circle train was also drawn as a Hammersmith & City train on top of itself)
+  const FAMILIES = [["circle", "hammersmith-city", "district", "metropolitan"], [...OVERGROUND]];
+  const familyOf = l => FAMILIES.find(f => f.includes(l)) || [l];
   const speedOf = lid => lid === "elizabeth" ? SPEED.elizabeth : OVERGROUND.has(lid) ? SPEED.overground : lid === "tram" ? SPEED.tram : /^rb|ferry/.test(lid) ? SPEED.boat : lid === "london-cable-car" ? SPEED.cable : SPEED.tube;
   const norm = s => (s || "").toLowerCase().replace(/\(.*?\)/g, "").replace(/ (underground station|rail station|dlr station|tram stop|station|pier|stop)$/g, "").replace(/^london /, "").replace(/[^a-z0-9]/g, "");
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -177,6 +181,7 @@
         const gk = sids.join(">");
         if (gk !== t.gk) { t.gk = gk; coreGeom(t, sids); }
         t.atEnd = st => RT.st[st.k] !== undefined && (st.k === 0 || st.k === RT.LAST);
+        if (t.pts && t.pts.length >= 2) coreAdvance(t, now);                     // v4.08: placed on its new track now, not on the next frame
       }
       for (const [k, t] of trains) if (t.core && !seen.has(k)) trains.delete(k);   // the core has let it go (it has faded out)
     }
@@ -198,12 +203,19 @@
       const from = pos.standing ? pos.i : pos.i - 1, d0 = t.stopAt[from] || 0, d1 = t.stopAt[pos.i] || d0;
       t.disp = d0 + (pos.standing ? 0 : pos.p) * (d1 - d0);
       const here = c.stops[pos.i];
-      t.hidden = !t.sids[from] || !t.sids[pos.i] ||                                // beyond the edge of the map (Reading, Shenfield, Watford): no track to draw it on
+      // v4.08: a train waiting mid-line shows from a minute before it leaves, and once shown stays until it is 2 minutes off again (TfL keeps
+      // moving such a departure on, and at exactly a minute it blinked on and off); a train going out of sight fades rather than vanishing
+      const wait = pos.standing && here && here.at === null && !t.atEnd(here) && here.dep !== null;
+      const hide = !t.sids[from] || !t.sids[pos.i] ||                                // beyond the edge of the map (Reading, Shenfield, Watford): no track to draw it on
         (c.state === "waiting" && c.departAt !== null && c.departAt - T > HORIZON_MS) ||
-        (pos.standing && here && here.at === null && !t.atEnd(here) && here.dep !== null && here.dep - T > 60000) ||
+        (wait && here.dep - T > (t.hidden === false ? 120000 : 60000)) ||
         now - (S.fetched[t.line] || 0) > STALE_LINE_MS;
+      if (!hide) { if (t.hidden) t.born = now; t.hidden = false; t.hideAt = 0; }
+      else if (t.hidden === undefined || t.alpha <= 0) t.hidden = true;
+      else if (!t.hidden && !t.hideAt) t.hideAt = now;
+      if (t.hideAt && now - t.hideAt >= 600) { t.hidden = true; t.hideAt = 0; }
       if (c.fadeFrom && T >= c.fadeFrom) { t.alpha = Math.max(0, Math.min(1, (c.fadeTo - T) / Math.max(1, c.fadeTo - c.fadeFrom))); t.dead = t.dead || now; }
-      else t.alpha = Math.min(1, (now - t.born) / 600);
+      else t.alpha = Math.min(1, (now - t.born) / 600, t.hideAt ? 1 - (now - t.hideAt) / 600 : 1);
     }
     const hiddenT = (t, now) => t.core ? t.hidden : t.plan[0].eta - now > HORIZON_MS;
 
@@ -215,7 +227,12 @@
       const want = S.wanted.filter(l => now - (S.fetched[l] || 0) >= MIN_AGE_MS).sort((a, b) => (S.fetched[a] || 0) - (S.fetched[b] || 0));
       if (!want.length) return;
       const group = []; let kb = 0;
-      for (const l of want) { const w = WEIGHT_KB[l] || 300; if (group.length && kb + w > GROUP_KB) break; group.push(l); kb += w; }
+      for (const l of want) {
+        if (group.includes(l)) continue;
+        const unit = familyOf(l).filter(x => x === l || S.wanted.includes(x)), w = unit.reduce((a, x) => a + (WEIGHT_KB[x] || 300), 0);
+        if (group.length && kb + w > GROUP_KB) break;
+        group.push(...unit); kb += w;
+      }
       S.inflight = true;
       try {
         const res = await scope.fetch(apiUrl(`/Line/${group.join(",")}/Arrivals`), { cache: "no-store" });

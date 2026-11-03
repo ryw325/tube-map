@@ -43,7 +43,11 @@
      a train has stood with no data for 8 min takes that train over. Two platforms at a route end: a third train in means the oldest goes.
    - Horizon: a vehicle whose first stop is more than 30 minutes off is not tracked yet.
    - Order (v4.03): trains on one track keep their order (a train cannot reach a stop until the one in front has left it, plus 30 s); two replies
-     in a row saying otherwise re-place the train in front. One train, one line: a vehicle TfL lists under several lines of one reply is kept once. */
+     in a row saying otherwise re-place the train in front. One train, one line: a vehicle TfL lists under several lines of one reply is kept once.
+   - v4.08 (from a Full Map recording, 3 Nov): a line's reply older than one already used (TfL's cache) is left out. Behind: a train the feed
+     puts more than 0.6 stops behind it waits at its next stop until the feed's time there; it is re-placed back only when more than 3 stops
+     out. Stops before a gap of over 20 minutes, and a first stop with two or more later stops behind it, are not where the train is. One
+     train, one line joins only copies listed at each other's stations (Tube train numbers are reused on unrelated lines). */
 (function (root) {
   "use strict";
   const RULES = {
@@ -51,7 +55,8 @@
     DWELL_MAX_S: 20, DWELL_FRAC: 0.25, DWELL_MIN_S: 5, TURN_MIN_S: 15,
     CATCH: 4, LATE_RAMP_S: 10, STRETCH: 3, OUT_STOPS: 1.2, RUN_S: 120, MIN_GAP_S: 10,
     MISS_S: 60, MISS_REPLIES: 2, FADE_S: 3, DEST_REPLIES: 2, DEST_ALERT_S: 30,
-    MID_HOLD_S: 480, END_HOLD_S: 600, RENUMBER_S: 480, PLATFORM_CLEAR_S: 30, HEADWAY_S: 30, ORDER_REPLIES: 2
+    MID_HOLD_S: 480, END_HOLD_S: 600, RENUMBER_S: 480, PLATFORM_CLEAR_S: 30, HEADWAY_S: 30, ORDER_REPLIES: 2,
+    OLDER_S: 2, FAR_GAP_S: 1200, BACK_STOPS: 3, LAG_STOPS: 0.6
   };
   const sgn = d => d === "S" ? 1 : -1;
   const opp = d => d === "S" ? "N" : "S";
@@ -297,6 +302,7 @@
           const normal = cur.arr + dwellFor(gap);
           dep = feedDep < normal ? Math.max(cur.arr + rules.DWELL_MIN_S * S_MS, feedDep)      // late: a shorter stop
                                  : Math.max(normal, fb - travel * rules.STRETCH);           // early: a longer stop rather than a crawl
+          if (start.lag && fa !== undefined && fa > cur.arr) dep = Math.max(dep, fa + dwellFor(gap));   // v4.08: ahead of the feed: it waits for it
         }
         if (!(cur.arr > now)) dep = Math.max(dep, now);                                  // standing there now: it can only leave from now on
         dep = Math.max(dep, cur.arr);
@@ -379,12 +385,25 @@
         raw.sort((a, b) => a.at - b.at);
         raw = raw.filter((p, i, a) => !(i && p.g === a[i - 1].g && Math.abs(p.at - a[i - 1].at) <= rules.SAME_STOP_S * S_MS));
         const live = raw.filter(p => p.at >= now - rules.STALE_S * S_MS); raw = live.length ? live : [raw[raw.length - 1]];
+        // v4.08: a stop due now followed by nothing for FAR_GAP_S (Elizabeth trains still out west listed at Paddington, Overground trains
+        // at Clapham Junction an hour before their trip) is not where the train is: its stops start after the gap
+        for (let i = raw.length - 1; i > 0; i--) if (raw[i].at - raw[i - 1].at > rules.FAR_GAP_S * S_MS) { raw = raw.slice(i); break; }
         if (Lm.CUT_REPEATS) raw = Lm.cutAtRepeat(raw);
         const key = Lm.id + "|" + v;
         let t = trains.get(key);
         if (!t && raw[0].at - now > rules.HORIZON_S * S_MS) return;
         if (t) { const e = evalTl(t.tl, now); t.x0 = e.x; }
-        const pick = Lm.chooseRoute(raw, t);
+        let pick = Lm.chooseRoute(raw, t);
+        // v4.08: a first stop with two or more later stops behind it, on the way to it, is not real (Elizabeth trains out west listed at
+        // Paddington as due now): the stops start after it
+        if (pick && raw.length > 2) {
+          const p0 = pick.preds[0], s0 = sgn(p0.dir);
+          if (pick.preds.filter(p => p.dir === p0.dir && s0 * (p.k - p0.k) < 0).length >= 2) {
+            raw = raw.slice(1);
+            if (!t && raw[0].at - now > rules.HORIZON_S * S_MS) return;
+            pick = Lm.chooseRoute(raw, t);
+          }
+        }
         if (!pick) return;
         const { R, preds: pp } = pick;
         Lm.learnRunTimes(R, pp);
@@ -443,10 +462,13 @@
           } else {
             const target = evalTl(fromFeed(Lm, R, dir, stops, now, next.loc, prevK), now);
             const diff = s * (target.x - (start.moving ? start.kFrom + start.p * (start.kTo - start.kFrom) : start.k));
-            if (Math.abs(diff) > rules.OUT_STOPS) t.tl = replace(t, fromFeed(Lm, R, dir, stops, now, next.loc, prevK), now);
+            // v4.08: a train the feed puts behind it by up to BACK_STOPS is not taken back: it stands at its next stop until the times catch up
+            // (TfL runs a held train's times on and then pulls them back, which used to re-place it behind and then ahead again)
+            if (diff > rules.OUT_STOPS || diff < -rules.BACK_STOPS) t.tl = replace(t, fromFeed(Lm, R, dir, stops, now, next.loc, prevK), now);
             else {
               const ls = Lm.locStations(next.loc), atLoc = ls && ls !== "off" && /^(at|approaching)\s/i.test(next.loc) ? new Set(ls.map(g => R.pos[g])) : null;
               start.reached = k => (t.listed && t.listed.R === R && t.listed.ks.has(k)) || (atLoc && atLoc.has(k));
+              start.lag = diff < -rules.LAG_STOPS;
               t.tl = build(Lm, R, start, stops, now, dir);
             }
           }
@@ -642,30 +664,51 @@
       const data = Array.isArray(reply) ? reply : [];
       const byLine = new Map(), only = lineIds && lineIds.length === 1 ? lineIds[0] : null;   // (test feeds may leave lineId out)
       data.forEach(p => { const id = p.lineId || only; if (LINES[id]) (byLine.get(id) || byLine.set(id, []).get(id)).push(p); });
-      const asked = lineIds || [...byLine.keys()];
+      // v4.08: TfL's cache sometimes hands back an older copy (about 1 reply in 4, 15 to 60 s older than one already used); taking it pulls
+      // trains back and the next reply pushes them on again. A line whose newest timestamp is older than one already used is left out.
+      const asked = (lineIds || [...byLine.keys()]).filter(id => {
+        const Lm = LINES[id], ps = byLine.get(id); if (!Lm || !ps || !ps.length) return true;
+        let gen = -Infinity; ps.forEach(p => { const ts = Date.parse(p.timestamp); if (ts > gen) gen = ts; });
+        if (!Number.isFinite(gen)) return true;
+        if (Lm.gen && gen < Lm.gen - rules.OLDER_S * S_MS) { Lm.staleReplies = (Lm.staleReplies || 0) + 1; return false; }
+        Lm.gen = Math.max(Lm.gen || 0, gen); return true;
+      });
       // v4.03: one train, one line. TfL lists a train on shared track under every line using it; with several lines in one reply it is kept
       // once, on the line it is already on, else the line whose stations explain most of its predictions (then its destination)
-      const owner = new Map();
+      // v4.08: only copies listed at each other's stations are one train: Tube train numbers are reused on unrelated lines (Circle 202,
+      // Bakerloo 202 and Northern 202 are three trains), and asked for together the others used to be faded out
+      const skipOf = new Map();                                                     // vehicle -> lines that leave it to another line
       if (asked.length > 1) {
-        const fit = new Map();                                                       // vehicle -> line -> [stops on that line, destination on it]
+        const fit = new Map();                                                       // vehicle -> line -> [stops on that line, destination on it, predictions, naptans]
         asked.forEach(id => { const Lm = LINES[id]; if (!Lm) return; (byLine.get(id) || []).forEach(p => {
           const v = String(p.vehicleId || "").trim(); if (!v || /^0+$/.test(v)) return;
-          const f = fit.get(v) || fit.set(v, new Map()).get(v), r = f.get(id) || f.set(id, [0, 0, 0]).get(id);
-          r[2]++; if (Lm.byNaptan[p.naptanId] !== undefined) r[0]++; if (Lm.byNaptan[p.destinationNaptanId] !== undefined) r[1] = 1; }); });
+          const f = fit.get(v) || fit.set(v, new Map()).get(v), r = f.get(id) || f.set(id, [0, 0, 0, []]).get(id);
+          r[2]++; r[3].push(p.naptanId); if (Lm.byNaptan[p.naptanId] !== undefined) r[0]++; if (Lm.byNaptan[p.destinationNaptanId] !== undefined) r[1] = 1; }); });
+        const onLine = (naps, id) => naps.filter(n => LINES[id].byNaptan[n] !== undefined).length * 2 >= naps.length;
+        const same = (f, a, b) => onLine(f.get(a)[3], b) || onLine(f.get(b)[3], a);
         fit.forEach((f, v) => {
           if (f.size < 2) {                                                          // listed under one line now: a copy left on another line goes
-            const only = [...f.keys()][0];
-            asked.forEach(id => { const o = trains.get(id + "|" + v); if (id !== only && o) fade(o, now); });
+            const only = [...f.keys()][0], naps = f.get(only)[3];
+            asked.forEach(id => { const o = trains.get(id + "|" + v); if (id !== only && o && onLine(naps, id)) fade(o, now); });
             return;
           }
-          const cur = [...f.keys()].find(id => trains.has(id + "|" + v) && !trains.get(id + "|" + v).fadeFrom);
-          const best = cur || [...f.entries()].sort((x, y) => (y[1][0] / y[1][2] - x[1][0] / x[1][2]) || (y[1][1] - x[1][1]) || (y[1][0] - x[1][0]))[0][0];
-          owner.set(v, best);
-          f.forEach((r, id) => { const o = trains.get(id + "|" + v); if (id !== best && o) fade(o, now); });   // its copy on the other line goes at once
+          const rank = [...f.entries()].sort((x, y) => (y[1][0] / y[1][2] - x[1][0] / x[1][2]) || (y[1][1] - x[1][1]) || (y[1][0] - x[1][0])).map(e => e[0]);
+          const clusters = [];
+          rank.forEach(id => { const c = clusters.find(c => same(f, c[0], id)); if (c) c.push(id); else clusters.push([id]); });
+          clusters.forEach(c => {
+            if (c.length < 2) return;
+            // (the line it is on keeps it unless another lists at least twice as many of its stops: TfL lists a Circle train once at Royal Oak
+            // under the Hammersmith & City too)
+            const cur = c.find(id => trains.has(id + "|" + v) && !trains.get(id + "|" + v).fadeFrom);
+            const most = Math.max(...c.map(id => f.get(id)[0]));
+            const best = cur && f.get(cur)[0] * 2 >= most ? cur : c[0];
+            c.forEach(id => { if (id === best) return; (skipOf.get(v) || skipOf.set(v, new Set()).get(v)).add(id);
+              const o = trains.get(id + "|" + v); if (o) fade(o, now); });                 // its copy on the other line goes at once
+          });
         });
       }
       asked.forEach(id => { if (!LINES[id]) return;
-        const skip = new Set(); owner.forEach((o, v) => { if (o !== id) skip.add(v); });
+        const skip = new Set(); skipOf.forEach((ls, v) => { if (ls.has(id)) skip.add(v); });
         ingestLine(LINES[id], byLine.get(id) || [], now, skip); });
       lastAt = now;
       return now;
