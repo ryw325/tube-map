@@ -363,10 +363,16 @@
         const p = where(t, S.px || 0.1)[0], dx = toX(p[0]) - x, dy = toY(p[1]) - y, d = dx * dx + dy * dy;
         if (d < bd) { bd = d; best = t; }
       }
-      if (!best) return null;
-      const next = best.plan.find(s => s.eta > now - 5000) || best.plan[best.plan.length - 1], secs = Math.round((next.eta - now) / 1000);
-      return { key: best.key, line: best.line, dest: best.dest, next: NAME[best.line][next.sid], secs, x: toX(where(best, S.px || 0.1)[0][0]), y: toY(where(best, S.px || 0.1)[0][1]) };
+      return best ? describe(best, toX, toY, now) : null;
     }
+    function describe(t, toX, toY, now) {
+      const next = t.plan.find(s => s.eta > now - 5000) || t.plan[t.plan.length - 1], secs = Math.round((next.eta - now) / 1000), p = where(t, S.px || 0.1)[0];
+      return { key: t.key, line: t.line, dest: t.dest, next: NAME[t.line][next.sid], secs, x: toX(p[0]), y: toY(p[1]) };
+    }
+    const shown = (t, now) => t.pts && t.pts.length >= 2 && !t.dead && t.plan.length && !hiddenT(t, now);
+    // v4.09: the trains the Full Map search can find (every one that could be drawn now), and one train's details by key
+    function list(now) { const out = []; for (const t of trains.values()) if (shown(t, now) && t.vid != null) out.push({ key: t.key, line: t.line, vid: String(t.vid), dest: t.dest || "" }); return out; }
+    function info(key, toX, toY, now) { const t = trains.get(key); return t && shown(t, now) ? describe(t, toX, toY, now) : null; }
     // v4.07: one row per train near the view for the in-site recorder (fields: REC_FIELDS). Map position is where the icon is drawn (on its stripe lane),
     // screen position is in CSS pixels; drawn says whether it was actually painted (not blurred out, faded, hidden, or off screen)
     const REC_FIELDS = ["key", "line", "vid", "dest", "code", "mx", "my", "sx", "sy", "alpha", "drawn", "hidden", "dead", "state", "from", "to", "progress", "snapAt", "fadeFrom", "nextStop", "nextEta"];
@@ -386,7 +392,7 @@
     }
     return {
       recRows, REC_FIELDS,
-      setView, draw, hit, poll: () => poll(true),
+      setView, draw, hit, list, info, poll: () => poll(true),
       snapshot(now) { const out = []; for (const t of trains.values()) { if (!t.pts || t.pts.length < 2 || t.dead || !t.plan.length || hiddenT(t, now)) continue; const p = xyAt(t, t.disp)[0]; out.push({ key: t.key, line: t.line, x: p[0], y: p[1], plan: t.plan.map(s => ({ sid: s.sid, eta: s.eta, x: (XY[t.line][s.sid] || [0, 0])[0], y: (XY[t.line][s.sid] || [0, 0])[1] })) }); } return out; },
       get live() { return S.live; }, get core() { return CORE; }, get trains() { return trains.size; }, get state() { return S; }, get lines() { return S.wanted.length; },
       count(view) { let n = 0; const now = Date.now(); for (const t of trains.values()) { if (!t.pts || t.dead || !t.plan.length || hiddenT(t, now)) continue; const p = xyAt(t, t.disp)[0]; if (p[0] >= view.x0 && p[0] <= view.x1 && p[1] >= view.y0 && p[1] <= view.y1) n++; } return n; },

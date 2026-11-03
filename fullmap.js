@@ -155,7 +155,7 @@
     const art = () => !!look();                       // an Artistic style: one look, shared simplified geometry
     let LB = null, lbLoading = false;          // park and water names (Parchment only), from geo/labels.js
     const typeOn = k => show.icons && show.types[k];
-    let F = null, fLoading = false, LM = null, RG = null, edgeHits = [], LIVE = null, liveRunning = false, liveLast = 0;
+    let F = null, fLoading = false, LM = null, RG = null, edgeHits = [], tapHits = [], LIVE = null, liveRunning = false, liveLast = 0;
     // v4.05: the airport arrow pills fade out after PILL_IDLE ms with no touch, key or mouse activity, and come straight back on the next one
     const PILL_IDLE = 10000, PILL_OUT = 900, PILL_IN = 250;
     let lastAct = performance.now(), pillFrom = 1, pillTo = 1, pillT0 = 0, pillMs = 0;
@@ -303,7 +303,7 @@
         placed.push([o.x - r, o.y - 7, 2 * r]);
         let w = null;
         if (s >= 0.06 && (o.l.t === 1 || s >= 0.25)) w = labelBox(c, T(o.l.n), o.x + r + 5, o.y, placed, font);
-        items.push({ x: o.x, y: o.y, r, kind: o.l.c, name: w !== null ? T(o.l.n) : null, font });
+        items.push({ x: o.x, y: o.y, r, kind: o.l.c, name: w !== null ? T(o.l.n) : null, font }); tapHits.push([o.x, o.y, r, o.l.x, o.l.y]);
       }
       return items;
     }
@@ -320,7 +320,7 @@
       for (const a of all) {
         const x = toScreenX(a.x), y = toScreenY(a.y), near = LM.airports.includes(a);
         if (x > 18 && x < W - 18 && y > 18 && y < H - 18) {
-          badge(x, y, 12.5, "plane");
+          badge(x, y, 12.5, "plane"); tapHits.push([x, y, 12.5, a.x, a.y]);
           const font = `${art() ? cols.wt : 700} ${12 + cols.fs}px ${cols.sans}`; c.font = font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(T(a.n), x + 18, y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(T(a.n), x + 18, y);
           continue;
         }
@@ -433,7 +433,7 @@
       const lw = lineW(), stripeW = s < 0.05 ? 0 : lw * 0.92, pad = lvl === 0 ? 1.5 : 2.5, bigR = lw / 2 + stripeW * 1.5 + pad;
       const isPier = st => st.modes.includes("river-bus") || st.modes.includes("ferry");
       const dot = (st, x, y, r, live) => {
-        dots.push([x, y, r, st]);
+        dots.push([x, y, r, st]); tapHits.push([x, y, r, st.x, st.y]);
         const pier = isPier(st);
         c.beginPath();
         if (pier) { c.moveTo(x, y - r - 1); c.lineTo(x + r + 1, y); c.lineTo(x, y + r + 1); c.lineTo(x - r - 1, y); c.closePath(); }
@@ -669,9 +669,9 @@
     /* ---------- Layers pop-up (left panel button) ---------- */
     function setupLayers() {
       const scrim = $("sheet-scrim"), btnBox = document.querySelector(".panel-btns");
-      const btn = document.createElement("button"); btn.type = "button"; btn.className = "menu-btn fm-layers-btn"; btn.setAttribute("aria-haspopup", "dialog");
+      const btn = document.createElement("button"); btn.type = "button"; btn.className = "menu-btn pbtn fm-layers-btn"; btn.setAttribute("aria-haspopup", "dialog");
       btn.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 12.5l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>Layers';
-      btnBox.insertBefore(btn, $("menu-open").nextSibling);
+      const row = document.createElement("div"); row.className = "pbtn-row fm-row"; row.append(btn); btnBox.insertBefore(row, $("menu-open").nextSibling);   // v4.09: Layers and Search side by side
       const sw = (attr, k, label, col) => `<button type="button" class="fm-sw" role="switch" aria-checked="false" data-${attr}="${k}">${col ? `<i style="--c:${col}"></i>` : "<i></i>"}<span><b>${label}</b></span><em aria-hidden="true"></em></button>`;
       const sheet = document.createElement("section"); sheet.className = "sheet fm-sheet"; sheet.hidden = true; sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-labelledby", "sheet-map-h");
       sheet.innerHTML = `<div class="sheet-head"><h2 id="sheet-map-h">Layers</h2><button type="button" class="sheet-x" data-close aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -710,7 +710,89 @@
         else return;
         paint(); dirty();
       });
-      scope.later(() => { btn.remove(); sheet.remove(); if (isOpen) { scrim.classList.remove("in"); scrim.hidden = true; } });
+      scope.later(() => { row.remove(); sheet.remove(); if (isOpen) { scrim.classList.remove("in"); scrim.hidden = true; } });
+      setupSearch(row, scrim);
+    }
+
+    /* ---------- Search pop-up (v4.09): stations, landmarks and airports, and live trains by vehicle number; picking one glides the map to it ---------- */
+    function setupSearch(row, scrim) {
+      const btn = document.createElement("button"); btn.type = "button"; btn.className = "menu-btn pbtn fm-search-btn"; btn.setAttribute("aria-haspopup", "dialog");
+      btn.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20"/></svg>Search';
+      row.append(btn);
+      const sheet = document.createElement("section"); sheet.className = "sheet fm-sheet fm-find"; sheet.hidden = true; sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-labelledby", "sheet-find-h");
+      sheet.innerHTML = `<div class="sheet-head"><h2 id="sheet-find-h">Search</h2><button type="button" class="sheet-x" data-close aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+        <div class="sheet-body"><input class="stn-search fm-find-q" type="search" placeholder="Station, place or train number" aria-label="Search the map" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="fm-find-res" role="list" aria-live="polite"></div></div>`;
+      document.body.appendChild(sheet);
+      const q = sheet.querySelector(".fm-find-q"), res = sheet.querySelector(".fm-find-res");
+      const norm = t => (t || "").toLowerCase().replace(/&/g, " and ").replace(/['’.]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+      const score = (name, nq) => { const n = norm(name); if (n.startsWith(nq)) return 0; if ((" " + n).includes(" " + nq)) return 1; if (n.includes(nq)) return 2; return n.replace(/ /g, "").includes(nq.replace(/ /g, "")) ? 3 : -1; };
+      const TYPE_NAME = { bridge: "Bridge", worship: "Place of worship", palace: "Palace or castle", monument: "Monument", tower: "Tower", museum: "Museum", theatre: "Theatre or hall", civic: "Civic building", stadium: "Stadium", attraction: "Attraction" };
+      const MODE_NAME = { "national-rail": "National Rail", "river-bus": "Pier", "cable-car": "Cable car", tram: "Tram", dlr: "DLR", overground: "Overground", "elizabeth-line": "Elizabeth line", tube: "Tube" };
+      const lineName = l => LINE_NAMES[l] || (/^rb/.test(l) ? "River bus" : /cable/.test(l) ? "Cable car" : l);
+      const stnSub = st => { const ls = [...new Set(st.lines.map(lineName))]; return ls.length ? (ls.length > 3 ? ls.slice(0, 3).join(", ") + ` and ${ls.length - 3} more` : ls.join(", ")) : st.modes.map(m => MODE_NAME[m] || m).join(", ") || "Station"; };
+      let items = [];
+      const find = text => {
+        const nq = norm(text); if (!nq) return [];
+        const out = [], seen = [];
+        const st = [];
+        for (const s of stations) { const k = score(s.name, nq); if (k < 0) continue;
+          const same = st.find(o => o.head === s.name && Math.hypot(o.x - s.x, o.y - s.y) < 400);     // one row for a station listed once per mode (Canary Wharf), with all its lines
+          if (same) { same.s = { lines: same.s.lines.concat(s.lines), modes: same.s.modes.concat(s.modes) }; same.r = Math.max(same.r, s.rank); continue; }
+          st.push({ k, r: s.rank, kind: "Stations", head: s.name, s: { lines: s.lines, modes: s.modes }, x: s.x, y: s.y }); }
+        st.forEach(o => { o.sub = stnSub(o.s); }); st.sort((a, b) => a.k - b.k || b.r - a.r); out.push(...st.slice(0, 8));
+        const pl = [];
+        if (LM) { for (const l of LM.landmarks) { const k = score(l.n, nq); if (k >= 0) pl.push({ k, r: -l.t, kind: "Places", head: l.n, sub: TYPE_NAME[l.c] || "", x: l.x, y: l.y }); }
+          for (const a of LM.airports.concat(LM.edge)) { const k = score(a.n, nq), far = !LM.airports.includes(a); if (k >= 0) pl.push({ k, r: 0, kind: "Places", head: a.n, sub: far ? "Airport, beyond the map" : "Airport", x: a.x, y: a.y, far }); } }
+        pl.sort((a, b) => a.k - b.k || b.r - a.r); out.push(...pl.slice(0, 6));
+        const digits = (nq.match(/\d+/) || [""])[0];
+        if (digits && LIVE && LIVE.live) {                  // a train by its vehicle number (the map shows the last three digits), with a line name to narrow it down
+          const words = nq.replace(/\d+/g, " ").trim(), tr = [];
+          for (const t of LIVE.list(Date.now())) {
+            const short = t.vid.slice(-3), ln = lineName(t.line);
+            if (!(t.vid === digits || short === digits || t.vid.includes(digits))) continue;
+            if (words && score(ln + " line " + t.dest, words) < 0) continue;
+            tr.push({ k: t.vid === digits || short === digits ? 0 : 1, kind: "Trains", head: `${ln} ${short}`, sub: t.dest ? `to ${t.dest}` : "", key: t.key });
+          }
+          tr.sort((a, b) => a.k - b.k || a.head.localeCompare(b.head)); out.push(...tr.slice(0, 8));
+        }
+        return out;
+      };
+      const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      const paint = () => {
+        items = find(q.value);
+        if (!q.value.trim()) { res.innerHTML = `<p class="fm-find-note">Type a station or place name, or a train's number (as shown with Vehicle ID labels), such as 202 or Circle 202.</p>`; return; }
+        if (!items.length) { res.innerHTML = `<p class="fm-find-note">${/\d/.test(q.value) && !(LIVE && LIVE.live) ? "No live trains yet. Trains can be found once live data arrives." : "Nothing found."}</p>`; return; }
+        let h = "", last = "";
+        items.forEach((it, i) => { if (it.kind !== last) { h += `<p class="sub-label">${it.kind}</p>`; last = it.kind; } h += `<button type="button" class="fm-find-it" role="listitem" data-i="${i}"><b>${esc(it.head)}</b><span>${esc(it.sub)}</span></button>`; });
+        res.innerHTML = h;
+      };
+      const ZOOM_TO = 0.25;                             // picking from a wide view zooms in to about a 4 km wide view so the place can be seen
+      const go = it => {
+        close(true); tipEl.hidden = true;
+        const br = box.getBoundingClientRect(); if (br.top < 0 || br.bottom > innerHeight) box.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });   // on a phone the panel is under the map: bring the map back into view
+        if (it.key) { const t = LIVE && LIVE.info(it.key, toScreenX, toScreenY, Date.now()); if (!t) return; lastTap = { t: Date.now(), key: t.key, line: t.line, dest: t.dest || null };
+          const s1 = Math.max(view.s, ZOOM_TO); centreOn(view.cx + (t.x - W / 2) / view.s, view.cy - (t.y - H / 2) / view.s, s1); trainTip(t); return; }
+        if (it.far) { centreOn(it.x, it.y); return; }          // an airport past the map's edge: go as far towards it as the map allows (its arrow pill shows the way), as tapping the pill does
+        centreOn(it.x, it.y, Math.max(view.s, ZOOM_TO)); showTip(it.head, it.sub, W / 2, H / 2);
+      };
+      let isOpen = false;
+      const open = () => { if (isOpen) return; isOpen = true; paint(); scrim.hidden = false; sheet.hidden = false; void sheet.offsetWidth; scrim.classList.add("in"); sheet.classList.add("in"); q.focus({ preventScroll: true }); q.select(); };
+      const close = picked => {
+        if (!isOpen) return; isOpen = false; sheet.classList.remove("in"); scrim.classList.remove("in");
+        scope.after(() => { if (!isOpen) { sheet.hidden = true; scrim.hidden = true; } }, reduceMotion ? 0 : 220); if (picked !== true) btn.focus({ preventScroll: true });
+      };
+      scope.on(btn, "click", open); scope.on(sheet.querySelector("[data-close]"), "click", () => close()); scope.on(scrim, "click", () => close());
+      scope.on(document, "keydown", e => { if (isOpen && e.key === "Escape") close(); });
+      scope.on(q, "input", paint);
+      scope.on(sheet, "keydown", e => {               // Enter takes the first result; the arrow keys move between results
+        const list = [...res.querySelectorAll(".fm-find-it")], at = list.indexOf(document.activeElement);
+        if (e.key === "Enter" && e.target === q) { e.preventDefault(); if (items[0]) go(items[0]); }
+        else if (e.key === "ArrowDown" && list.length) { e.preventDefault(); list[Math.min(list.length - 1, at + 1)].focus(); }
+        else if (e.key === "ArrowUp" && list.length) { e.preventDefault(); if (at <= 0) q.focus(); else list[at - 1].focus(); }
+      });
+      scope.on(res, "click", e => { const b = e.target.closest(".fm-find-it"); if (b) go(items[+b.dataset.i]); });
+      scope.later(() => { sheet.remove(); if (isOpen) { scrim.classList.remove("in"); scrim.hidden = true; } });
     }
 
     /* ---------- Shared Artistic roads (v3.81): four white tier masks tinted per style; Parchment gets its ink casing by stamping the mask slightly offset, Night its glow the same way ---------- */
@@ -843,7 +925,8 @@
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawFilters();
       drawLines();
-      const placed = [], lmItems = layoutLandmarks(placed);
+      const placed = []; tapHits = [];           // v4.09: every station icon, landmark and airport badge drawn this frame, for tap-to-centre
+      const lmItems = layoutLandmarks(placed);
       if (stations.length) drawStations(dpr, placed);
       drawAreaLabels(placed);
       drawLandmarks(lmItems);
@@ -878,6 +961,19 @@
       const mx = view.cx + (px - W / 2) / view.s, my = view.cy - (py - H / 2) / view.s;
       if (!ms || reduceMotion) { view.s = s1; view.cx = mx - (px - W / 2) / s1; view.cy = my + (py - H / 2) / s1; clampView(); anim = null; dirty(); }
       else { anim = { t0: performance.now(), ms, s0: view.s, s1, keep: { mx, my, px, py } }; dirty(); }
+    }
+    function centreOn(mx, my, s1) {                    // v4.09: glide the view so this map point is in the middle (the zoom stays unless s1 is given)
+      user = true; anim = { t0: performance.now(), ms: 600, s0: view.s, s1: s1 ? Math.max(minScale(), Math.min(MAX_SCALE, s1)) : view.s, x0: view.cx, y0: view.cy, x1: mx, y1: my }; dirty();
+    }
+    let tipGen = 0;
+    function showTip(head, sub, x, y) {               // the small dark box above a point, gone after 7 s
+      tipEl.innerHTML = ""; const a = document.createElement("div"); a.textContent = head; a.style.fontWeight = "600"; tipEl.append(a);
+      if (sub) { const b = document.createElement("div"); b.textContent = sub; tipEl.append(b); }
+      tipEl.style.left = x + "px"; tipEl.style.top = y + "px"; tipEl.hidden = false; const g = ++tipGen; scope.after(() => { if (g === tipGen) tipEl.hidden = true; }, 7000);
+    }
+    function trainTip(t) {
+      const nm = (LINE_NAMES[t.line] || t.line) + (/^rb|cable/.test(t.line) ? "" : " line"), m = t.secs <= 15 ? "now" : t.secs < 90 ? `${t.secs} s` : `${Math.round(t.secs / 60)} min`;
+      showTip(`${nm} to ${t.dest || "terminus"}`, `Next: ${t.next} (${m})`, W / 2, H / 2);
     }
     function panBy(dxPx, dyPx, ms) {                    // dxPx > 0 moves the view right
       user = true;
@@ -921,18 +1017,16 @@
       const r = box.getBoundingClientRect(), k = e.deltaMode === 1 ? 18 : 1, dy = e.deltaY * k;
       zoomAt(Math.exp(-Math.max(-120, Math.min(120, dy)) * (e.ctrlKey ? 0.012 : 0.0022)), e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
-    scope.on(box, "click", e => {          // an arrow at the edge: take the map towards that airport
+    scope.on(box, "click", e => {          // an arrow at the edge: take the map towards that airport; v4.09: a train, station icon or landmark: centre the map on it
       if (dragDist > 5) return; const r = box.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       tipEl.hidden = true;
       const h = edgeHits.find(q => x >= q[0] && x <= q[0] + q[2] && y >= q[1] && y <= q[1] + q[3]);
-      if (!h) {
-        const t = LIVE && LIVE.live && LIVE.hit(x, y, toScreenX, toScreenY, Date.now());
-        if (t) { lastTap = { t: Date.now(), key: t.key, line: t.line, dest: t.dest || null }; const nm = (LINE_NAMES[t.line] || t.line) + (/^rb|cable/.test(t.line) ? "" : " line"), m = t.secs <= 15 ? "now" : t.secs < 90 ? `${t.secs} s` : `${Math.round(t.secs / 60)} min`;
-          tipEl.innerHTML = ""; const a = document.createElement("div"), b = document.createElement("div"); a.textContent = `${nm} to ${t.dest || "terminus"}`; b.textContent = `Next: ${t.next} (${m})`; a.style.fontWeight = "600"; tipEl.append(a, b);
-          tipEl.style.left = t.x + "px"; tipEl.style.top = t.y + "px"; tipEl.hidden = false; scope.after(() => { tipEl.hidden = true; }, 7000); }
-        return;
-      }
-      user = true; anim = { t0: performance.now(), ms: 600, s0: view.s, s1: view.s, x0: view.cx, y0: view.cy, x1: h[4], y1: h[5] }; dirty();
+      if (h) { centreOn(h[4], h[5]); return; }
+      const t = LIVE && LIVE.live && LIVE.hit(x, y, toScreenX, toScreenY, Date.now());
+      if (t) { lastTap = { t: Date.now(), key: t.key, line: t.line, dest: t.dest || null }; centreOn(view.cx + (t.x - W / 2) / view.s, view.cy - (t.y - H / 2) / view.s); trainTip(t); return; }
+      let best = null, bd = 1e9;                       // the nearest icon under the tap (a few pixels of slack for fingers)
+      for (const q of tapHits) { const d = Math.hypot(q[0] - x, q[1] - y); if (d <= q[2] + 6 && d < bd) { bd = d; best = q; } }
+      if (best) centreOn(best[3], best[4]);
     });
     scope.on(box, "dblclick", e => { if (mode !== "drag") return; const r = box.getBoundingClientRect(); zoomAt(2, e.clientX - r.left, e.clientY - r.top, 260); });
     scope.on(box, "keydown", e => {

@@ -731,6 +731,19 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .fm-chip:not(:disabled):hover { border-color: var(--ink); }
 .fm-chip:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
 @media (max-width: 520px) { .fm-sws { grid-template-columns: 1fr; } }
+/* Full Map Search pop-up (v4.09): sits near the top so a phone keyboard never covers the results */
+.fm-find { top: max(16px, 8vh); transform: translate(-50%, 12px); }
+.fm-find.in { transform: translate(-50%, 0); }
+.fm-find .sheet-body { max-height: min(70vh, 640px); }
+.fm-find-q { width: 100%; max-width: none; }
+.fm-find-res { margin-top: 6px; }
+.fm-find-res .sub-label { margin: 14px 0 6px; }
+.fm-find-it { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--pill-bg); color: var(--ink); font: 400 14px/1.25 var(--sans); text-align: left; cursor: pointer; }
+.fm-find-it b { font-weight: 600; font-size: 15px; }
+.fm-find-it span { color: var(--muted); font-size: 13px; text-align: right; }
+.fm-find-it:hover { border-color: var(--ink); }
+.fm-find-it:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+.fm-find-note { margin: 12px 2px 0; color: var(--muted); font-size: 14px; line-height: 1.4; }
 
 /* Full Map live trains (v3.65) */
 .fm-live { position: absolute; inset: 0; pointer-events: none; }
