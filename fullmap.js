@@ -3,6 +3,7 @@
    The map is static for now: the live layer (stage 5) and the filters (stage 4) come later. Everything this file starts goes through `scope`, so unmount undoes it all.
    Projection: British National Grid (EPSG:27700), metres. The view is a centre (x, y in metres) and a scale (CSS pixels per metre).
    Tiles: 512 px WebP, four zoom levels (geo/tiles/meta.json), light and dark, no stations or labels in them; stations and names are drawn here on top.
+   v4.11: Cosy Village (Artistic, always light): pastel lines on cream casings, stations as tiny houses, rounded trains with windows, Fredoka names, a season and day title card.
    v3.73: style categories, Geographical | Artistic, with each category's styles listed underneath in the Layers pop-up.
    v3.71: map styles (Geographic, Fantasy Parchment; more can be added to STYLES) and a separate road tile layer per style, so "Cut roads at lines" can
    erase the roads along every drawn line. Tile sets: geo/tiles/{set}/{base|roads}/{z}/{i}/{j}.webp (set = light, dark or parchment). */
@@ -13,7 +14,7 @@
   // v3.73: two categories. Geographical keeps the master map's detail (and follows light and dark); Artistic styles share simplified green space and water
   // (tools/geo/artistic_geom.py), keep every transport feature exactly, and have one look each.
   const CATS = [{ id: "geographical", name: "Geographical" }, { id: "artistic", name: "Artistic" }];
-  const STYLES = [{ id: "geographic", cat: "geographical", name: "Geographic", light: "light", dark: "dark" }, { id: "parchment", cat: "artistic", name: "Fantasy Parchment", light: "parchment", dark: "parchment" }, { id: "poster", cat: "artistic", name: "1930s Poster", light: "poster", dark: "poster" }, { id: "night", cat: "artistic", name: "Night City", light: "night", dark: "night" }];
+  const STYLES = [{ id: "geographic", cat: "geographical", name: "Geographic", light: "light", dark: "dark" }, { id: "parchment", cat: "artistic", name: "Fantasy Parchment", light: "parchment", dark: "parchment" }, { id: "poster", cat: "artistic", name: "1930s Poster", light: "poster", dark: "poster" }, { id: "night", cat: "artistic", name: "Night City", light: "night", dark: "night" }, { id: "openworld", cat: "artistic", name: "Open-world", light: "openworld", dark: "openworld" }, { id: "village", cat: "artistic", name: "Cosy Village", light: "village", dark: "village" }];
   const LS_STYLE = "uc-fm-style", LS_CUT = "uc-fm-roadcut";
   const CUT_GAP = 3;                     // "Cut roads at lines": roads stop this many screen px short of each side of a drawn line
   const PAPER = "#EAD8AD", INK = "#3B2A1A";
@@ -33,7 +34,55 @@
   // v3.80: Night City. Always dark, nothing bright: dim labels with no halos, soft grey landmarks, dark pills, lines at 85% opacity and no casing; the trains are the brightest thing on screen.
   const NIGHT = { bg: "#0D1014", ink: "#CFD5DB", amber: "#E0A04A" };
   const nightLine = id => id === "northern" ? "#9A9A9A" : (LINE_COL[id] || "#888888");           // the official black would vanish on near-black; the mock-up's grey
+  // v4.10: Open-world, inspired by open-world game radar maps but original (no names, logos, fonts or icons from any game). Always dark: bright saturated lines with a glow, white-ringed stations,
+  // blips (trains) with a pulsing ring, Teko capitals with dark halos, a compass and a title plate.
+  const OW = { bg: "#2A2F35", yellow: "#FFCF3F" };
+  const OW_LINE = { central: "#FF3B30", victoria: "#2FB8FF", jubilee: "#C3C9CF", northern: "#F2F2F2", district: "#2FD36B" };
+  const owLine = id => {                                  // bright, saturated versions for a dark background; greys and whites stay clearly brighter than the roads
+    if (OW_LINE[id]) return OW_LINE[id];
+    const b = LINE_COL[id] || "#888888", n = parseInt(b.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, bl = n & 255, L = lum(b);
+    if (Math.max(r, g, bl) - Math.min(r, g, bl) < 40) return "#B9BFC6";
+    return mixHex(b, "#FFFFFF", L < 80 ? 0.5 : L < 125 ? 0.33 : 0.1);
+  };
+  // v4.11: Cosy Village, inspired by cosy farming and village games but original (no names, characters, logos, fonts or icons from any game). Always light: grass, soft paths,
+  // pastel lines on a cream casing, stations as tiny houses (cream dots zoomed out), rounded trains with a brown outline, Fredoka names with soft halos, a title card with the season and day.
+  const VILLAGE = { grass: "#C4E29A", cream: "#FFFAF0", brown: "#6B4A2F", text: "#5C4632" };
+  const VILLAGE_LINE = { central: "#EF6359", victoria: "#45B2E6", jubilee: "#9EA7B0", northern: "#5B4A3E", district: "#47A865" };
+  const villLine = id => {                                // the official colours softened into pastel tones; near-black becomes a warm brown
+    if (VILLAGE_LINE[id]) return VILLAGE_LINE[id];
+    const b = LINE_COL[id] || "#888888";
+    return lum(b) < 50 ? mixHex(b, "#8A6A45", 0.6) : mixHex(b, VILLAGE.cream, 0.25);
+  };
   const LOOKS = {
+    village: {
+      cols: { bg: VILLAGE.grass, ink: VILLAGE.brown, muted: "#8A6A45", fill: "#FFF6E0", lmFill: "#FFF6E0", lmStroke: VILLAGE.brown, lmMark: VILLAGE.brown, lbl: VILLAGE.text, haloC: "#FFFBE8", pillFill: VILLAGE.text, pillText: VILLAGE.cream,
+        stW: 1.3, stW2: 1.1, sans: '"Fredoka", "Outfit", sans-serif', wt: 600, fs: 0.5, sw: "600 ", ls: 0, upper: false },
+      // A + B: soft paths in shades of the grass (the mock-up colours mixed 62% towards #C4E29A) with a thin edge; no dashed centre line
+      roads: { col: { 1: "#D9E7AF", 2: "#D7E4A9", 3: "#D6E2A5", 4: "#D6E2A5" }, casing: { 1: "#C6CA88", 2: "#CAD191", 3: "#CAD191", 4: "#CAD191" }, casingR: 0.7 },
+      lineColour: villLine, casing: VILLAGE.cream, casingW: lw => lw + Math.max(2.4, lw * 0.67),
+      fonts: ['500 14px "Fredoka"', '600 14px "Fredoka"', '700 14px "Fredoka"'],
+      fare: ["rgba(255,250,240,.32)", "rgba(92,70,50,.06)"], fareLine: "rgba(107,74,47,.42)", fareText: VILLAGE.brown, ulez: "#3E8E5A", cc: "#D9725A",
+      boroughs: ["255,159,182", "120,190,230", "255,214,90", "190,160,230"], boroughA: 0.2, boroughLine: "rgba(92,70,50,.4)", boroughText: "rgba(92,70,50,.78)",
+      trainOutline: "#4A3A2A", trainFont: '"Fredoka", "Outfit", sans-serif', glow: null,
+      train: { fill: villLine, outlineW: 3, capsule: true, windows: VILLAGE.cream },          // outline stroked under the fill: about 1.5 px shows
+      house: true, card: true,
+      area: { family: '"Fredoka", sans-serif', italic: false, wt: "600 ", ls: 0, upper: false, riverS: 0.035, fit: 0,
+        park: { fill: "#3F6E2B", halo: "#E8F7D4" }, water: { fill: "#2C7AA0", halo: "#E6F7FD" } }
+    },
+    openworld: {
+      cols: { bg: OW.bg, ink: "#FFFFFF", muted: "#97A0AA", fill: "#0F1114", lmFill: "#1B1F24", lmStroke: "rgba(255,255,255,.35)", lmMark: "rgba(255,255,255,.8)", lbl: "#97A0AA", haloC: "rgba(20,23,27,.85)", pillFill: "#0A0C0F", pillText: "#FFFFFF",
+        stW: 1.5, stW2: 1.2, sans: '"Teko", "Outfit", sans-serif', wt: 600, fs: 2.5, sw: "600 ", ls: 3, upper: true },
+      roads: { col: { 1: "#5E636A", 2: "#464C53", 3: "#353B42", 4: "#353B42" } },
+      lineColour: owLine, lineGlow: true, casing: null, casingW: lw => lw,
+      fonts: ['500 14px "Teko"', '600 14px "Teko"', '700 14px "Teko"'],
+      fare: ["rgba(255,255,255,.035)", "rgba(0,0,0,0)"], fareLine: "rgba(120,200,255,.55)", fareText: "#9FD4FF", ulez: "#3DDC84", cc: "#FF5A4D",
+      boroughs: ["255,107,107", "94,200,255", "124,222,148", "255,207,63"], boroughA: 0.07, boroughLine: "rgba(151,160,170,.4)", boroughText: "rgba(151,160,170,.85)",
+      trainOutline: "#FFFFFF", trainFont: "Outfit, sans-serif", glow: null,
+      train: { fill: owLine, ring: true, outlineW: 2 },
+      compass: true,
+      area: { family: '"Teko", sans-serif', italic: false, wt: "600 ", ls: 3, upper: true, riverS: 0.035, fit: 0,
+        park: { fill: "#86C294", halo: "rgba(20,23,27,.85)" }, water: { fill: "#6CC0EC", halo: "rgba(20,23,27,.85)" } }
+    },
     parchment: {
       cols: { bg: PAPER, ink: INK, muted: "#6B5A44", fill: "#F1E4C1", lmFill: "#F1E4C1", stW: 1.4, sans: '"IM Fell English SC", Georgia, serif', wt: 400, fs: 1.5, sw: "", ls: 0, upper: false },
       roads: { col: { 1: "#E4DCCB", 2: "#E4DCCB", 3: "#DDD5C4", 4: "#D6CFC0" }, casing: INK, hair: ["rgba(59,42,26,.5)", "rgba(59,42,26,.32)"] },
@@ -133,7 +182,25 @@
     const nclock = document.createElement("div"); nclock.className = "fm-nclock"; nclock.setAttribute("aria-hidden", "true"); nclock.innerHTML = "<b>LONDON</b><span></span>";
     const nclockT = nclock.querySelector("span"), clockFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     function clockTick() { if (!art() || !look().clock) return; const t = clockFmt.format(new Date()); if (nclockT.textContent !== t) nclockT.textContent = t; }
-    box.append(canvas, liveCanvas, plate, tag, nclock, attr, tipEl);
+    // Open-world's compass (top right) and title plate (bottom left): CSS shows them only in that style; they never take clicks
+    const compass = document.createElement("div"); compass.className = "fm-compass"; compass.setAttribute("aria-hidden", "true");
+    compass.innerHTML = '<svg viewBox="0 0 56 56" width="100%" height="100%"><path d="M28 5 L21 22 L35 22 Z" fill="#FFCF3F"/></svg><b>N</b>';
+    const owPlate = document.createElement("div"); owPlate.className = "fm-owplate"; owPlate.setAttribute("aria-hidden", "true"); owPlate.innerHTML = "<b>LONDON</b><span>GREATER LONDON &nbsp;·&nbsp; LIVE TRAINS</span>";
+    // Cosy Village's title card (top right): the real season and day of the month, a sun from 06:00 to 18:00 London time and a crescent moon otherwise; updated at most once a minute
+    const vcard = document.createElement("div"); vcard.className = "fm-vcard"; vcard.setAttribute("aria-hidden", "true");
+    const SUN = '<svg viewBox="-24 -24 48 48"><g stroke="#F2B84B" stroke-width="3" stroke-linecap="round">' + [0, 1, 2, 3, 4, 5, 6, 7].map(k => { const a = k * Math.PI / 4, c = Math.cos(a), d = Math.sin(a); return `<line x1="${(c * 15).toFixed(1)}" y1="${(d * 15).toFixed(1)}" x2="${(c * 20).toFixed(1)}" y2="${(d * 20).toFixed(1)}"/>`; }).join("") + '</g><circle r="11" fill="#FFD25E" stroke="#F2B84B" stroke-width="2"/></svg>';
+    const MOON = '<svg viewBox="-24 -24 48 48"><path d="M10.69 5.45A12 12 0 1 1-2.24-11.79A11 11 0 0 0 10.69 5.45Z" fill="#FFF1C4" stroke="#C9A46A" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+    vcard.innerHTML = "<div><b>London Village</b><span></span></div><i></i>";
+    const vcardT = vcard.querySelector("span"), vcardI = vcard.querySelector("i"), cardFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", month: "numeric", day: "numeric", hour: "numeric", hourCycle: "h23" });
+    let cardKey = "";
+    function cardTick() {
+      if (!art() || !look().card) return;
+      const p = Object.fromEntries(cardFmt.formatToParts(new Date()).map(q => [q.type, q.value])), mo = +p.month, hr = +p.hour, day = !(hr < 6 || hr >= 18);
+      const season = mo >= 3 && mo <= 5 ? "Spring" : mo >= 6 && mo <= 8 ? "Summer" : mo >= 9 && mo <= 11 ? "Autumn" : "Winter", text = `${season} · Day ${+p.day}`;
+      if (text + day === cardKey) return; cardKey = text + day;
+      vcardT.textContent = text; vcardI.innerHTML = day ? SUN : MOON; vcard.dataset.sky = day ? "sun" : "moon";
+    }
+    box.append(canvas, liveCanvas, plate, tag, nclock, compass, owPlate, vcard, attr, tipEl);
     wrapEl.append(box, ctl, pad);
     scope.later(() => { box.remove(); ctl.remove(); pad.remove(); });
     const ctx2 = canvas.getContext("2d", { alpha: false }), ctxL = liveCanvas.getContext("2d");
@@ -266,7 +333,7 @@
       c.font = `${cols.wt} ${12 + cols.fs}px ${cols.sans}`; c.textAlign = "center"; c.textBaseline = "middle";
       for (const [t, p, col] of labels) {
         const x = toScreenX(p[0]), y = toScreenY(p[1]) + 12; if (x < 0 || x > W || y < 0 || y > H) continue;
-        if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.85; c.strokeText(T(t), x, y); c.globalAlpha = 1; } c.fillStyle = col; c.fillText(T(t), x, y);
+        if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.haloC || cols.bg; c.globalAlpha = 0.85; c.strokeText(T(t), x, y); c.globalAlpha = 1; } c.fillStyle = col; c.fillText(T(t), x, y);
       }
       c.textAlign = "left";
     }
@@ -312,7 +379,7 @@
       const c = ctx2; c.textBaseline = "middle"; c.textAlign = "left";
       for (const it of items) {
         badge(it.x, it.y, it.r, it.kind);
-        if (it.name) { c.font = it.font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(it.name, it.x + it.r + 5, it.y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(it.name, it.x + it.r + 5, it.y); }
+        if (it.name) { c.font = it.font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.haloC || cols.bg; c.globalAlpha = 0.9; c.strokeText(it.name, it.x + it.r + 5, it.y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(it.name, it.x + it.r + 5, it.y); }
       }
       // airports: a plane badge when on screen, otherwise an arrow pill at the edge pointing at it with the distance
       edgeHits = [];
@@ -321,7 +388,7 @@
         const x = toScreenX(a.x), y = toScreenY(a.y), near = LM.airports.includes(a);
         if (x > 18 && x < W - 18 && y > 18 && y < H - 18) {
           badge(x, y, 12.5, "plane"); tapHits.push([x, y, 12.5, a.x, a.y]);
-          const font = `${art() ? cols.wt : 700} ${12 + cols.fs}px ${cols.sans}`; c.font = font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(T(a.n), x + 18, y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(T(a.n), x + 18, y);
+          const font = `${art() ? cols.wt : 700} ${12 + cols.fs}px ${cols.sans}`; c.font = font; if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.haloC || cols.bg; c.globalAlpha = 0.9; c.strokeText(T(a.n), x + 18, y); c.globalAlpha = 1; } c.fillStyle = cols.lbl || cols.ink; c.fillText(T(a.n), x + 18, y);
           continue;
         }
         const pAl = pillAlpha(performance.now()); if (pAl < 0.02) continue;            // faded out: not drawn and not tappable until there is activity again
@@ -332,6 +399,9 @@
         let px = W / 2 + dx * k, py = H / 2 + dy * k;
         py = Math.max(look() && look().frame ? 68 : 58, Math.min(H - 36, py)); if (py < 80) px = Math.max(px, 190 + pw / 2);   // keep clear of the Drag / Buttons switch and the attribution line
         if (plate.offsetWidth && getComputedStyle(plate).display !== "none") { const pr = plate.offsetLeft + plate.offsetWidth + 10, pb = plate.offsetTop + plate.offsetHeight + 6; if (py - ph / 2 < pb && px - pw / 2 < pr) px = pr + pw / 2; }   // and the Poster's title plate
+        { const vis = el => el.offsetWidth && getComputedStyle(el).display !== "none";            // v4.10: and Open-world's compass (top right) and title plate (bottom left)
+          for (const el of [compass, vcard]) if (vis(el)) { const l = el.offsetLeft - 8, b = el.offsetTop + el.offsetHeight + 8; if (py - ph / 2 < b && px + pw / 2 > l) px = l - pw / 2; }     // v4.11: and Cosy Village's title card
+          if (vis(owPlate)) { const r = owPlate.offsetLeft + owPlate.offsetWidth + 10, t = owPlate.offsetTop - 6; if (py + ph / 2 > t && px - pw / 2 < r) px = r + pw / 2; } }
         px = Math.min(px, W - pw / 2 - fr);
         for (let g = 0; g < 6 && edgeHits.some(q => px - pw / 2 < q[0] + q[2] + 6 && px + pw / 2 + 6 > q[0] && py - ph / 2 < q[1] + q[3] + 4 && py + ph / 2 + 4 > q[1]); g++) py += py < H / 2 ? ph + 6 : -(ph + 6);   // never on top of another airport's pill
         c.beginPath(); c.roundRect(px - pw / 2, py - ph / 2, pw, ph, 13); c.fillStyle = cols.pillFill || cols.ink; c.globalAlpha = 0.92 * pAl; c.fill(); c.globalAlpha = pAl;
@@ -432,9 +502,11 @@
       // v4.06: every station icon is one size, the widest the lines call for: three stripe lanes side by side (1.5 stripe widths either side of the centre) as at Liverpool Street
       const lw = lineW(), stripeW = s < 0.05 ? 0 : lw * 0.92, pad = lvl === 0 ? 1.5 : 2.5, bigR = lw / 2 + stripeW * 1.5 + pad;
       const isPier = st => st.modes.includes("river-bus") || st.modes.includes("ferry");
+      const houses = art() && look().house && s >= 0.25;               // v4.11 Cosy Village: tiny houses at the closer zooms (drawn with the map, once per view)
       const dot = (st, x, y, r, live) => {
         dots.push([x, y, r, st]); tapHits.push([x, y, r, st.x, st.y]);
         const pier = isPier(st);
+        if (houses && !pier && live) { house(c, x, y, r, st.lines.length ? mixHex(lineColour(st.lines[0]), "#8A4B2F", 0.25) : "#8A4B2F"); return; }
         c.beginPath();
         if (pier) { c.moveTo(x, y - r - 1); c.lineTo(x + r + 1, y); c.lineTo(x, y + r + 1); c.lineTo(x - r - 1, y); c.closePath(); }
         else c.arc(x, y, r, 0, 6.2832);
@@ -494,7 +566,7 @@
         placed.push([bx, by, w, h]); c.textAlign = al === "l" ? "left" : al === "r" ? "right" : "center";
         lines.forEach((ln, i) => {
           const cy = by + lineH / 2 + i * lineH;
-          if (!cols.noHalo) { c.lineWidth = 3; c.strokeStyle = cols.bg; c.globalAlpha = 0.9; c.strokeText(ln, ax, cy); c.globalAlpha = 1; }
+          if (!cols.noHalo) { c.lineWidth = 3; c.strokeStyle = cols.haloC || cols.bg; c.globalAlpha = 0.9; c.strokeText(ln, ax, cy); c.globalAlpha = 1; }
           c.fillStyle = cols.lbl || cols.ink; c.fillText(ln, ax, cy);
         });
         c.textAlign = "left"; labelStats.stations++; if (onLine > 0) labelStats.rightCrossed++; if (len > 0) labelStats.crossed++; if (n > 1) labelStats.wrapped++; return true;
@@ -512,6 +584,15 @@
       }
       labels.sort((a, b) => a[4] - b[4] || b[0].rank - a[0].rank);
       for (const [st, x, y, r] of labels) put(st, x, y, r);
+    }
+
+    function house(c, x, y, r, roof) {           // cream walls, a roof in the line's colour (the first line's at an interchange), a little door, a soft shadow; about 2r wide
+      const k = r / 7.5, br = VILLAGE.brown;
+      c.fillStyle = "rgba(60,80,30,.25)"; c.beginPath(); c.ellipse(x + k, y + 7 * k, 8 * k, 2.5 * k, 0, 0, 6.2832); c.fill();
+      c.lineJoin = "round"; c.lineWidth = Math.max(1, Math.min(1.6, 1.3 * k)); c.strokeStyle = br;
+      c.beginPath(); c.rect(x - 5 * k, y - k, 10 * k, 7 * k); c.fillStyle = "#FFF6E0"; c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(x - 7 * k, y); c.lineTo(x, y - 7 * k); c.lineTo(x + 7 * k, y); c.closePath(); c.fillStyle = roof; c.fill(); c.stroke();
+      c.fillStyle = br; c.fillRect(x - 1.2 * k, y + 2 * k, 2.4 * k, 4 * k);
     }
 
     /* ---------- Rail lines (v3.60): drawn here, not in the tiles, so they can be thick, smooth, side by side on shared track, and switched off ---------- */
@@ -577,7 +658,9 @@
       for (const lid of RG.ids) {
         const L = RG.d.lines[lid];
         for (const pass of (theme === "dark" && !pa && lid === "northern") ? [0, 1] : [1]) {
-          const boat = /^rb/.test(lid); c.globalAlpha = look() && look().lineAlpha || 1; c.strokeStyle = pass === 0 ? "#69737C" : lineColour(lid); c.lineWidth = pass === 0 ? lw + 2 : boat ? Math.max(1.4, lw * 0.5) : lw; c.setLineDash(boat ? [6, 5] : []); c.beginPath();
+          const boat = /^rb/.test(lid);
+          if (look() && look().lineGlow && !boat) { c.globalAlpha = 0.17; c.strokeStyle = lineColour(lid); c.lineWidth = lw * 2.7 + 3; c.beginPath(); traceLine(c, L, stripe, bx); c.stroke(); }      // a soft glow in the line's own colour
+          c.globalAlpha = look() && look().lineAlpha || 1; c.strokeStyle = pass === 0 ? "#69737C" : lineColour(lid); c.lineWidth = pass === 0 ? lw + 2 : boat ? Math.max(1.4, lw * 0.5) : lw; c.setLineDash(boat ? [6, 5] : []); c.beginPath();
           traceLine(c, L, stripe, bx);
           c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
         }
@@ -627,7 +710,7 @@
       pill.textContent = S.err ? "Live data trouble" : S.ok ? "Live" : "Connecting"; pill.dataset.level = S.err ? "minor" : S.ok ? "good" : "unknown"; reasonEl.hidden = true;
       $("pop-note").textContent = LIVE.blur ? "Live data is flowing for the whole map. Zoom in a little further to see individual trains." : `${n} train${n === 1 ? "" : "s"} on screen, ${LIVE.lines} line${LIVE.lines === 1 ? "" : "s"} asked for. Tap a train for its next stop.`;
     }
-    scope.every(livePanel, 1000); scope.every(clockTick, 1000); clockTick();
+    scope.every(livePanel, 1000); scope.every(clockTick, 1000); clockTick(); scope.every(cardTick, 60000);
     if (ctx.debug) window.__fmLive = { get live() { return LIVE; } };
     // v4.07: the in-site recorder (recorder.js) reads the Full Map from here. It records this page itself, not a hidden copy, so the view and every
     // train icon are exactly what is on screen. capture() is a small picture of the map for a mark (null where the browser forbids it, e.g. from a file).
@@ -664,7 +747,7 @@
       if (document.fonts && document.fonts.load) Promise.all(look().fonts.map(f => document.fonts.load(f))).then(() => { if (!scope.dead) { cols = null; dirty(); } }, () => {});
       if (!LB && !lbLoading) { lbLoading = true; loadJS("geo/labels.js", "UC_LABELS", d => { LB = d; dirty(); }, () => { lbLoading = false; }); }
     }
-    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); }, get pills() { return { alpha: pillAlpha(performance.now()), to: pillTo, idleMs: performance.now() - lastAct }; }, poke: () => poke(), setIdle(ms) { lastAct = performance.now() - ms; }, clockTick, drawMs(n) { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, get roadsLook() { return look() && look().roads; }, get clockText() { return nclockT.textContent; } };
+    if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); }, get pills() { return { alpha: pillAlpha(performance.now()), to: pillTo, idleMs: performance.now() - lastAct }; }, poke: () => poke(), setIdle(ms) { lastAct = performance.now() - ms; }, clockTick, drawMs(n) { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, get roadsLook() { return look() && look().roads; }, get lineCols() { return RG ? Object.fromEntries(RG.ids.map(id => [id, lineColour(id)])) : null; }, get clockText() { return nclockT.textContent; }, cardTick() { cardKey = ""; cardTick(); }, get card() { return { text: vcardT.textContent, sky: vcard.dataset.sky || "" }; } };
 
     /* ---------- Layers pop-up (left panel button) ---------- */
     function setupLayers() {
@@ -820,8 +903,8 @@
       };
       const casing = t => R.casing && tierW(t, sT) >= 2;
       if (R.glow) for (const t of [2, 1]) if (R.glow[t]) layer(t, "glow", R.glow[t], Math.max(1.6, tierW(t, sT) * 1.3));        // a very faint glow in the road's own tint
-      if (R.casing) for (const t of [4, 3, 2, 1]) if (casing(t)) layer(t, "casing", R.casing, 0.6);                              // ink casings first, so crossing roads join cleanly
-      for (const t of [4, 3, 2, 1]) layer(t, "fill", R.casing && !casing(t) ? R.hair[t <= 2 ? 0 : 1] : R.col[t], 0);
+      if (R.casing) for (const t of [4, 3, 2, 1]) if (casing(t)) layer(t, "casing", typeof R.casing === "string" ? R.casing : R.casing[t], R.casingR || 0.6);   // casings first, so crossing roads join cleanly (v4.11: a colour per tier)
+      for (const t of [4, 3, 2, 1]) layer(t, "fill", R.casing && !casing(t) && R.hair ? R.hair[t <= 2 ? 0 : 1] : R.col[t], 0);
       return cv;
     }
     function mergedTile(lv, i, j) {
@@ -861,7 +944,7 @@
       if (!meta) return;
       frameNo++; lastDrawAt = performance.now();
       const t = isDark() ? "dark" : "light", st = STYLES.find(q => q.id === style) || STYLES[0], ns = st[t];
-      if (t !== theme || ns !== set || !cols) { theme = t; set = ns; readColours(); for (const k in LOOKS) { box.classList.toggle("fm-" + k, style === k); root.classList.toggle("fm-style-" + k, style === k); } box.classList.toggle("fm-art", art()); }
+      if (t !== theme || ns !== set || !cols) { theme = t; set = ns; readColours(); for (const k in LOOKS) { box.classList.toggle("fm-" + k, style === k); root.classList.toggle("fm-style-" + k, style === k); } box.classList.toggle("fm-art", art()); cardTick(); }
       const c = ctx2, z = levelFor(), M = meta.tile / meta.scales[z], ox = meta.origin[0], oy = meta.origin[1];
       c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = cols.bg; c.fillRect(0, 0, canvas.width, canvas.height);
       c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";

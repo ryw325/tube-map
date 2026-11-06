@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.11: Full Map style Cosy Village (Artistic, always light): grass with a light speckle and tiny flowers, rounded parks full of little round trees, pale blue water with a dotted white foam edge, soft grass-green paths, pastel lines on cream casings, stations as tiny houses, rounded trains with windows, Fredoka names, and a title card with the real season, day and a sun or moon.
+   v4.10: Full Map style Open-world (Artistic, always dark): flat charcoal ground, green parks with a thin lighter edge, deep blue water with a lighter Thames band and a soft bank glow, quiet grey roads, bright saturated lines with a glow, white-ringed stations, trains with a pulsing ring (hidden above 150 trains), Teko capitals with dark halos, a compass and a LONDON title plate. Font: Teko.
    v4.09: Full Map: tapping a train, station icon, landmark or airport glides the map so it sits in the middle of the view (zoom unchanged); a train's details box opens in the middle. A Search button beside Layers finds stations, landmarks, airports and live trains (by vehicle number, with a line name to narrow it); picking one glides the map there, zooming in from a wide view, and names it.
    v4.08: Full Map train fixes from the 3 Nov recording (trains-core.js, fullmap-live.js): replies older than one already used are left out; a train the feed puts up to 3 stops behind waits at its next station instead of jumping back; stops before a gap of over 20 minutes, or a first stop with later stops behind it, are dropped (no more stacks of Elizabeth trains at Paddington or Overground trains at Clapham Junction); "one train, one line" only joins copies listed at each other's stations (the same number on unrelated lines is another train), and lines sharing track are asked for together; a train waiting mid-line shows from a minute before it leaves and stays until 2 minutes off, fading in and out.
    v4.07: the in-site recorder can record the Full Map (recorder.js, fullmap.js, fullmap-live.js): read from the page itself every second (the view, and for every train near it where its icon is drawn, whether it is painted and what the train brain says), plus every TfL reply; and a Mark button or the M key notes a moment that looks wrong, with a note, the train last tapped and a picture of the map.
@@ -131,7 +133,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.09";
+  const VERSION = "4.11";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
