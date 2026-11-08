@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.15: station pages: tapping another station (or picking one from the menu, or back/forward) swaps it in on the same page, so full screen carries on; in full screen a tapped train opens the right panel as a column for 30 s and the map refits to the space left; the zoom has three levels (3, 4 or 5 stops each side): a trackpad pinch, scroll or two-finger touch pinch still moves it freely but settles on a level when it stops.
    v4.14: station pages: the zoom, fit and full screen buttons lie in a row; the title band is reserved (the top separator clears the title); the fit no longer treats the buttons as a full-width bar. v4.13: station pages (Linear): separators drawn like the station icons (white fill, 1.4 outline); the I is sized from the train and the flat middle of a ramped track matches the I, the first stop moves in with the ramp. v4.12: Full Map style 16-bit Pixel (Artistic): one art-pixel grid shared by its own tile ladder and everything the page draws (lines with dark outlines, 2 x 2 station blocks, landmark sprites, zone outlines, the road cut), a fixed palette, train sprites, Press Start 2P names with a hard shadow, twinkling water at the closest zooms, a title box and a train counter; the zoom settles so an art pixel is exactly 3 px.
    v4.11: Full Map style Cosy Village (Artistic, always light): grass with a light speckle and tiny flowers, rounded parks full of little round trees, pale blue water with a dotted white foam edge, soft grass-green paths, pastel lines on cream casings, stations as tiny houses, rounded trains with windows, Fredoka names, and a title card with the real season, day and a sun or moon.
    v4.10: Full Map style Open-world (Artistic, always dark): flat charcoal ground, green parks with a thin lighter edge, deep blue water with a lighter Thames band and a soft bank glow, quiet grey roads, bright saturated lines with a glow, white-ringed stations, trains with a pulsing ring (hidden above 150 trains), Teko capitals with dark halos, a compass and a LONDON title plate. Font: Teko.
@@ -134,7 +135,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.14";
+  const VERSION = "4.15";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -313,7 +314,18 @@
     }
     apply();
     // Opening for a tap on a station or train is temporary: it is not saved, and nothing here ever closes the panel.
-    return { openRight() { if (!state.right) { state.right = true; apply(); } } };
+    // v4.15: in full screen the panels sit under the map, so peekRight() slides the right panel over it for 30 s (a tapped train's stops); outside full
+    // screen it is just openRight(). endPeek() puts it away early (tap on empty map, train gone, leaving the station or full screen).
+    const de = document.documentElement; let peekT = 0;
+    function endPeek() { clearTimeout(peekT); peekT = 0; de.classList.remove("uc-peek"); }
+    return {
+      openRight() { if (!state.right) { state.right = true; apply(); } },
+      peekRight(ms = 30000) {
+        if (!de.classList.contains("uc-max")) { this.openRight(); return; }
+        de.classList.add("uc-peek"); clearTimeout(peekT); peekT = setTimeout(endPeek, ms);
+      },
+      endPeek
+    };
   })();
 
   /* ---------- Menu (v3.03): built once, kept in the page; opening it never touches the mounted line ---------- */
@@ -532,7 +544,7 @@
     if (!b || b.disabled) return;
     if (b.dataset.line) { const id = b.dataset.line; closeMenu(() => { if (cur && id !== cur.id) plainSwitch(id); }); return; }
     const go = b.dataset.go;
-    if (b.dataset.station) { const sid = b.dataset.station; closeMenu(() => { location.assign(location.pathname + "?station=" + encodeURIComponent(sid)); }); return; }
+    if (b.dataset.station) { const sid = b.dataset.station; closeMenu(() => { if (cur && cur.LINE.kind === "station" && isStnId("station-" + sid)) plainSwitch("station-" + sid); else location.assign(location.pathname + "?station=" + encodeURIComponent(sid)); }); return; }   // v4.15: from a station page the picker swaps in place
     if (b.dataset.chip) { stnState.line = stnState.line === b.dataset.chip ? "" : b.dataset.chip; renderStations(); const l = document.getElementById("stn-list"); if (l) l.scrollTop = 0; return; }   // v3.40
     if (go === "fullmap") { closeMenu(() => { location.assign(location.pathname + "?map=full"); }); return; }   // v3.58: the Full Map page is a full page load, like a station page
     if (go === "station") { showView("stations"); return; }       // v3.31: the card opens the station picker
@@ -605,6 +617,7 @@
       const svgMap = document.getElementById("map");
       if (on && !de.classList.contains("uc-max")) vbKeep = svgMap.getAttribute("viewBox");
       else if (!on && de.classList.contains("uc-max") && vbKeep) svgMap.setAttribute("viewBox", vbKeep);
+      if (!on) panelsApi.endPeek();
       de.classList.toggle("uc-max", on); maxBtn.setAttribute("aria-pressed", String(on)); maxBtn.setAttribute("aria-label", on ? "Exit full screen" : "Full screen"); maxBtn.title = on ? "Exit full screen (F or Esc)" : "Full screen (F)"; if (on) updateClock(); };
     function toggleMax() {
       const on = !de.classList.contains("uc-max");
@@ -2756,7 +2769,7 @@
   }
   function mountStation(STN, scope) {
     if (!window.UndercurrentStation) throw new Error("station.js did not load");
-    return window.UndercurrentStation.mount(STN, scope, { svg, panelsApi, updateClock, lineStyle, factBar, tickPicker, VERSION, reduceMotion: reduceMotionPref, debug: DEBUG_ON });
+    return window.UndercurrentStation.mount(STN, scope, { svg, panelsApi, updateClock, lineStyle, factBar, tickPicker, VERSION, reduceMotion: reduceMotionPref, debug: DEBUG_ON, openStation: sid => plainSwitch("station-" + sid) });
   }
   function mount(LINE, arrival) {
     const gen = ++guard.mounts, scope = makeScope(gen);
@@ -2773,6 +2786,7 @@
     if (!cur) return true;
     const { scope } = cur;
     scope.dispose();
+    panelsApi.endPeek();
     guard.dead.add(scope.gen);
     svg.replaceChildren(); svg.classList.remove("zoomed");
     popSections.replaceChildren();
@@ -2796,12 +2810,19 @@
     return location.pathname + "?" + q + location.hash;
   }
   // Last resort: the old full page load (the new page then plays the arrival from ?from=)
-  function navigateTo(id, arrival) { try { localStorage.setItem("line", id); } catch (e) {} location.assign(lineURL(id, arrival)); }
+  // v4.15: a station page is "station-<sid>" here (its data file is lines/station-<sid>.js) and its address is ?station=<sid>
+  const isStnId = id => /^station-[a-z0-9]{3,8}$/.test(id);
+  const stationURL = id => { const q = new URLSearchParams(location.search); q.set("station", id.slice(8)); q.delete("line"); q.delete("from"); q.delete("map"); return location.pathname + "?" + q + location.hash; };
+  function navigateTo(id, arrival) {
+    if (isStnId(id)) { location.assign(stationURL(id)); return; }
+    try { localStorage.setItem("line", id); } catch (e) {} location.assign(lineURL(id, arrival));
+  }
   function swapTo(LINE, arrival, push) {
     try {
       if (!unmount()) return false;
-      try { localStorage.setItem("line", LINE.id); } catch (e) {}
-      if (push) { try { history.pushState({ line: LINE.id }, "", lineURL(LINE.id)); } catch (e) {} }
+      const stn = LINE.kind === "station";
+      if (!stn) { try { localStorage.setItem("line", LINE.id); } catch (e) {} }
+      if (push) { try { history.pushState({ line: LINE.id }, "", stn ? stationURL(LINE.id) : lineURL(LINE.id)); } catch (e) {} }
       mount(LINE, arrival);
       return true;
     } catch (e) {
@@ -2823,7 +2844,9 @@
   }
   // Switching from the picker, or with back/forward: no station to zoom into, so the map and panel text cross-fade
   function plainSwitch(id, push = true) {
-    if (txBusy || !cur || !knownLine(id) || id === cur.id) return;
+    // v4.15: also station -> station (isStnId): the page stays up, so full screen carries on
+    if (txBusy || !cur || id === cur.id) return;
+    if (isStnId(id) ? cur.LINE.kind !== "station" : !knownLine(id)) return;
     txBusy = true; root.classList.add("tx-busy");
     const loading = loadLine(id);
     const els = () => [svg, ...document.querySelectorAll(FADE_SEL)];
@@ -2841,6 +2864,8 @@
   let pendingURL = false;
   function followURL() {
     if (new URLSearchParams(location.search).get("station") && cur && cur.LINE.kind !== "station") { location.reload(); return; }   // back to a station page: load it fresh
+    const sp = new URLSearchParams(location.search).get("station");
+    if (sp && cur && cur.LINE.kind === "station") { if (isStnId("station-" + sp) && cur.id !== "station-" + sp) plainSwitch("station-" + sp, false); return; }   // v4.15: back or forward between stations
     if (new URLSearchParams(location.search).get("map") === "full" && cur && cur.LINE.kind !== "fullmap") { location.reload(); return; }   // v3.58: back to the Full Map: load it fresh
     if (cur && cur.LINE.kind === "fullmap" && !new URLSearchParams(location.search).get("map")) { location.reload(); return; }
     const id = new URLSearchParams(location.search).get("line");

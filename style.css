@@ -434,6 +434,16 @@
   .max-clock { display: none; }
   html.uc-max .max-clock { display: block; position: absolute; top: max(18px, env(safe-area-inset-top)); right: 22px; z-index: 5; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 10px; background: var(--pill-bg); color: var(--ink); font: 600 17px/1.2 var(--sans); font-variant-numeric: tabular-nums; opacity: .8; pointer-events: none; }
   html.uc-max .fm { inset: 0; border-radius: 0; }          /* v3.75: no outline or margin round the map in full screen: it fills the page */
+  /* v4.15: a tapped train opens the whole right panel in full screen for 30 s (html.uc-peek, set by panelsApi.peekRight), like outside full screen: the panel takes its
+     column and the map refits to the space left (the map's size change re-fits the station). On a phone the panel takes the lower half. */
+  html.uc-peek { --pw: clamp(320px, 24vw, 460px); }
+  html.uc-max.uc-peek .map-wrap { right: var(--pw) !important; }
+  html.uc-max.uc-peek .wrap .rpanel { position: fixed; top: 0; right: 0; bottom: 0; left: auto; height: auto; width: var(--pw); z-index: 45; opacity: 1; visibility: visible; background: var(--bg); border-left: 1px solid var(--rule); overflow: hidden; }
+  @media (max-width: 860px) {
+    html.uc-max.uc-peek .map-wrap { right: 0 !important; bottom: 52% !important; }
+    html.uc-max.uc-peek .wrap .rpanel { top: 48%; left: 0; right: 0; width: auto; border-left: 0; border-top: 1px solid var(--rule); overflow-y: auto; }
+  }
+  @media (prefers-reduced-motion: no-preference) { html.uc-max.uc-peek .wrap .rpanel { animation: ucPeekIn .25s ease-out; } @keyframes ucPeekIn { from { opacity: 0; transform: translateX(24px); } } }
 
 /* ---------- v3.03 menu ---------- */
 .menu-btn { display: flex; align-items: center; justify-content: center; gap: 14px; height: 72px; width: 100%; box-sizing: border-box; border: 0; border-radius: 20px; background: var(--ink); color: var(--bg); font: 600 26px/1 "Outfit", system-ui, sans-serif; cursor: pointer; }

@@ -438,7 +438,8 @@
       return c[0] || null;
     }
     function goStation(nd) {
-      withRegistry(() => { const r = stationFor(nd); if (r && r.id !== STN.id) location.assign(location.pathname + "?station=" + encodeURIComponent(r.id)); });
+      // v4.15: the next station swaps in on this page (full screen carries on); a full page load is only the fallback
+      withRegistry(() => { const r = stationFor(nd); if (r && r.id !== STN.id) { if (ctx.openStation) ctx.openStation(r.id); else location.assign(location.pathname + "?station=" + encodeURIComponent(r.id)); } });
     }
     scope.after(() => withRegistry(() => {}), 1500);           // fetch the list shortly after the page is up, so the first tap is instant
     const LONG = { "heathrow terminals 2 & 3": "Heathrow 2 & 3", "heathrow terminal 4": "Heathrow T4", "heathrow terminal 5": "Heathrow T5", "king's cross st pancras": "King's Cross", "king's cross st. pancras": "King's Cross",
@@ -745,7 +746,16 @@
       if (reduceMotion) { z = zTarget; applyZoom(); }
     }
     function zoomStep(dz) { zoomTo(Math.round(zTarget) + dz); }
+    // v4.15: the zoom has three levels (3, 4 or 5 stops each side). A pinch or wheel still moves it freely while it lasts; once the wheel events stop
+    // (150 ms) it settles on a level: a move of less than a fifth of a level springs back, anything more goes to the nearest level in that direction
+    // (at least one step, so a single click of a mouse wheel still changes level)
+    let wheelAt = 0, wheelFrom = STOPS_MIN, pinching = false;
+    function settleZoom() {
+      const d = zTarget - wheelFrom, n = Math.abs(d) < 0.2 ? 0 : Math.sign(d) * Math.max(1, Math.round(Math.abs(d)));
+      wheelAt = 0; zoomTo(wheelFrom + n);
+    }
     function zoomTick(dt) {                                    // called every frame: ease z towards its target
+      if (wheelAt && !pinching && performance.now() - wheelAt > 150) settleZoom();
       if (z === zTarget) return;
       z += (zTarget - z) * (1 - Math.exp(-dt / 0.16));
       if (Math.abs(zTarget - z) < 0.002) z = zTarget;
@@ -754,8 +764,28 @@
     scope.on(svg, "wheel", e => {
       e.preventDefault();
       const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      if (!wheelAt) wheelFrom = Math.round(zTarget);                  // the level this pinch or scroll began on
+      wheelAt = performance.now();
       zoomTo(zTarget * Math.exp(d * (e.ctrlKey ? 0.01 : 0.0015)));   // ctrlKey = trackpad pinch
     });
+    // v4.15: two-finger pinch on a touch screen: spreading the fingers zooms in (fewer stops), like the trackpad; it moves freely while the fingers are
+    // down and settles on a level when they lift. Not passive, so the page does not scroll or zoom itself under a pinch.
+    let pinchD0 = 0, pinchZ0 = STOPS_MIN;
+    const tDist = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+    const pinchEnd = e => { if (pinching && e.touches.length < 2) { pinching = false; wheelAt = performance.now(); } };
+    scope.on(svg, "touchstart", e => {
+      if (e.touches.length !== 2) return;
+      if (!wheelAt) wheelFrom = Math.round(zTarget);
+      pinching = true; wheelAt = performance.now(); pinchD0 = Math.max(1, tDist(e.touches)); pinchZ0 = zTarget;
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+    scope.on(svg, "touchmove", e => {
+      if (!pinching || e.touches.length < 2) return;
+      if (e.cancelable) e.preventDefault();
+      zoomTo(pinchZ0 * pinchD0 / Math.max(1, tDist(e.touches)));
+    }, { passive: false });
+    scope.on(svg, "touchend", pinchEnd); scope.on(svg, "touchcancel", pinchEnd);
+    ["gesturestart", "gesturechange"].forEach(t => scope.on(svg, t, e => e.preventDefault()));   // iPhone Safari's own page pinch
     scope.on(svg, "dblclick", () => zoomTo(STOPS_MIN));
     zoomTo(STOPS_MIN);
     scope.later(() => { const zo = document.getElementById("zoom-out"), zi = document.getElementById("zoom-in"); if (zo) zo.disabled = false; if (zi) zi.disabled = false; });
@@ -1346,7 +1376,7 @@
       sel = t; selNode = t ? t.g : null;
       if (selNode) selNode.classList.add("selected");
     }
-    function clearSel() { setSel(null); popRender = null; renderStation(); }
+    function clearSel() { setSel(null); popRender = null; panelsApi.endPeek(); renderStation(); }
     let vehFetched = 0;
     async function loadStops(t) {
       vehFetched = Date.now();
@@ -1360,7 +1390,7 @@
       } catch (e) { if (!scope.dead && sel === t) t.stops = t.stops || []; }
     }
     function openTrain(t) {
-      panelsApi.openRight();
+      panelsApi.peekRight();                                  // v4.15: in full screen the panel slides over the map for 30 s
       setSel(t); t.stops = null;
       if (t.calls && t.calls.length) { t.stops = t.calls; vehFetched = Date.now(); } else loadStops(t);
       popRender = () => {
