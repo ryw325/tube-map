@@ -334,6 +334,27 @@
       const share = vis.length > 8 ? overl / vis.length : 0;
       S.blurShare = share; S.blur = S.blur ? share > BLUR_SHOW : share > BLUR_HIDE;
       if (S.blur) return 0;
+      // v4.12 16-bit Pixel: a sprite on the page's art-pixel grid (grid = fullmap.js PG): 4 x 4 pixels of line colour, a one-pixel dark border, one white highlight pixel.
+      // No label fits inside, so at the two closest ladder steps the label sits just above the sprite in the bitmap font with a hard shadow.
+      if (tstyle && tstyle.sprite && tstyle.grid) {
+        const G = tstyle.grid, A = G.A, mode = S.labelMode || "off", out = [];
+        for (const { t, x, y } of vis) {
+          n++; const sx = Math.round((x + G.ox) / A) * A - G.ox, sy = Math.round((y + G.oy) / A) * A - G.oy; out.push([t, sx, sy]);
+          c.globalAlpha = t.alpha; c.fillStyle = tstyle.outline; c.fillRect(sx - 3 * A, sy - 3 * A, 6 * A, 6 * A);
+          c.fillStyle = tstyle.fill(t.line); c.fillRect(sx - 2 * A, sy - 2 * A, 4 * A, 4 * A);
+          c.fillStyle = "#FFFFFF"; c.fillRect(sx - A, sy - 2 * A, A, A);
+        }
+        if (tstyle.labels && mode !== "off") {
+          c.font = `8px ${font || "monospace"}`; c.textAlign = "center"; c.textBaseline = "alphabetic";
+          for (const [t, sx, sy] of out) {
+            const txt = mode === "vid" ? String(t.vid).slice(-3) : (t.code || (t.code = destCode(t)));
+            if (!txt || /^rb|ferry|cable/.test(t.line) && mode === "vid") continue;
+            const lx = Math.round(sx), ly = Math.round(sy - 3 * A - 3); c.globalAlpha = t.alpha;
+            c.fillStyle = tstyle.outline; c.fillText(txt, lx + 2, ly + 2); c.fillStyle = "#FFFFFF"; c.fillText(txt, lx, ly);
+          }
+        }
+        c.globalAlpha = 1; return n;
+      }
       if (glow) { const R = Math.round(W * 1.5), sp = glowFor(glow, R); for (const { t, x, y } of vis) { c.globalAlpha = t.alpha; c.drawImage(sp, x - R, y - R); } c.globalAlpha = 1; }
       if (tstyle && tstyle.glowLine) { const R = Math.round(W * 1.9); for (const { t, x, y } of vis) { c.globalAlpha = t.alpha; c.drawImage(glowFor(hexRgba(tstyle.fill(t.line), 0.6), R), x - R, y - R); } c.globalAlpha = 1; }   // a soft glow in the line colour round each train
       // Open-world blips: a ring in the line colour grows and fades about once every 1.4 s, staggered by vehicle so trains do not pulse together. Hidden when more than RING_MAX trains are drawn (frame rate).

@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.14: station pages: the zoom, fit and full screen buttons lie in a row; the title band is reserved (the top separator clears the title); the fit no longer treats the buttons as a full-width bar. v4.13: station pages (Linear): separators drawn like the station icons (white fill, 1.4 outline); the I is sized from the train and the flat middle of a ramped track matches the I, the first stop moves in with the ramp. v4.12: Full Map style 16-bit Pixel (Artistic): one art-pixel grid shared by its own tile ladder and everything the page draws (lines with dark outlines, 2 x 2 station blocks, landmark sprites, zone outlines, the road cut), a fixed palette, train sprites, Press Start 2P names with a hard shadow, twinkling water at the closest zooms, a title box and a train counter; the zoom settles so an art pixel is exactly 3 px.
    v4.11: Full Map style Cosy Village (Artistic, always light): grass with a light speckle and tiny flowers, rounded parks full of little round trees, pale blue water with a dotted white foam edge, soft grass-green paths, pastel lines on cream casings, stations as tiny houses, rounded trains with windows, Fredoka names, and a title card with the real season, day and a sun or moon.
    v4.10: Full Map style Open-world (Artistic, always dark): flat charcoal ground, green parks with a thin lighter edge, deep blue water with a lighter Thames band and a soft bank glow, quiet grey roads, bright saturated lines with a glow, white-ringed stations, trains with a pulsing ring (hidden above 150 trains), Teko capitals with dark halos, a compass and a LONDON title plate. Font: Teko.
    v4.09: Full Map: tapping a train, station icon, landmark or airport glides the map so it sits in the middle of the view (zoom unchanged); a train's details box opens in the middle. A Search button beside Layers finds stations, landmarks, airports and live trains (by vehicle number, with a line name to narrow it); picking one glides the map there, zooming in from a wide view, and names it.
@@ -133,7 +134,7 @@
   const CARRIAGE = trainPath(CORNER);
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.11";
+  const VERSION = "4.14";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };

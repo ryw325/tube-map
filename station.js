@@ -50,11 +50,18 @@
   /* ---------- Geometry ---------- */
   // v3.35 Linear 2: a track is flat at its outer level, ramps in at RAMP to a short straight section of 2 * HALF at the middle, and ramps out;
   // corners are rounded by cutting CUT off each side. SPC is the distance between the straight sections, RISE how far a track ramps outwards
-  const HALF = 28, RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 13.7, TRAIN_HALF = 4.5, TRACK_HALF = 3.5, SEP_LINE = 1;   // lane, half a train's width, half a track's width, half a separator's outline (at the default zoom)
+  const RAMP = 34 * Math.PI / 180, CUT = 9, LIN_LANE = 13.7, TRAIN_HALF = 4.5, TRACK_HALF = 3.5;   // lane, half a train's width, half a track's width (at the default zoom)
+  // v4.13: separators are drawn like the station icons (same fill, outline 1.4). The I is sized from the train: the straight bottom of its pills is as long as a
+  // train (nose to tail, outline included), and the flat middle of a ramped track is as long as the I is wide (outline included), so HALF (half of it) follows
+  const SEP_STROKE = 1.4, SEP_LINE = SEP_STROKE / 2;   // the separator's outline, and half of it
+  const TRAIN_LEN = (35 + 2) * SC;                     // CARRIAGE runs from -18 to 17 (35) with a 2 outline, drawn at SC
+  const MID_R = 5, MID_W = TRAIN_LEN / 2 + MID_R;      // the I's end radius, and its half-width: 2 * (MID_W - MID_R) is the straight bottom
+  const HALF = MID_W + SEP_LINE;                       // half the flat middle of a ramped track = half the I's widest point (outline included)
+  const RAMP_FOOT = 58;                                // the first stop sits this far past the flat middle (was 86 - 28)
   const SEP_END = "M6,7 H10.57 A7 7 0 0 1 17.5,1 H18.5 A7 7 0 0 1 25.43,7 H30 A5 5 0 0 1 35,12 A5 5 0 0 1 30,17 H6 A5 5 0 0 1 1,12 A5 5 0 0 1 6,7 Z";   // 36 x 18, bump at the top
   // the middle separator (an I: a pill at each end joined by a stem), drawn at scale k from y0 downwards and H tall, so the stem can be any length
   const midPath = (k, y0, H) => {
-    const w = 17 * k, t = 10 * k, r = 5 * k, sw = 7.5 * k, f = n => n.toFixed(2), a = (x, y) => `A${f(r)} ${f(r)} 0 0 1 ${f(x)},${f(y)}`;
+    const w = MID_W * k, t = 10 * k, r = MID_R * k, sw = 7.5 * k, f = n => n.toFixed(2), a = (x, y) => `A${f(r)} ${f(r)} 0 0 1 ${f(x)},${f(y)}`;
     return `M${f(-w + r)},${f(y0)} H${f(w - r)} ${a(w, y0 + r)} ${a(w - r, y0 + t)} H${f(sw)} V${f(y0 + H - t)} H${f(w - r)} ${a(w, y0 + H - t + r)} ${a(w - r, y0 + H)} H${f(-w + r)} ${a(-w, y0 + H - r)} ${a(-w + r, y0 + H - t)} H${f(-sw)} V${f(y0 + t)} H${f(-w + r)} ${a(-w, y0 + r)} ${a(-w + r, y0)} Z`;
   };
   // a rounded polyline through V (a vertex marked with a third entry is where the station is: its index comes back as idx)
@@ -72,7 +79,7 @@
   }
   // v3.40: deadL / deadR: the track ends at the platform on that side (END units from the station) instead of running on and ramping out
   const END = 24;
-  function trackVerts(yc, yo, deadL, deadR) {
+  function trackVerts(yc, yo, deadL, deadR, HALF) {
     const rise = Math.abs(yo - yc), X = 6000;
     const left = deadL ? [[-END, yc]] : rise < 0.5 ? [[-X, yc]] : [[-X, yo], [-(HALF + rise / Math.tan(RAMP)), yo], [-HALF, yc]];
     const right = deadR ? [[END, yc]] : rise < 0.5 ? [[X, yc]] : [[HALF, yc], [HALF + rise / Math.tan(RAMP), yo], [X, yo]];
@@ -285,7 +292,8 @@
     // rows are drawn at RSV * zf apart and hang from a track's outer level, which the first and last track's ramps have moved RISE away from the stack, so a
     // gap only has to find the rest; the standard spacing between tracks also eases in a little as everything shrinks
     const kz = () => 0.6 + 0.4 * zf;
-    const rampOf = i => NG > 1 && (i === 0 || i === NG - 1) ? RISE * Math.min(1, (86 - HALF) / (RISE / Math.tan(RAMP) || 1)) : 0;   // the first stop (86 out) is part way up the ramp
+    const HL = () => HALF * zf, X1L = () => HL() + RAMP_FOOT;   // v4.13: the flat middle and the first stop shrink with the zoom, like the I and the trains
+    const rampOf = i => NG > 1 && (i === 0 || i === NG - 1) ? RISE * Math.min(1, RAMP_FOOT / (RISE / Math.tan(RAMP) || 1)) : 0;   // the first stop (86 out) is part way up the ramp
     const sideNeed = (i, sd) => {
       const down = i < NG - 1 && bdir(i) === 1 ? Math.max(0, visRows(i, sd) * RSV * zf - rampOf(i)) : 0;
       const up = i + 1 === NG - 1 && NG > 1 ? Math.max(0, visRows(NG - 1, sd) * RSV * zf - rampOf(NG - 1)) : 0;
@@ -305,7 +313,7 @@
       GK.forEach((k, i) => {
         ROT[k] = RADIAL ? ANG[i] : 0;
         if (RADIAL) { BASE[k] = [[DEAD[i].E ? 0 : -6000, 0], [DEAD[i].W ? 0 : 6000, 0]]; IDX0[k] = 0; return; }
-        VERTS[k] = trackVerts(stackY(i), stackY(i) + outward(i) * RISE, DEAD[i].E, DEAD[i].W);
+        VERTS[k] = trackVerts(stackY(i), stackY(i) + outward(i) * RISE, DEAD[i].E, DEAD[i].W, HL());
         const T = plainTrack(VERTS[k]);
         BASE[k] = T.pts; IDX0[k] = T.idx;
       });
@@ -335,14 +343,14 @@
        in from the fade, and trains, markers, track and lanes all shrink by zf */
     const zScale = v => Math.pow(STOPS_MIN / v, 0.75);
     // where the stops are: stop k is X1 + (k - 1) * step from the station (see placeMarks)
-    const stopGeom = () => { const rad = Math.min(VW, VH) / 2, xk = (RADIAL ? rad * 0.72 : VW / 2 * LIN_K), x1 = RADIAL ? 92 : 86; return { x1, step: (xk - x1) / (z - 1) }; };
+    const stopGeom = () => { const rad = Math.min(VW, VH) / 2, xk = (RADIAL ? rad * 0.72 : VW / 2 * LIN_K), x1 = RADIAL ? 92 : X1L(); return { x1, step: (xk - x1) / (z - 1) }; };
     const rowUnit = gi => bdir(gi) * RSV * zf;
     // v3.42: where the path to node c leaves its parent's row: just after the parent's icon (just past the platform for a first stop), at 45 degrees unless the
     // stops are close together; null when c stays on its parent's row
     function forkRec(gi, c, side) {
       const p = c.parent; if (c.row === p.row) return null;
       const { x1, step } = stopGeom(), ru = rowUnit(gi), r0 = p.row * ru, r1 = c.row * ru, V = VERTS[GK[gi]];
-      const xf = p.depth === 0 ? HALF + 4 : x1 + (p.depth - 1) * step + 9 * zf;
+      const xf = p.depth === 0 ? HL() + 4 : x1 + (p.depth - 1) * step + 9 * zf;
       const drop = Math.abs(lvl(V, side, 0, r1) - lvl(V, side, xf, r0));     // v3.54: how far the path really moves (the row's level is fixed, the main track may still be ramping)
       return { xf, dw: Math.max(12, Math.min(drop, x1 + (c.depth - 1) * step - 7 * zf - xf)), r0, r1 };
     }
@@ -365,7 +373,7 @@
             T.nodes.forEach(nd => { nd.fk = forkRec(gi, nd, side); });
             sidePaths[sd] = T.leaves.map(leaf => {
               const forks = []; for (let q = leaf; q.parent; q = q.parent) if (q.fk) forks.unshift(q.fk);
-              return segVerts(V, side, HALF, leaf.end ? stopX(leaf.depth) : 6000, forks, 0);   // v3.44: a path that ends stops at the icon
+              return segVerts(V, side, HL(), leaf.end ? stopX(leaf.depth) : 6000, forks, 0);   // v3.44: a path that ends stops at the icon
             });
           });
           const nl = sidePaths.E ? sidePaths.E.length : 1, nr = sidePaths.W ? sidePaths.W.length : 1;
@@ -394,8 +402,8 @@
         const V = VERTS[t.k], ru = rowUnit(t.gi), nd = t.node;
         let verts;
         if (t.kind === "base") verts = [[0, V.yc]].concat(t.side < 0 ? V.left.slice().reverse() : V.right);   // a side with no stops (a terminus): from the station to the end of the track
-        else if (t.kind === "root") verts = segVerts(V, t.side, 0, HALF + 4, [], 0);
-        else if (t.kind === "edge") verts = segVerts(V, t.side, nd.parent.depth === 0 ? HALF + 4 : stopX(nd.parent.depth), stopX(nd.depth), nd.fk ? [nd.fk] : [], nd.parent.row * ru);
+        else if (t.kind === "root") verts = segVerts(V, t.side, 0, HL() + 4, [], 0);
+        else if (t.kind === "edge") verts = segVerts(V, t.side, nd.parent.depth === 0 ? HL() + 4 : stopX(nd.parent.depth), stopX(nd.depth), nd.fk ? [nd.fk] : [], nd.parent.row * ru);
         else if (nd.end) { t.el.setAttribute("display", "none"); return; }                 // v3.44: nothing beyond the icon where a path ends
         else verts = segVerts(V, t.side, stopX(nd.depth), 6000, [], nd.row * ru);
         const pts = roundPoly(verts, CUT).pts;
@@ -567,21 +575,25 @@
     }
     // v3.43: the stack is fitted again whenever the zoom moves, because the rows showing (and so the gaps) change with it
     function refit() {
+      RSV = RSV0;                                                   // v4.14: every fit starts from the standard row spacing, so the words' room and the rows' room agree
       const w0 = wordPos(0), w1 = wordPos(NG - 1);                  // v3.41: words pushed out past station names need more room
       const upExtra = Math.max(0, -Math.min(w0.we, w0.ee) - 25), downExtra = Math.max(0, Math.max(w1.we, w1.ee) - 37);
-      const top = Math.max(60, FIT.tgBottom + 41 + upExtra) - VH / 2, bottom = Math.min(FIT.ctlTop - 46 - downExtra, VH - 52 - downExtra) - VH / 2;   // where the outer levels may be (labels sit 30 beyond them)
-      const avail = bottom - top;
+      // v4.14: with one track the rows hang below it and the word under them is already counted in downExtra, so the rows are not counted again by need() (botExt)
+      const top = Math.max(60, FIT.tgBottom + 41 + upExtra) - VH / 2, bottom = Math.min(FIT.ctlTop - 46 - downExtra, VH - 52 - downExtra) - VH / 2 + (NG === 1 ? botExt() : 0);   // where the outer levels may be (labels sit 30 beyond them)
+      // v4.14: the title's band is reserved: the top separator (a cloud, 41 above the first track's pinch) must clear the title. The pinch of the first track is
+      // RISE below its outer level when there is more than one track, so a tighter RISE asks for a lower outer level
+      const titleB = titleEl ? 50 + 0.3 * (parseFloat(titleEl.style.fontSize) || 26) : 0, clear = titleEl ? titleB + 10 + 42 * zf - VH / 2 : -1e9;
+      const topNow = () => Math.max(top, clear - (NG > 1 ? RISE : 0)), avail = () => bottom - topNow();
       SPC = 92; RISE = NG === 1 ? 0 : 52;
-      RSV = RSV0;
       const need = () => (NG - 1) * SPC * kz() + sumGap() + botExt() + 2 * RISE;
-      if (NG > 1 && need() > avail) RISE = Math.max(14, (avail - (NG - 1) * SPC * kz() - sumGap() - botExt()) / 2);
-      if (NG > 1 && need() > avail) SPC = Math.max(72, (avail - 2 * RISE - sumGap() - botExt()) / ((NG - 1) * kz()));
-      if (need() > avail) {                                       // v3.42: still too tall (many rows): the rows close up, down to 46 apart
+      if (NG > 1 && need() > avail()) RISE = Math.max(14, (avail() - (NG - 1) * SPC * kz() - sumGap() - botExt()) / 2);
+      if (NG > 1 && need() > avail()) SPC = Math.max(72, (avail() - 2 * RISE - sumGap() - botExt()) / ((NG - 1) * kz()));
+      if (need() > avail()) {                                     // v3.42: still too tall (many rows): the rows close up, down to 46 apart
         const rows = (sumGap() + botExt()) / RSV;
-        if (rows > 0) RSV = Math.max(46, Math.min(RSV0, (avail - (NG - 1) * SPC * kz() - 2 * RISE) / rows));
+        if (rows > 0) RSV = Math.max(46, Math.min(RSV0, (avail() - (NG - 1) * SPC * kz() - 2 * RISE) / rows));
       }
       const ext = need() / 2;
-      OFF = need() <= avail ? Math.max(top + ext, Math.min(bottom - ext, 0)) : (top + bottom) / 2;
+      OFF = need() <= avail() ? Math.max(topNow() + ext, Math.min(bottom - ext, 0)) : (topNow() + bottom) / 2;
     }
     // Linear: each track's words sit 30 beyond its outer level, on the outer side ("← W" under the middle track on the left, "E →" above it on the right)
     function placeLabels() {
@@ -614,7 +626,7 @@
       put(SEPS.top, stackY(0) - e - 8 * zf, false); put(SEPS.bottom, stackY(NG - 1) + e + 8 * zf, true);
       SEPS.mid.forEach((n, j) => {
         const y0 = stackY(j) + e, H = stackY(j + 1) - e - y0;
-        n.setAttribute("d", midPath(zf, y0, H)); n.style.strokeWidth = (2 * zf).toFixed(2);
+        n.setAttribute("d", midPath(zf, y0, H)); n.style.strokeWidth = (SEP_STROKE * zf).toFixed(2);
       });
     }
     // marker 1 sits just past the pinch (X1) and marker z at XK, 72% of the way to the screen edge, so zooming out closes the markers up and the next
@@ -624,7 +636,7 @@
     // markers sit on circles and the fade is a ring
     let XK = 200, RAD = 280;
     function placeMarks() {
-      const cx = VW / 2, X1 = RADIAL ? 92 : 86;   // Linear: X1 is just past the ramp's foot
+      const cx = VW / 2, X1 = RADIAL ? 92 : X1L();   // Linear: X1 is just past the ramp's foot
       RAD = Math.min(VW, VH) / 2; XK = RADIAL ? RAD * 0.72 : cx * LIN_K;
       const step = (XK - X1) / (z - 1);
       const f0 = Math.max(0.02, Math.min(0.45, (cx - (XK + 14)) / VW));
