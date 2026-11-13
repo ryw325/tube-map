@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.17: the menu is two halves: Station, Line and Full Map as equal buttons on the left, and what the chosen one opens on the right (the station picker, a plain list of lines, or nine equal squares of London with a Whole map button). The right half starts on the section you are in; on a narrow screen the halves stack and the right slides over. A square opens the Full Map framed on that ninth (?map=full&region=nw|n|ne|w|c|e|sw|s|se; on the Full Map itself the view glides there). The station search box no longer takes focus by itself. The Region card and the Line board (tiles, tracks, silhouettes) are gone; lines/regions.js (tools/make_regions.py) draws the square thumbnails.
+   v4.16: trains running through a stop (Metropolitan fast trains, Piccadilly trains at Turnham Green outside its calling hours) have a chevron-shaped rear from the stop before until they pass the skipped stop, on line pages, station pages and the Full Map (trains-core.js passes and skippingAt; lines/parttime.js holds the hours and which feed gaps count as skips); stops a line serves only at certain times (Turnham Green on the Piccadilly, Kensington (Olympia) on the District) get a dashed ring on that line's page and on station pages.
    v4.15: station pages: tapping another station (or picking one from the menu, or back/forward) swaps it in on the same page, so full screen carries on; in full screen a tapped train opens the right panel as a column for 30 s and the map refits to the space left; the zoom has three levels (3, 4 or 5 stops each side): a trackpad pinch, scroll or two-finger touch pinch still moves it freely but settles on a level when it stops.
    v4.14: station pages: the zoom, fit and full screen buttons lie in a row; the title band is reserved (the top separator clears the title); the fit no longer treats the buttons as a full-width bar. v4.13: station pages (Linear): separators drawn like the station icons (white fill, 1.4 outline); the I is sized from the train and the flat middle of a ramped track matches the I, the first stop moves in with the ramp. v4.12: Full Map style 16-bit Pixel (Artistic): one art-pixel grid shared by its own tile ladder and everything the page draws (lines with dark outlines, 2 x 2 station blocks, landmark sprites, zone outlines, the road cut), a fixed palette, train sprites, Press Start 2P names with a hard shadow, twinkling water at the closest zooms, a title box and a train counter; the zoom settles so an art pixel is exactly 3 px.
    v4.11: Full Map style Cosy Village (Artistic, always light): grass with a light speckle and tiny flowers, rounded parks full of little round trees, pale blue water with a dotted white foam edge, soft grass-green paths, pastel lines on cream casings, stations as tiny houses, rounded trains with windows, Fredoka names, and a title card with the real season, day and a sun or moon.
@@ -133,9 +135,11 @@
     return `M${x},-7 H10 L17,0 L10,7 H${x} A${r} ${r} 0 0 1 -18,${7 - r} V${-7 + r} A${r} ${r} 0 0 1 ${x},-7 Z`;
   }
   const CARRIAGE = trainPath(CORNER);
+  // v4.16: while a train runs through the stop ahead its rear is a chevron-shaped notch (square again once it has passed the skipped stop)
+  const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.15";
+  const VERSION = "4.17";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -334,17 +338,8 @@
   const TILES = [
     { id: "line", name: "Line", sub: "One line, every train", live: true, icon: '<path d="M8 44 H28 L40 20 H56"/><circle cx="8" cy="44" r="5"/><circle cx="30" cy="44" r="5"/><circle cx="40" cy="20" r="5"/><circle cx="56" cy="20" r="5"/>' },
     { id: "station", name: "Station", sub: "One station, every arrival and departure", live: true, go: "station", icon: '<circle cx="32" cy="32" r="9"/><path d="M6 32 H21 M43 32 H58 M14 24 L6 32 L14 40 M50 24 L58 32 L50 40"/>' },
-    { id: "region", name: "Region", sub: "A part of the live network", icon: '<rect x="6" y="10" width="52" height="44" rx="8"/><path d="M6 40 H24 L34 26 H58 M28 10 V26"/><circle cx="24" cy="40" r="4"/><circle cx="34" cy="26" r="4"/>' },
     { id: "full", name: "Full Map", sub: "All of Greater London, pan and zoom", live: true, go: "fullmap", icon: '<path d="M6 20 H30 L44 34 H58 M10 50 L26 34 H58 M32 6 V58 M6 42 H26"/><circle cx="32" cy="20" r="4"/><circle cx="26" cy="34" r="4"/><circle cx="44" cy="34" r="4"/>' }
   ];
-  const win = (x, y, n, w, h, g) => Array.from({ length: n }, (_, i) => `<rect x="${x + i * (w + g)}" y="${y}" width="${w}" height="${h}" rx="1.5" fill="#F4F1EA"/>`).join("");
-  const BAND_ICON = {
-    light: '<path d="M6 8 H194" stroke="#6F6A5F" stroke-width="1.6"/><path d="M84 8 L92 22 M116 8 L108 22" stroke="#6F6A5F" stroke-width="2" fill="none"/><path d="M84 22 H116" stroke="#6F6A5F" stroke-width="3" stroke-linecap="round"/><rect x="42" y="24" width="116" height="22" rx="7" fill="#00AFAD"/><rect x="42" y="38" width="116" height="4" fill="#E8494B"/>' + win(50, 28, 6, 12, 7, 6) + '<rect x="6" y="48" width="188" height="5" fill="#8B939A"/><path d="M40 53 V62 M100 53 V62 M160 53 V62" stroke="#8B939A" stroke-width="6"/>',
-    over: '<rect x="46" y="14" width="108" height="20" rx="5" fill="#EF7B10"/><rect x="46" y="27" width="108" height="3" fill="#F6C48F"/>' + win(52, 18, 6, 12, 7, 5) + '<path d="M46 35 H154" stroke="#6E6A66" stroke-width="3"/><rect x="18" y="38" width="164" height="24" fill="#B5623E"/><path d="M30 62 V52 A14 14 0 0 1 58 52 V62 M66 62 V52 A14 14 0 0 1 94 52 V62 M102 62 V52 A14 14 0 0 1 130 52 V62 M138 62 V52 A14 14 0 0 1 166 52 V62" fill="#7A3F27"/>',
-    hybrid: '<path d="M104 62 V32 Q104 6 148 6 Q192 6 192 32 V62 Z" fill="#2B2622" stroke="#8E8478" stroke-width="4"/><rect x="14" y="30" width="146" height="24" rx="7" fill="#6950A1"/><rect x="14" y="44" width="146" height="4" fill="#B7A9DC"/>' + win(22, 34, 8, 12, 7, 5) + '<path d="M6 58 H194" stroke="#6E6A66" stroke-width="3"/>',
-    sub: '<rect x="14" y="8" width="172" height="52" rx="5" fill="#3A322B" stroke="#CDBFA9" stroke-width="3"/><rect x="28" y="22" width="144" height="28" rx="7" fill="#00782A"/><rect x="28" y="38" width="144" height="4" fill="#F0E8D5"/>' + win(38, 27, 9, 11, 8, 5) + '<path d="M22 54 H178" stroke="#8A7E70" stroke-width="2"/>',
-    deep: '<circle cx="100" cy="32" r="29" fill="#2B2622" stroke="#CDBFA9" stroke-width="5" stroke-dasharray="7 3"/><rect x="62" y="17" width="76" height="30" rx="15" fill="#E32017"/><rect x="62" y="31" width="76" height="4" fill="#F4B3AE"/>' + win(72, 22, 5, 9, 7, 5) + '<path d="M70 50 H130" stroke="#8A7E70" stroke-width="2"/>'
-  };
   const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   // A faint made-up squiggle for lines not built yet, the same every time for a given name
   function placeholder(name) {
@@ -357,39 +352,47 @@
   }
   const clockHTML = '<div class="menu-clock" aria-hidden="true"></div>';
   const backIcon = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 L8 12 L15 19"/></svg>';
-  const LOGO = '<svg viewBox="0 0 120 80" aria-hidden="true"><circle cx="60" cy="40" r="34" fill="#15110E" stroke="#CDBFA9" stroke-width="5" stroke-dasharray="9 4"/><rect x="30" y="26" width="60" height="30" rx="15" fill="#E32017"/><rect x="30" y="40" width="60" height="4" fill="#F4B3AE"/>' + win(38, 31, 4, 9, 7, 5) + '<circle cx="46" cy="62" r="3" fill="#CDBFA9"/><circle cx="74" cy="62" r="3" fill="#CDBFA9"/></svg>';
-  const CAT_COL = { light: "#00AFAD", over: "#EF7B10", hybrid: "#6950A1", sub: "#00782A", deep: "#E32017" };
-  // The Line page: a 7 x 4 board. Every category and every line is one equal tile; each category is a block of tiles with a train circling it.
-  // The layout (surface at the top, deep level at the bottom) comes from UNDERCURRENT_GRID in lines/index.js: 28 slots read left to right, top to bottom.
-  let gridTiles = [];   // [{ id, cat }] in slot order, used to draw the tracks
-  function buildGrid() {
-    const menu = window.UNDERCURRENT_MENU || [], by = {};
-    menu.forEach(c => { by["c-" + c.id] = { type: "cat", cat: c.id, c }; c.lines.forEach(l => { by[l.id] = { type: "line", cat: c.id, l }; }); });
-    by.menu = { type: "menu" }; by.logo = { type: "logo" };
-    const grid = (window.UNDERCURRENT_GRID || []).slice(0, 28);
-    gridTiles = grid.map(id => ({ id, cat: by[id] && by[id].cat }));
-    return grid.map((id, i) => {
-      const t = by[id]; if (!t) return "";
-      const xy = `left:${(i % 7) * 100 / 7}%;top:${Math.floor(i / 7) * 25}%;`;
-      if (t.type === "menu") return `<button type="button" class="gt gmenu" data-go="land" style="${xy}" aria-label="Back to the menu"><span class="face">${backIcon}<span class="nm">Menu</span></span></button>`;
-      if (t.type === "logo") return `<div class="gt glogo" style="${xy}" aria-hidden="true"><span class="face">${LOGO}<span class="wm">Undercurrent</span></span></div>`;
-      if (t.type === "cat") return `<div class="gt gcat" style="--cc:${CAT_COL[t.cat] || "#888"};${xy}"><span class="face"><svg viewBox="0 0 200 64" aria-hidden="true">${BAND_ICON[t.cat] || ""}</svg><span class="nm">${esc(t.c.name)}</span><span class="sub">${esc(t.c.sub)}</span></span></div>`;
-      const l = t.l;
-      if (!l.built || !knownLine(l.id)) return `<div class="gt gline off" style="${xy}"><span class="face"><svg viewBox="0 0 112 58" aria-hidden="true"><polyline points="${placeholder(l.name)}" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.1 7" opacity="0.7"/></svg><span class="nm">${esc(l.name)}</span></span></div>`;
-      const ends = l.ends.map(([x, y]) => `<circle class="e" cx="${x}" cy="${y}" r="3.2" stroke-width="2"/>`).join("");
-      return `<button type="button" class="gt gline live" data-line="${l.id}" style="--lc:${l.colour};${xy}"><span class="face"><svg viewBox="0 0 112 58" aria-hidden="true"><path class="s" d="${l.d}" fill="none" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>${ends}</svg><span class="nm">${esc(l.name)}</span></span></button>`;
-    }).join("");
+  // v4.17: the menu is two halves. Left: Station, Line, Full Map, equal buttons. Right: what the chosen one opens (the station picker, a plain
+  // list of lines, or nine squares of London). On a narrow screen the halves stack: the left list first, and the right half slides over it.
+  const PANES = ["station", "line", "full"].map(id => TILES.find(t => t.id === id));
+  const PANE_H = { station: "Choose a station", line: "Choose a line", full: "Choose where to start" };
+  const REGIONS = [["nw", "NW", "North west"], ["n", "N", "North"], ["ne", "NE", "North east"], ["w", "W", "West"], ["c", "Central", "Central"], ["e", "E", "East"], ["sw", "SW", "South west"], ["s", "S", "South"], ["se", "SE", "South east"]];
+  // Lines as a plain list under their bands; a line that is not built yet is greyed out
+  function buildLineList() {
+    return (window.UNDERCURRENT_MENU || []).map(c => `<div class="ln-h">${esc(c.name)}<span>${esc(c.sub)}</span></div>` + c.lines.map(l => (l.built && knownLine(l.id))
+      ? `<button type="button" class="ln-row" data-line="${l.id}" style="--lc:${l.colour}"><span class="ln-nm">${esc(l.name)}</span></button>`
+      : `<div class="ln-row off" style="--lc:${l.colour}" aria-disabled="true"><span class="ln-nm">${esc(l.name)}</span><span class="ln-soon">Coming soon</span></div>`).join("")).join("");
+  }
+  // Nine equal squares of the Full Map's area (a thumbnail behind each, filled in when lines/regions.js has loaded) and a Whole map button
+  function buildRegions() {
+    const tiles = REGIONS.map(([id, lab, nm]) => `<button type="button" class="rg-tile" data-region="${id}" aria-label="${nm} of London"><svg class="rg-svg" aria-hidden="true" preserveAspectRatio="xMidYMid slice"></svg><span class="rg-lab">${lab}</span></button>`).join("");
+    return `<div class="rg-grid" role="group" aria-label="Part of London">${tiles}</div><button type="button" class="rg-whole" data-region="all">Whole map</button>`;
+  }
+  function loadRegions(cb) {
+    if (window.UNDERCURRENT_REGIONS) { cb(); return; }
+    const sc = document.createElement("script"); sc.src = "lines/regions.js?v=" + VERSION; sc.onload = cb; document.head.appendChild(sc);
+  }
+  function paintRegions() {
+    const R = window.UNDERCURRENT_REGIONS; if (!R || !menuEl.querySelector(".rg-svg")) return;
+    if (!menuEl.querySelector("#rg-defs")) {
+      const ls = R.lines.map(l => `<path class="rg-l" style="stroke:${l.id === "northern" ? "var(--ink)" : l.c}" d="${l.d}"/>`).join("");
+      menuEl.insertAdjacentHTML("beforeend", `<svg id="rg-defs" width="0" height="0" style="position:absolute" aria-hidden="true"><defs><g id="rg-london"><path class="rg-b" d="${R.boroughs}"/>${ls}</g></defs></svg>`);
+    }
+    menuEl.querySelectorAll(".rg-svg").forEach((n, i) => { n.setAttribute("viewBox", `${(i % 3) * R.w / 3} ${Math.floor(i / 3) * R.h / 3} ${R.w / 3} ${R.h / 3}`); n.innerHTML = '<use href="#rg-london"/>'; });
   }
   function buildMenu() {
-    const tiles = TILES.map(t => t.live
-      ? `<button type="button" class="tile" data-go="${t.go || 'lines'}"><div class="tile-top"><svg width="72" height="72" ${SVGNS}>${t.icon}</svg><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 H19 M13 6 L19 12 L13 18"/></svg></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`
-      : `<button type="button" class="tile" disabled aria-label="${t.name}, coming soon"><div class="tile-top"><svg width="72" height="72" ${SVGNS} style="opacity:.75">${t.icon}</svg><span class="soon">Coming soon</span></div><div><div class="tile-name">${t.name}</div><div class="tile-sub">${t.sub}</div></div></button>`).join("");
+    const left = PANES.map(t => `<button type="button" class="sbtn" data-pane="${t.id}" aria-pressed="false"><svg ${SVGNS}>${t.icon}</svg><span class="sbtn-t"><span class="sbtn-name">${t.name}</span><span class="sbtn-sub">${t.sub}</span></span></button>`).join("");
+    const chips = (window.UNDERCURRENT_LINES || []).filter(l => !l.noStations).map(l => `<button type="button" class="stn-chip" data-chip="${LINE_API[l.id] || l.id}" aria-pressed="false" style="--c:${lineColour(l.id)}"><i aria-hidden="true"></i>${esc(l.name)}</button>`).join("");
+    const panes =
+      `<section class="pane" data-pane="station" hidden><h2 class="menu-h1 pane-h">${PANE_H.station}</h2>` +
+      `<div class="stn-tools"><input class="stn-search" id="stn-search" type="search" placeholder="Search stations" aria-label="Search stations" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="stn-chips" role="group" aria-label="Show one line">${chips}</div></div>` +
+      `<div class="stn-count" id="stn-count" aria-live="polite"></div><div class="stn-list" id="stn-list"></div></section>` +
+      `<section class="pane" data-pane="line" hidden><h2 class="menu-h1 pane-h">${PANE_H.line}</h2><div class="ln-list" id="ln-list" role="group" aria-label="Lines">${buildLineList()}</div></section>` +
+      `<section class="pane" data-pane="full" hidden><h2 class="menu-h1 pane-h">${PANE_H.full}</h2>${buildRegions()}</section>`;
     menuEl.innerHTML =
-      `<div class="menu-view menu-land" data-view="land"><div class="menu-top"><div class="menu-eyebrow">Project Undercurrent</div>${clockHTML}</div>` +
-      `<h2 class="menu-h1">What would you like to see?</h2><p>Choose a way to explore the live network.</p><div class="tiles">${tiles}</div>` +
-      `<button type="button" class="menu-ghost menu-back" data-go="close">${backIcon}Back to the map</button></div>` +
-      `<div class="menu-view menu-lines" data-view="lines" hidden><div class="gboard" id="gboard" role="group" aria-label="Choose a line">${buildGrid()}<svg class="gfx" id="gfx" aria-hidden="true"></svg></div></div>` +
-      buildStations();
+      `<div class="menu-view menu-split" data-view="land"><div class="menu-top"><div class="menu-eyebrow">Project Undercurrent</div>${clockHTML}</div>` +
+      `<div class="split" id="split"><nav class="split-left" aria-label="Menu">${left}</nav><div class="split-right"><button type="button" class="split-back" data-go="stack">${backIcon}Menu</button>${panes}</div></div>` +
+      `<button type="button" class="menu-ghost menu-back" data-go="close">${backIcon}Back to the map</button></div>`;
   }
   // v3.40: the station picker. Small cards, a search box and a chip per line. A line chip lists that line's stations in order along it, otherwise A to Z.
   // The list of stations (lines/stations.js, 270 or so) is loaded the first time the picker opens, so it adds nothing to the weight of a page.
@@ -402,14 +405,6 @@
     const sc = document.createElement("script"); sc.src = "lines/stations.js?v=" + VERSION; sc.onload = cb; sc.onerror = cb; document.head.appendChild(sc);
   }
   window.UndercurrentLoadStations = loadStations;
-  function buildStations() {
-    const chips = (window.UNDERCURRENT_LINES || []).filter(l => !l.noStations).map(l => `<button type="button" class="stn-chip" data-chip="${LINE_API[l.id] || l.id}" aria-pressed="false" style="--c:${lineColour(l.id)}"><i aria-hidden="true"></i>${esc(l.name)}</button>`).join("");
-    return `<div class="menu-view menu-land menu-stations" data-view="stations" hidden><div class="menu-top"><div class="menu-eyebrow">Stations</div>${clockHTML}</div>` +
-      `<h2 class="menu-h1">Choose a station</h2>` +
-      `<div class="stn-tools"><input class="stn-search" id="stn-search" type="search" placeholder="Search stations" aria-label="Search stations" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="stn-chips" role="group" aria-label="Show one line">${chips}</div></div>` +
-      `<div class="stn-count" id="stn-count" aria-live="polite"></div><div class="stn-list" id="stn-list"></div>` +
-      `<button type="button" class="menu-ghost menu-back" data-go="land">${backIcon}Back</button></div>`;
-  }
   const apiColour = {};
   function renderStations() {
     const list = document.getElementById("stn-list"); if (!list) return;
@@ -431,96 +426,24 @@
     const inp = document.getElementById("stn-search"); if (inp) inp.value = "";
     renderStations();
     loadStations(() => { renderStations(); const cur = menuEl.querySelector(".stn-pick.cur"); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "center" }); });
-    if (inp && !(window.matchMedia && matchMedia("(pointer: coarse)").matches)) inp.focus({ preventScroll: true });
   }
-  /* Tracks: the boundary of each category's tiles, pulled in a little so it sits in the gap, corners rounded, one train per loop. */
-  const gSVG = "http://www.w3.org/2000/svg";
-  let gTrains = [], gRaf = 0, gLast = 0, gSized = "";
-  function gLoops(cells) {
-    const set = new Set(cells.map(c => c[0] + "," + c[1])), has = (x, y) => set.has(x + "," + y), edges = [];
-    cells.forEach(([x, y]) => {
-      if (!has(x, y - 1)) edges.push([x, y, x + 1, y]);
-      if (!has(x + 1, y)) edges.push([x + 1, y, x + 1, y + 1]);
-      if (!has(x, y + 1)) edges.push([x + 1, y + 1, x, y + 1]);
-      if (!has(x - 1, y)) edges.push([x, y + 1, x, y]);
-    });
-    const from = {}; edges.forEach((e, i) => { e.i = i; (from[e[0] + "," + e[1]] = from[e[0] + "," + e[1]] || []).push(e); });
-    const used = new Set(), loops = [];
-    edges.forEach(e0 => {
-      if (used.has(e0.i)) return;
-      const loop = []; let e = e0;
-      while (e && !used.has(e.i)) { used.add(e.i); loop.push(e); e = (from[e[2] + "," + e[3]] || []).find(n => !used.has(n.i)); }
-      loops.push(loop);
-    });
-    return loops;
-  }
-  function gPath(loop, cw, ch, m) {
-    const D = m * 0.04, R = m * 0.16, v = [], n = loop.length;
-    for (let i = 0; i < n; i++) {
-      const a = loop[(i + n - 1) % n], b = loop[i], da = [a[2] - a[0], a[3] - a[1]], db = [b[2] - b[0], b[3] - b[1]];
-      if (da[0] === db[0] && da[1] === db[1]) continue;
-      v.push([b[0] * cw + (-da[1] - db[1]) * D, b[1] * ch + (da[0] + db[0]) * D]);
-    }
-    let d = "";
-    v.forEach((p, i) => {
-      const pr = v[(i + v.length - 1) % v.length], nx = v[(i + 1) % v.length];
-      const l1 = Math.hypot(pr[0] - p[0], pr[1] - p[1]), l2 = Math.hypot(nx[0] - p[0], nx[1] - p[1]), r = Math.min(R, l1 / 2, l2 / 2);
-      const A = [p[0] + (pr[0] - p[0]) / l1 * r, p[1] + (pr[1] - p[1]) / l1 * r], B = [p[0] + (nx[0] - p[0]) / l2 * r, p[1] + (nx[1] - p[1]) / l2 * r];
-      d += `${i ? "L" : "M"}${A[0].toFixed(1)} ${A[1].toFixed(1)}Q${p[0].toFixed(1)} ${p[1].toFixed(1)} ${B[0].toFixed(1)} ${B[1].toFixed(1)}`;
-    });
-    return d + "Z";
-  }
-  function gEl(tag, attrs) { const e = document.createElementNS(gSVG, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
-  function drawTracks() {
-    const fx = document.getElementById("gfx"), board = document.getElementById("gboard");
-    if (!fx || !board) return;
-    const W = board.clientWidth, H = board.clientHeight; if (!W || !H) return;
-    const cw = W / 7, ch = H / 4, m = Math.min(cw, ch), keep = {};
-    gTrains.forEach(t => { keep[t.key] = t.s / (t.L || 1); });
-    fx.setAttribute("viewBox", `0 0 ${W} ${H}`); fx.textContent = ""; gTrains = [];
-    Object.keys(CAT_COL).forEach(cat => {
-      const cells = []; gridTiles.forEach((t, i) => { if (t.cat === cat) cells.push([i % 7, Math.floor(i / 7)]); });
-      gLoops(cells).forEach((loop, li) => {
-        const d = gPath(loop, cw, ch, m), col = CAT_COL[cat];
-        fx.appendChild(gEl("path", { d, fill: "none", stroke: col, "stroke-width": m * 0.024, "stroke-linejoin": "round", opacity: 0.85 }));
-        fx.appendChild(gEl("path", { d, fill: "none", stroke: "#fff", "stroke-width": m * 0.012, "stroke-dasharray": `${m * .015} ${m * .06}`, "stroke-linecap": "round", opacity: 0.85 }));
-        const path = gEl("path", { d, fill: "none", stroke: "none" }); fx.appendChild(path);
-        const g = gEl("g", {}), k = m / 100;
-        g.appendChild(gEl("rect", { x: -13 * k, y: -3.6 * k, width: 26 * k, height: 7.2 * k, rx: 3.6 * k, fill: col, stroke: "#fff", "stroke-width": 1.3 * k }));
-        [-7, -1, 5].forEach(x => g.appendChild(gEl("rect", { x: x * k, y: -1.6 * k, width: 4 * k, height: 2.6 * k, rx: 0.8 * k, fill: "#fff" })));
-        fx.appendChild(g);
-        const L = path.getTotalLength(), key = cat + li;
-        gTrains.push({ g, path, L, key, s: (keep[key] || 0) * L, v: (46 + li * 6) * k });
-      });
-    });
-    gStep(0);
-  }
-  function gStep(dt) {
-    gTrains.forEach(t => {
-      t.s = (t.s + t.v * dt) % t.L;
-      const p = t.path.getPointAtLength(t.s), q = t.path.getPointAtLength((t.s + 2) % t.L);
-      t.g.setAttribute("transform", `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) rotate(${(Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI).toFixed(1)})`);
-    });
-  }
-  function gFrame(ts) {
-    gRaf = 0;
-    if (!menuOpen || menuEl.querySelector('.menu-view[data-view="lines"]').hidden) return;
-    if (!document.hidden) gStep(Math.min(0.1, (ts - gLast) / 1000));
-    gLast = ts; gRaf = requestAnimationFrame(gFrame);
-  }
-  function gStart() {                       // runs only while the Line page is on screen
-    drawTracks();
-    if (!reduceMotionPref && !gRaf) { gLast = performance.now(); gRaf = requestAnimationFrame(gFrame); }
-  }
-  function gStop() { if (gRaf) { cancelAnimationFrame(gRaf); gRaf = 0; } }
-  window.addEventListener("resize", () => { if (menuOpen && !menuEl.querySelector('.menu-view[data-view="lines"]').hidden) drawTracks(); });
   let menuFrom = null, menuFade = 0;
-  function showView(v) {
-    menuEl.querySelectorAll(".menu-view").forEach(n => { n.hidden = n.dataset.view !== v; });
-    if (v === "stations") showStations();
-    else { const first = menuEl.querySelector(`.menu-view[data-view="${v}"] ${v === "lines" ? ".gline.cur, .gline.live" : ".tile:not([disabled])"}`); if (first) first.focus({ preventScroll: true }); }
-    if (v === "lines") gStart(); else gStop();
+  const narrowMenu = () => !!(window.matchMedia && matchMedia("(max-width: 860px)").matches);
+  // Choose what the right half shows. open: on a narrow screen, slide the right half over the left list
+  function setPane(p, open) {
+    const sp = menuEl.querySelector(".split"); if (!sp) return;
+    menuEl.querySelectorAll(".sbtn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.pane === p)));
+    menuEl.querySelectorAll(".pane").forEach(n => { n.hidden = n.dataset.pane !== p; });
+    sp.classList.toggle("sub-open", !!open);
+    const pn = menuEl.querySelector(`.pane[data-pane="${p}"]`);
+    if (pn && !reduceMotionPref) { pn.classList.remove("slide"); void pn.offsetWidth; pn.classList.add("slide"); }
+    if (p === "station") showStations(); else if (p === "full") loadRegions(paintRegions);
     updateClock();
+  }
+  // Open the Full Map framed on one ninth of London (or the whole map); on the Full Map itself the view glides there
+  function goRegion(id) {
+    if (cur && cur.LINE.kind === "fullmap" && window.UndercurrentFullMapRegion) { window.UndercurrentFullMapRegion(id); return; }
+    location.assign(location.pathname + "?map=full" + (id === "all" ? "" : "&region=" + id));
   }
   function openMenu() {
     if (menuOpen || txBusy) return;
@@ -529,12 +452,13 @@
     menuOpen = true; menuFrom = document.activeElement;
     clearTimeout(menuFade);
     menuEl.hidden = false; root.classList.add("menu-on");
-    showView("land");
+    { const k = cur && cur.LINE && cur.LINE.kind; setPane(k === "station" ? "station" : k === "fullmap" ? "full" : "line", false); }   // v4.17: the right half starts on the section you are in
+    { const f = menuEl.querySelector('.sbtn[aria-pressed="true"]'); if (f) f.focus({ preventScroll: true }); }
     void menuEl.offsetWidth; menuEl.classList.add("in");
   }
   function closeMenu(then) {
     if (!menuOpen) return;
-    menuOpen = false; menuEl.classList.remove("in"); gStop();
+    menuOpen = false; menuEl.classList.remove("in");
     clearTimeout(menuFade);
     menuFade = setTimeout(() => { menuEl.hidden = true; root.classList.remove("menu-on"); if (then) then(); }, reduceMotionPref ? 0 : 260);
     if (!then && menuFrom && menuFrom.focus) menuFrom.focus({ preventScroll: true });
@@ -542,13 +466,14 @@
   menuEl.addEventListener("click", e => {
     const b = e.target.closest("button");
     if (!b || b.disabled) return;
+    if (b.dataset.pane) { setPane(b.dataset.pane, true); return; }                       // v4.17: Station, Line or Full Map on the left
+    if (b.dataset.region) { const id = b.dataset.region; closeMenu(() => goRegion(id)); return; }   // v4.17: a ninth of the Full Map
+    if (b.dataset.go === "stack") { menuEl.querySelector(".split").classList.remove("sub-open"); const f = menuEl.querySelector('.sbtn[aria-pressed="true"]'); if (f) f.focus({ preventScroll: true }); return; }
     if (b.dataset.line) { const id = b.dataset.line; closeMenu(() => { if (cur && id !== cur.id) plainSwitch(id); }); return; }
     const go = b.dataset.go;
     if (b.dataset.station) { const sid = b.dataset.station; closeMenu(() => { if (cur && cur.LINE.kind === "station" && isStnId("station-" + sid)) plainSwitch("station-" + sid); else location.assign(location.pathname + "?station=" + encodeURIComponent(sid)); }); return; }   // v4.15: from a station page the picker swaps in place
     if (b.dataset.chip) { stnState.line = stnState.line === b.dataset.chip ? "" : b.dataset.chip; renderStations(); const l = document.getElementById("stn-list"); if (l) l.scrollTop = 0; return; }   // v3.40
-    if (go === "fullmap") { closeMenu(() => { location.assign(location.pathname + "?map=full"); }); return; }   // v3.58: the Full Map page is a full page load, like a station page
-    if (go === "station") { showView("stations"); return; }       // v3.31: the card opens the station picker
-    if (go === "close") closeMenu(); else if (go) showView(go);
+    if (go === "close") closeMenu();
   });
   menuEl.addEventListener("input", e => { if (e.target.id === "stn-search") { stnState.q = e.target.value; renderStations(); const l = document.getElementById("stn-list"); if (l) l.scrollTop = 0; } });
   menuEl.addEventListener("keydown", e => {                      // v3.40: Enter in the search box opens the first match
@@ -556,8 +481,8 @@
   });
   document.addEventListener("keydown", e => {
     if (!menuOpen || e.key !== "Escape") return;
-    const onLand = !menuEl.querySelector('.menu-view[data-view="land"]').hidden;
-    if (!onLand) showView("land"); else closeMenu();
+    const sp = menuEl.querySelector(".split");
+    if (narrowMenu() && sp && sp.classList.contains("sub-open")) sp.classList.remove("sub-open"); else closeMenu();
   });
   document.getElementById("menu-open").addEventListener("click", openMenu);
 
@@ -586,7 +511,7 @@
   sheetScrim.addEventListener("click", () => closeSheet());
   document.addEventListener("keydown", e => { if (sheetEl && e.key === "Escape") closeSheet(); });
   function tickPicker(id) {
-    menuEl.querySelectorAll(".gline.live").forEach(c => {
+    menuEl.querySelectorAll(".ln-row[data-line]").forEach(c => {
       const on = c.dataset.line === id;
       c.classList.toggle("cur", on);
       if (on) c.setAttribute("aria-current", "true"); else c.removeAttribute("aria-current");
@@ -830,7 +755,9 @@
       const g = el("g", { class: "station-link", tabindex: "0", role: "button", "aria-label": `${s.name}: show departures` }, stationLayer);
       stationNodes[i] = g;
       el("circle", { class: "station-hit", cx: s.x, cy: s.y, r: 24 }, g);
-      el("circle", { class: "station", cx: s.x, cy: s.y, r: 11 }, g);
+      const pt = window.UC_PART_TIME && window.UC_PART_TIME.partTime(LINE.api || LINE.id, s.naptan || s.name);      // v4.16: this line serves the station only at certain times: a dashed ring
+      el("circle", { class: pt ? "station part" : "station", cx: s.x, cy: s.y, r: 11 }, g);
+      if (pt) { const tt = el("title", {}, g); tt.textContent = pt.note; g.setAttribute("aria-label", `${s.name}: show departures. ${pt.note}`); }
       g.addEventListener("click", () => openBoard(home));
       g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openBoard(home); } });
     });
@@ -2225,6 +2152,7 @@
         const flip = a > 90 && a < 270;
         t.node.setAttribute("transform", `translate(${t.x.toFixed(1)} ${t.y.toFixed(1)}) rotate(${t.ang.toFixed(1)}) scale(${TRAIN_SCALE})`);
         t.node.setAttribute("opacity", t.opacity.toFixed(2));
+        if (t.core) { const sk = CoreLib.skippingAt(t.core, tflNow()); if (sk !== t.skOn) { t.skOn = sk; t.node.firstChild.setAttribute("d", sk ? CARRIAGE_SKIP : CARRIAGE); } }
         t.text.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)");
         const label = labelFor(t);
         if (t.text.textContent !== label) t.text.textContent = label;

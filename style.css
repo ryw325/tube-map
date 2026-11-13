@@ -140,6 +140,7 @@
   .track { fill: none; stroke: var(--line); stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; }
   .track-core { fill: none; stroke: var(--bg); stroke-width: 6; stroke-linejoin: round; stroke-linecap: round; }   /* hollow (Overground) lines: the background shows through the middle */
   .station { fill: var(--station-fill); stroke: var(--ink); stroke-width: 5; }
+  .station.part { stroke-dasharray: 4.4 3.28; }      /* v4.16: a stop this line serves only at certain times: a dashed ring (9 dashes round the icon) */
   .label { fill: var(--ink); font-family: var(--sans); font-size: 20px; font-weight: 500; }
   .train-body { fill: var(--train); stroke: var(--train); stroke-width: 2; stroke-linejoin: round; }
   .train-num { fill: var(--train-nose); font-family: var(--mono); font-size: 10.5px; font-weight: 500; }
@@ -472,6 +473,56 @@
 .tile-sub { font-size: clamp(15px, 1.5vw, 20px); line-height: 1.3; margin-top: 10px; opacity: .85; }
 .soon { font: 500 12px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; border: 1.5px solid currentColor; border-radius: 999px; padding: 5px 10px; white-space: nowrap; }
 .menu-back { margin-top: auto; align-self: flex-start; }
+/* v4.17 menu: two halves. Left, three equal buttons (Station, Line, Full Map); right, what the chosen one opens. Narrow screens stack them and slide the right half over. */
+.menu-split { padding: 0 clamp(24px, 5.6vw, 72px) clamp(24px, 5vh, 56px); }
+.menu-split .menu-top { padding-left: 0; padding-right: 0; }
+.split { position: relative; flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: minmax(260px, 5fr) 6fr; gap: clamp(20px, 3vw, 48px); margin: clamp(8px, 2vh, 20px) 0 clamp(14px, 2.4vh, 24px); }
+.split-left { display: flex; flex-direction: column; gap: clamp(12px, 2vh, 20px); min-height: 0; }
+.sbtn { flex: 1 1 0; min-height: 0; box-sizing: border-box; display: flex; align-items: center; gap: clamp(16px, 2vw, 26px); padding: 0 clamp(20px, 2.4vw, 34px); border: 2px solid var(--ink); border-radius: 28px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.sbtn svg { flex: none; width: clamp(44px, 5vw, 72px); height: auto; }
+.sbtn-name { display: block; font-size: clamp(26px, 3vw, 40px); font-weight: 600; line-height: 1; }
+.sbtn-sub { display: block; margin-top: 8px; font-size: clamp(13px, 1.3vw, 18px); line-height: 1.25; opacity: .8; }
+.sbtn[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.sbtn:focus-visible { outline: 3px solid var(--ink); outline-offset: 4px; }
+.split-right { position: relative; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; padding: clamp(18px, 2.4vw, 32px); border-radius: 28px; background: color-mix(in srgb, var(--ink) 6%, var(--bg)); overflow: hidden; }
+.split-back { display: none; align-items: center; gap: 8px; flex: none; align-self: flex-start; height: 44px; margin: -6px 0 8px -8px; padding: 0 16px 0 8px; border: 0; background: transparent; color: var(--ink); font-size: 18px; font-weight: 600; cursor: pointer; }
+.split-back:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.pane { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.pane[hidden] { display: none; }
+.pane.slide { animation: paneIn .28s ease-out; }
+@keyframes paneIn { from { opacity: 0; transform: translateX(28px); } }
+.pane-h { font-size: clamp(26px, 2.8vw, 40px); flex: none; }
+/* Line: a plain list under its bands */
+.ln-list { flex: 1 1 0; min-height: 0; overflow-y: auto; margin-top: 14px; padding: 2px 2px 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; align-content: start; overscroll-behavior: contain; }
+.ln-h { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 12px; margin-top: 10px; font: 500 13px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.ln-h:first-child { margin-top: 0; }
+.ln-h span { font-family: "Outfit", system-ui, sans-serif; letter-spacing: 0; text-transform: none; font-size: 14px; opacity: .85; }
+.ln-row { box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 6px 14px; border: 0; border-left: 10px solid var(--lc, transparent); border-radius: 12px; background: var(--ink); color: var(--bg); font: 600 19px/1.15 "Outfit", system-ui, sans-serif; text-align: left; cursor: pointer; }
+.ln-row:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.ln-row.cur { box-shadow: inset 0 0 0 3px var(--bg), 0 0 0 2px var(--ink); }
+.ln-row.off { background: color-mix(in srgb, var(--ink) 8%, var(--bg)); color: color-mix(in srgb, var(--ink) 52%, var(--bg)); border-left-color: color-mix(in srgb, var(--lc) 40%, var(--bg)); cursor: default; }
+.ln-soon { font: 500 11px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+/* Full Map: nine equal squares of the map's area, a thumbnail behind each label, and a Whole map button */
+.rg-grid { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.rg-tile { position: relative; min-height: 0; box-sizing: border-box; padding: 0; border: 2px solid var(--ink); border-radius: 16px; overflow: hidden; background: var(--bg); color: var(--ink); cursor: pointer; }
+.rg-tile:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.rg-tile:hover, .rg-tile:active { box-shadow: inset 0 0 0 3px var(--ink); }
+.rg-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.rg-b { fill: none; stroke: var(--ink); stroke-opacity: .3; stroke-width: .9; vector-effect: non-scaling-stroke; }
+.rg-l { fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .92; }
+.rg-lab { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: clamp(20px, 2.6vw, 34px); font-weight: 700; letter-spacing: .02em; -webkit-text-stroke: 7px var(--bg); paint-order: stroke fill; }
+.rg-whole { flex: none; height: 56px; margin-top: 10px; border: 2px solid var(--ink); border-radius: 16px; background: var(--ink); color: var(--bg); font: 600 20px "Outfit", system-ui, sans-serif; cursor: pointer; }
+.rg-whole:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+@media (max-width: 860px) {
+  .split { display: block; }
+  .split-left { height: 100%; }
+  .sbtn-sub { display: none; }
+  .split-right { position: absolute; inset: 0; z-index: 1; transform: translateX(105%); visibility: hidden; transition: transform .28s ease, visibility 0s .28s; }
+  .split.sub-open .split-right { transform: none; visibility: visible; transition: transform .28s ease, visibility 0s 0s; }
+  .split-back { display: inline-flex; }
+  .pane.slide { animation: none; }
+}
+@media (prefers-reduced-motion: reduce) { .split-right, .split.sub-open .split-right { transition: none; } }
 /* Line page: a 7 x 4 board of equal tiles. --u is one cell width over 14.3, so every size below scales with the screen. */
 .menu-lines { --u: min(1cqw, 1.75cqh); --tile: #F4F2EC; --tile-ink: #23272B; --rest: rgba(244,242,236,.55); --rest-ink: #6F6A5F; --rest-line: #A19B90; --ghost: rgba(244,241,234,.5); --ghost-ink: #4A4036; --ghost-line: rgba(60,50,40,.38);
   background: linear-gradient(180deg, var(--bg) 0%, #E4DFD3 22%, #C9BBA3 46%, #93816B 70%, #4A3F36 90%, #3B322B 100%); }
@@ -638,6 +689,7 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .stn-scene .stn-mark.stn-go:hover circle:not(.stn-hit), .stn-scene .stn-mark.stn-go:focus-visible circle:not(.stn-hit) { stroke-width: 3; }
 .stn-scene .stn-mark.stn-go:hover text, .stn-scene .stn-mark.stn-go:focus-visible text { font-weight: 700; }
 .stn-scene .stn-mark circle:not(.stn-hit) { fill: var(--station-fill); stroke: var(--ink); stroke-width: 1.4; }   /* v3.41: a station icon with its name beside it, away from the track (v3.40 had a pill) */
+.stn-scene .stn-mark circle.stn-part { stroke-dasharray: 2.6 1.8; }      /* v4.16: only at certain times: a dashed ring */
 .stn-scene .stn-mark text { fill: var(--ink); font-family: var(--sans); font-size: 8.5px; font-weight: 500; text-anchor: middle; paint-order: stroke; stroke: var(--bg); stroke-width: 2.6px; stroke-linejoin: round; }
 /* v3.25 phone board: the board keeps one constant size here too, just tall enough for 2 trains each way */
 @media (max-width: 860px) { html.stn-page .rpanel .board { min-height: 340px; } }

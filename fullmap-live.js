@@ -277,9 +277,15 @@
       const [p, ang, lane] = xyAt(t, t.disp), lw = lineWidthPx(pxPerM), off = (pxPerM >= 0.05 ? lw * 0.92 : 0) * lane / pxPerM;
       return [[p[0] - Math.sin(ang) * off, p[1] + Math.cos(ang) * off], ang];
     }
-    function pathFor(boat, L, W, capsule) {
+    function pathFor(boat, L, W, capsule, notch) {
       const p = new Path2D(), r = W / 2, rr = r * 0.7, n = r * 1.15;
-      if (capsule && !boat) p.roundRect(-L / 2, -r, L, W, r);          // v4.11 Cosy Village: fully rounded ends
+      if (notch && !boat) {                                            // v4.16: running through the stop ahead: the rear is a chevron-shaped notch
+        const d = r * 0.9; p.moveTo(-L / 2, -r);
+        if (capsule) { p.lineTo(L / 2 - r, -r); p.arc(L / 2 - r, 0, r, -Math.PI / 2, Math.PI / 2); }
+        else { p.lineTo(L / 2 - n, -r); p.quadraticCurveTo(L / 2 - n * 0.15, -r * 0.92, L / 2, 0); p.quadraticCurveTo(L / 2 - n * 0.15, r * 0.92, L / 2 - n, r); }
+        p.lineTo(-L / 2, r); p.lineTo(-L / 2 + d, 0); p.closePath();
+      }
+      else if (capsule && !boat) p.roundRect(-L / 2, -r, L, W, r);          // v4.11 Cosy Village: fully rounded ends
       else if (boat) { p.moveTo(-L / 2, -r * 0.8); p.quadraticCurveTo(-L / 2, -r, -L / 2 + r * 0.6, -r); p.lineTo(L * 0.12, -r); p.quadraticCurveTo(L * 0.42, -r * 0.8, L / 2, 0); p.quadraticCurveTo(L * 0.42, r * 0.8, L * 0.12, r); p.lineTo(-L / 2 + r * 0.6, r); p.quadraticCurveTo(-L / 2, r, -L / 2, r * 0.8); p.closePath(); }
       else {                                                           // a train: square rear, a slightly rounded point at the front
         p.moveTo(-L / 2 + rr, -r); p.lineTo(L / 2 - n, -r); p.quadraticCurveTo(L / 2 - n * 0.15, -r * 0.92, L / 2, 0); p.quadraticCurveTo(L / 2 - n * 0.15, r * 0.92, L / 2 - n, r);
@@ -315,7 +321,7 @@
       advance(now); S.px = pxPerM;
       // wider than the track on purpose: even zoomed out a train is an obvious bulge, and on shared track it reaches over its neighbours' stripes
       const W = Math.max(10, lineWidthPx(pxPerM) * 2.6 + 3), L = W * 2.1; let n = 0;
-      const shapes = { train: pathFor(false, L, W, tstyle && tstyle.capsule), boat: pathFor(true, L * 1.05, W * 0.95) };
+      const shapes = { train: pathFor(false, L, W, tstyle && tstyle.capsule), boat: pathFor(true, L * 1.05, W * 0.95), trainSkip: pathFor(false, L, W, tstyle && tstyle.capsule, true) };
       const vis = [];
       for (const t of trains.values()) {
         if (!t.pts || t.pts.length < 2 || t.alpha <= 0 || !t.plan.length || hiddenT(t, now)) continue;
@@ -372,7 +378,7 @@
       for (const { t, x, y, ang } of vis) {
         n++; const boat = /^rb|ferry/.test(t.line);
         c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(-ang);
-        c.fillStyle = tstyle ? tstyle.fill(t.line) : colour(t.line); c.strokeStyle = outline; c.lineWidth = tstyle && tstyle.outlineW || 2.6; c.lineJoin = "round"; const sh = boat ? shapes.boat : shapes.train; c.stroke(sh); c.fill(sh);
+        c.fillStyle = tstyle ? tstyle.fill(t.line) : colour(t.line); c.strokeStyle = outline; c.lineWidth = tstyle && tstyle.outlineW || 2.6; c.lineJoin = "round"; const sh = boat ? shapes.boat : (t.core && t.c && CoreLib.skippingAt(t.c, now + CORE.clockOffset)) ? shapes.trainSkip : shapes.train; c.stroke(sh); c.fill(sh);
         if (tstyle && tstyle.core) { c.fillStyle = "rgba(255,255,255,.92)"; c.fill(boat ? shapes.coreBoat : shapes.core); }       // the white core: the brightest thing on screen
         if (tstyle && tstyle.windows && !boat && (S.labelMode || "off") === "off") { const ww = L * 0.2, wh = W * 0.36; c.fillStyle = tstyle.windows; c.beginPath(); c.roundRect(-L * 0.3, -wh / 2, ww, wh, wh * 0.25); c.roundRect(L * 0.05, -wh / 2, ww, wh, wh * 0.25); c.fill(); }   // labels off: two small cream windows
         c.restore();

@@ -33,6 +33,7 @@
   const TRACK_W = 7, MARK_R = 7;                                     // track width and stop-marker radius at the default zoom
   const GAP = 35 * SC + 6, GAP_R = 35 * SC_R + 6;                                           // nose-to-tail spacing in a lane at the default zoom
   const CARRIAGE = "M-12,-7H10L17,0L10,7H-12A6 6 0 0 1 -18,1V-1A6 6 0 0 1 -12,-7Z";
+  const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";      // v4.16: the rear is a chevron-shaped notch while the train runs through the stop ahead
   const LIN_K = 0.86;   // v3.55: the last stop sits this far (was 0.72) along the way from the station to the edge of a Linear map
   const STOPS_MIN = 3, STOPS_MAX = 5;   // stops away shown on each side of the station: 3 by default, zooming smoothly out to 5
   const TAU_STOP = 100;       // typical seconds between stops, used only for trains the feed gives no location for
@@ -472,7 +473,9 @@
       T.nodes.forEach(nd => {
         const g = el("g", { class: "stn-mark stn-go", "data-line": id, "data-dir": dir, "data-k": nd.depth, "data-row": nd.row.toFixed(2), tabindex: "0", role: "link", "aria-label": "Open " + nd.name }, layerM);
         el("circle", { class: "stn-hit", r: 13 }, g);                                       // v3.54: a bigger target round the icon: tapping a stop opens that station's page
-        el("circle", { r: MARK_R }, g);
+        const pt = window.UC_PART_TIME && window.UC_PART_TIME.allPartTime([...nd.lines], nd.name) ? window.UC_PART_TIME.partTime([...nd.lines][0], nd.name) : null;   // v4.16: every line that calls here does so only at certain times: a dashed ring
+        const ring = el("circle", { r: MARK_R, class: pt ? "stn-part" : "" }, g);
+        if (pt) { const tt = el("title", {}, g); tt.textContent = pt.note; g.setAttribute("aria-label", "Open " + nd.name + ". " + pt.note); }
         g.addEventListener("click", e => { e.stopPropagation(); goStation(nd); });
         g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); goStation(nd); } });
         const lines = wrap2(nd.name), tx = el("text", {}, g), fork = nd.depth === 1 && nd.kids.some(k => k.row !== nd.row);
@@ -1020,6 +1023,7 @@
         const deg = p.ang * 180 / Math.PI, a = ((deg % 360) + 360) % 360, flip = a > 90 && a < 270;   // label turns with the train and is never upside down, as on the line pages
         t.g.setAttribute("transform", `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${deg.toFixed(1)}) scale(${((RADIAL ? SC_R : SC) * zf).toFixed(3)})`);
         t.g.setAttribute("opacity", o); t.op = +o;
+        if (t.core && CORE) { const sk = CoreLib.skippingAt(t.core, Tn); if (sk !== t.skOn) { t.skOn = sk; t.g.firstChild.setAttribute("d", sk ? CARRIAGE_SKIP : CARRIAGE); } }
         if (t.flip !== flip) { t.txt.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)"); t.flip = flip; }
         const lab = mode === "num" ? String(t.vid || "").slice(-3) : codeOf(t.dest);
         if (t.lab !== lab) { t.txt.textContent = lab; t.lab = lab; }
@@ -1153,7 +1157,7 @@
         touched.add(key);
         if (t.core && c.snapAt !== t.core.snapAt) { t.born = now; t.sd = undefined; }   // the core re-placed it: it fades in where it now is (no slide through the queue)
         t.core = c; t.jHere = j; t.dest = c.destName; t.loc = c.loc; t.seen = now; t.missed = 0;
-        t.mk = k => !SKIP[line].has(nrm(Lm.S[RT.st[k]].name));       // a stop this page draws
+        t.mk = k => !SKIP[line].has(nrm(Lm.S[RT.st[k]].name)) || c.stops.some(x => x.k === k);       // a stop this page draws (v4.16: and a stop the line runs through, such as Turnham Green for the Piccadilly, on the trains that call there: the train brain leaves it out of the others' stops)
         if (j >= 0) { t.after = c.stops.slice(j + 1).map(x => x.k); t.afterM = t.after.filter(t.mk); t.atHere = arr; }
         { const p0 = CoreLib.positionAt(c, T), h0 = c.stops[p0.i];              // waiting to start a trip at another stop: hidden until a minute before it leaves
           t.hideUntil = p0.standing && p0.i !== j && h0 && h0.at === null && h0.dep !== null ? h0.dep - off - 60000 : 0; }

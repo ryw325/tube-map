@@ -13,7 +13,7 @@
      { id, line, vid, dir ("S" towards the end of the route, "N" towards its start), route (index into the line's routes),
        dest, destName, destShown, destChangedAt, from, to (naptans), fromK, toK (positions on the route), departAt, arriveAt,
        state ("moving" | "dwell" | "waiting" | "terminus" | "fading"), progress (0 to 1 from "from" to "to", by time),
-       stops: [{ naptan, k, at, dep }], snapAt, fadeFrom, fadeTo, towards, loc, platform }
+       stops: [{ naptan, k, at, dep, passes? }], snapAt, fadeFrom, fadeTo, towards, loc, platform }
    stops starts with the stop the train has just left or is standing at. A page moves the train on these times alone, with no other rules:
    standing at stop i from its at to its dep, running from stop i to stop i + 1 between dep and the next at, progress linear in time.
    So a page never works out a speed, and a snapshot never goes stale before the next one. A new snapshot always continues the train from
@@ -21,6 +21,9 @@
    snapAt says when (the page fades it across). A train that is going away has state "fading" and fadeFrom / fadeTo.
    States: moving between stops; dwell at a stop on its way; waiting at a stop before it starts a trip (first seen there, or turned round with
    its next trip known); terminus at the end of what the feed says, with nothing known after it; fading on its way out.
+
+   v4.16: a stop entry may carry passes: [{ naptan, k, at }], the stops the train runs through on the run that ends at that entry (its own
+   list leaves them out between two stops it does list), with the time it passes each. skippingAt(train, T) says when to draw the chevron rear.
 
    The rules (agreed 25 Oct 2026; RULES below):
    - Time basis: each stop's expectedArrival (absolute), on TfL's clock. Stops more than 20 s in the past are dropped (the last is kept).
@@ -56,7 +59,7 @@
     CATCH: 4, LATE_RAMP_S: 10, STRETCH: 3, OUT_STOPS: 1.2, RUN_S: 120, MIN_GAP_S: 10,
     MISS_S: 60, MISS_REPLIES: 2, FADE_S: 3, DEST_REPLIES: 2, DEST_ALERT_S: 30,
     MID_HOLD_S: 480, END_HOLD_S: 600, RENUMBER_S: 480, PLATFORM_CLEAR_S: 30, HEADWAY_S: 30, ORDER_REPLIES: 2,
-    OLDER_S: 2, FAR_GAP_S: 1200, BACK_STOPS: 3, LAG_STOPS: 0.6
+    OLDER_S: 2, FAR_GAP_S: 1200, BACK_STOPS: 3, LAG_STOPS: 0.6, SKIP_REPLIES: 2
   };
   const sgn = d => d === "S" ? 1 : -1;
   const opp = d => d === "S" ? "N" : "S";
@@ -216,6 +219,7 @@
   function create(TABLE, opts) {
     opts = opts || {};
     const rules = Object.assign({}, RULES, opts.rules || {});
+    const policy = opts.policy !== undefined ? opts.policy : (root.UC_PART_TIME || null);          // v4.16: lines/parttime.js (calls, feedSkips)
     const LINES = {}, NET = new Set();                                      // NET: every station name on any built line
     Object.values(TABLE.lines).forEach(T => T.st.forEach(s => NET.add(normName(s[1]))));
     Object.keys(TABLE.lines).forEach(api => { if (!opts.lines || opts.lines.includes(api)) LINES[api] = makeLine(TABLE.lines[api], rules, NET); });
@@ -408,7 +412,14 @@
         const { R, preds: pp } = pick;
         Lm.learnRunTimes(R, pp);
         const next = pp[0], dir = next.dir, s = sgn(dir);
-        const stops = tripStops(pp);
+        let stops = tripStops(pp);
+        // v4.16: a stop the policy says this train does not call at (Turnham Green for the Piccadilly outside its calling hours, which TfL lists
+        // for every train) is run through: it is taken out of the trip and shown as a skip. Never empties the trip.
+        const forced = new Set();
+        if (policy && policy.calls) {
+          const kept = stops.filter(x => { if (policy.calls(Lm.id, Lm.S[R.st[x.k]].naptan, x.at) === false) { forced.add(x.k); return false; } return true; });
+          if (kept.length) stops = kept; else forced.clear();
+        }
         const feedDest = next.dest !== undefined ? next.dest : R.st[dir === "S" ? R.LAST : 0];
         const origin = stops[0].k - s;                                              // the stop it leaves from on this trip
         // A new vehicle ID leaving a station where a train has stood with no data for a long time takes that train over
@@ -475,7 +486,9 @@
           t.R = R;
         }
         t.dir = dir;
-        t.listed = { R, ks: new Set(stops.map(x => x.k)) };                              // this reply's stops, to tell next time which have been reached
+        const ksNow = new Set(stops.map(x => x.k)), gap = new Map(), pg = t.listed && t.listed.R === R ? t.listed.gap : null;
+        if (ksNow.size > 1) { const lo = Math.min(...ksNow), hi = Math.max(...ksNow); for (let k = lo + 1; k < hi; k++) if (!ksNow.has(k)) gap.set(k, ((pg && pg.get(k)) || 0) + 1); }   // replies in a row that leave a mid-list stop out
+        t.listed = { R, ks: ksNow, gap, forced };                              // this reply's stops, to tell next time which have been reached
         t.feed = { R, dir, stops, loc: next.loc };                                        // what the feed says now (to re-place it if it overtakes)
         Object.assign(t, { lastSeen: now, missed: 0, loc: next.loc, platform: next.pdir, towards: next.towards || "", destName: raw[0].destName });
         // Destination: a change is taken once two replies in a row agree (straight away after a turn-round or for a new train)
@@ -714,6 +727,27 @@
       return now;
     }
 
+    // v4.16: the stops a train runs through on one run (from a to b), with the time it passes each. A stop is run through when the policy
+    // (lines/parttime.js) says the train does not call there (forced), or its own list leaves it out between two listed stops in two replies
+    // in a row on a line where that means a skip (feedSkips); stops before its first listed stop, or after its last, are only unknown.
+    // Passing times split the run by the line's timetable times (Lm.runMs). Null when there are none.
+    function passes(t, Lm, a, b) {
+      const L = t.listed;
+      if (!L || L.R !== t.R || !L.ks.size || a.k === b.k || !Number.isFinite(a.dep) || !Number.isFinite(b.arr)) return null;
+      const lo = Math.min(...L.ks), hi = Math.max(...L.ks), s = b.k > a.k ? 1 : -1, out = [];
+      let whole = null;
+      for (let k = a.k + s; k !== b.k; k += s) {
+        const nap = Lm.S[t.R.st[k]].naptan;
+        const run = L.forced && L.forced.has(k) ||
+          (!L.ks.has(k) && k > lo && k < hi && policy && policy.feedSkips && policy.feedSkips(Lm.id, nap) && L.gap && L.gap.get(k) >= rules.SKIP_REPLIES);
+        if (!run) continue;
+        if (whole === null) whole = Lm.runMs(t.R, a.k, b.k) || 1;
+        const f = Math.max(0, Math.min(1, (Lm.runMs(t.R, a.k, k) || 0) / whole));
+        out.push({ naptan: Lm.S[t.R.st[k]].naptan, k, at: Math.round(a.dep + f * (b.arr - a.dep)) });
+      }
+      return out.length ? out : null;
+    }
+
     function describe(t, T) {
       const Lm = LINES[t.line], R = t.R, S = Lm.S, tl = t.tl, e = evalTl(tl, T);
       const nap = k => S[R.st[k]].naptan;
@@ -732,7 +766,7 @@
         from: nap(fromK), to: nap(toK), fromK, toK,
         departAt: fin(here.dep), arriveAt: e.moving ? fin(tl[e.i].arr) : (nx ? fin(nx.arr) : null),
         state, progress: e.moving ? e.p : 0,
-        stops: tl.slice(i0).map(x => ({ naptan: nap(x.k), k: x.k, at: fin(x.arr), dep: fin(x.dep) })),
+        stops: tl.slice(i0).map((x, j, a) => { const o = { naptan: nap(x.k), k: x.k, at: fin(x.arr), dep: fin(x.dep) }; const ps = j ? passes(t, Lm, a[j - 1], x) : null; if (ps) o.passes = ps; return o; }),
         snapAt: t.snapAt, fadeFrom: t.fadeFrom, fadeTo: t.fadeTo, towards: t.towards || "", loc: t.loc || "", platform: t.platform || ""
       };
     }
@@ -774,7 +808,20 @@
     return r;
   }
 
-  const API = { create, positionAt, RULES };
+  // v4.16: true while a train is running through a stop: from when it stands at the stop before, until it has passed the last stop it
+  // skips on that run (a train snapshot's stops[].passes, so a page needs no route data). Pages draw a chevron-shaped rear while it is true.
+  function skippingAt(train, T) {
+    const st = train.stops;
+    for (let j = 1; j < st.length; j++) {
+      const ps = st[j].passes;
+      if (!ps || !ps.length) continue;
+      const from = st[j - 1].at === null ? -Infinity : st[j - 1].at;
+      if (T < from) return false;
+      if (T < ps[ps.length - 1].at) return true;
+    }
+    return false;
+  }
+  const API = { create, positionAt, skippingAt, RULES };
   if (typeof module === "object" && module.exports) module.exports = API;
   else root.UndercurrentTrainsCore = API;
 })(typeof self !== "undefined" ? self : this);

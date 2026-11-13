@@ -179,7 +179,7 @@
     scope.later(() => {
       sw.style.background = ""; dts.forEach((d, i) => { d.textContent = dtOld[i]; });
       popTitle.textContent = popTitleOld; $("pop-note").hidden = true; $("pop-note").textContent = ""; factsEl.hidden = false;
-      svg.style.display = ""; root.classList.remove("fm-page"); for (const k in LOOKS) root.classList.remove("fm-style-" + k); statMode.textContent = "–"; if (window.__fm) delete window.__fm;
+      svg.style.display = ""; root.classList.remove("fm-page"); for (const k in LOOKS) root.classList.remove("fm-style-" + k); statMode.textContent = "–"; if (window.__fm) delete window.__fm; delete window.UndercurrentFullMapRegion;
     });
 
     /* ---------- Scene: one canvas for tiles and overlay, controls, attribution ---------- */
@@ -1190,7 +1190,7 @@
       const first = !user && !anim;
       W = w; H = h; dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = liveCanvas.width = fxCanvas.width = Math.round(W * dpr); canvas.height = liveCanvas.height = fxCanvas.height = Math.round(H * dpr);
-      if (first) resetView(true); else { clampView(); dirty(); }
+      if (first) { const rg = new URLSearchParams(location.search).get("region"); if (rg && REGION_AT[rg]) gotoRegion(rg, true); else resetView(true); } else { clampView(); dirty(); }
     }
     function resetView(instant) {
       user = false;
@@ -1200,6 +1200,21 @@
       else { anim = { t0: performance.now(), ms: 380, s0: view.s, s1: s, x0: view.cx, y0: view.cy, x1: x, y1: y }; dirty(); }
       const fit = $("zoom-fit"); if (fit) fit.disabled = true;
     }
+    // v4.17: the menu's nine squares: Greater London's area in equal thirds, north row first. id: nw n ne w c e sw s se, or all (the whole map).
+    // The view is framed on that ninth (a starting point: it pans and zooms as usual); on first load ?region=<id> does the same.
+    const REGION_AT = { nw: [0, 0], n: [1, 0], ne: [2, 0], w: [0, 1], c: [1, 1], e: [2, 1], sw: [0, 2], s: [1, 2], se: [2, 2] };
+    function gotoRegion(id, instant) {
+      const at = REGION_AT[id]; if (!at) { resetView(instant); return; }
+      const w3 = (BOUNDS.x1 - BOUNDS.x0) / 3, h3 = (BOUNDS.y1 - BOUNDS.y0) / 3;
+      const x = BOUNDS.x0 + (at[0] + 0.5) * w3, y = BOUNDS.y1 - (at[1] + 0.5) * h3;
+      let s = Math.min(W / w3, H / h3) * 0.97;
+      if (pxOn()) s = ladderNear(s);
+      s = Math.max(minScale(), Math.min(MAX_SCALE, s));
+      user = true; const fit = $("zoom-fit"); if (fit) fit.disabled = false;
+      if (instant || reduceMotion) { view.s = s; view.cx = x; view.cy = y; clampView(); anim = null; dirty(); }
+      else { anim = { t0: performance.now(), ms: 700, s0: view.s, s1: s, x0: view.cx, y0: view.cy, x1: x, y1: y }; dirty(); }
+    }
+    window.UndercurrentFullMapRegion = id => gotoRegion(id, false);
     function zoomAt(f, px, py, ms) {                   // f > 1 zooms in
       let s1 = Math.max(minScale(), Math.min(MAX_SCALE, view.s * f));
       if (pxOn()) { if (ms) s1 = ladderNear(s1, Math.sign(Math.log(f)) * Math.max(1, Math.round(Math.abs(Math.log(f)) / Math.LN2 * 2))); else { lastZoomIn = performance.now(); zoomKeep = { px: px === undefined ? W / 2 : px, py: py === undefined ? H / 2 : py }; scope.after(dirty, 200); } }   // v4.12: buttons step the ladder; wheel and pinch settle on it afterwards
