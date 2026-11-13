@@ -1,4 +1,6 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.19: True view for the Circle, District, Hammersmith & City and Metropolitan (tools/make_geo_layout.py now handles branches, loops, second visits to a station and track shared with other lines: the context stripes follow the real track). A hairpin in the track data is smoothed, the stripe mitre is capped, and a True label that has to sit far from its station (zoomed in) gets a thin leader line. The Metropolitan's track beyond Greater London (Moor Park to Amersham and Chesham, Croxley to Watford) comes from OSM county extracts (tools/geo/extract_met_outer.py).
+   v4.18: line pages have a view switch, Map | Line | True, top left of the map like the station page's Linear | Radial (remembered per device in "uc-line-view"; Line is disabled, coming soon; True is disabled on lines without a True layout). True is a layout generated from the real track in geo/rail_graph.json (tools/make_geo_layout.py -> lines/<id>-true.js, loaded only when chosen): north up, one scale for x and y, stations never moved, the real Thames at its real width. Only the Victoria line has one so far. The engine draws curved track (pathPts, buildGeoLane keeps each lane clear of the track on bends), True labels keep one size on screen and are re-placed as the zoom moves (a smaller label, then another side, then none: the icon carries the name as a tooltip). Changing view re-mounts the line with the same cross-fade as a line switch and carries the trains across from the last reply.
    v4.17: the menu is two halves: Station, Line and Full Map as equal buttons on the left, and what the chosen one opens on the right (the station picker, a plain list of lines, or nine equal squares of London with a Whole map button). The right half starts on the section you are in; on a narrow screen the halves stack and the right slides over. A square opens the Full Map framed on that ninth (?map=full&region=nw|n|ne|w|c|e|sw|s|se; on the Full Map itself the view glides there). The station search box no longer takes focus by itself. The Region card and the Line board (tiles, tracks, silhouettes) are gone; lines/regions.js (tools/make_regions.py) draws the square thumbnails.
    v4.16: trains running through a stop (Metropolitan fast trains, Piccadilly trains at Turnham Green outside its calling hours) have a chevron-shaped rear from the stop before until they pass the skipped stop, on line pages, station pages and the Full Map (trains-core.js passes and skippingAt; lines/parttime.js holds the hours and which feed gaps count as skips); stops a line serves only at certain times (Turnham Green on the Piccadilly, Kensington (Olympia) on the District) get a dashed ring on that line's page and on station pages.
    v4.15: station pages: tapping another station (or picking one from the menu, or back/forward) swaps it in on the same page, so full screen carries on; in full screen a tapped train opens the right panel as a column for 30 s and the map refits to the space left; the zoom has three levels (3, 4 or 5 stops each side): a trackpad pinch, scroll or two-finger touch pinch still moves it freely but settles on a level when it stops.
@@ -139,7 +141,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.17";
+  const VERSION = "4.19";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -646,6 +648,23 @@
       if (!TRACK_SEGS.some(([x, y]) => (x === a && y === b) || (x === b && y === a))) TRACK_SEGS.push([a, b]);
     }));
 
+    // v4.18: the track between two neighbouring stations as a list of points. The Map view draws straight pieces between stations (45 degree
+    // layouts); the True view (LINE.geo, from lines/<id>-true.js) follows the real track, so a piece is a curve of many points.
+    const GEO = LINE.geo || null;
+    const PATH_MEMO = new Map();
+    function pathPts(a, b) {
+      if (!GEO) return [S[a], S[b]];
+      const key = a + ">" + b;
+      if (!PATH_MEMO.has(key)) {
+        const fw = GEO.paths[S[a].id + ">" + S[b].id], bw = GEO.paths[S[b].id + ">" + S[a].id];
+        const raw = fw || (bw ? bw.slice().reverse() : null);
+        PATH_MEMO.set(key, raw ? raw.map(q => ({ x: q[0] * SPACING, y: q[1] * SPACING })) : [S[a], S[b]]);
+      }
+      return PATH_MEMO.get(key);
+    }
+    const pathLen = P => { let l = 0; for (let i = 1; i < P.length; i++) l += Math.hypot(P[i].x - P[i - 1].x, P[i].y - P[i - 1].y); return l; };
+    const polyD = P => P.map(q => q.x.toFixed(1) + " " + q.y.toFixed(1)).join(" L ");
+
     // Typical running time (seconds) between neighbouring stations, keyed by the pair. Refined from live data.
     const runKey = (a, b) => a < b ? a + "-" + b : b + "-" + a;
     const RUNT = new Map();
@@ -678,7 +697,10 @@
     // The Thames: the same master shape on every line, only moved and resized to suit this map
     const RIVER = window.UNDERCURRENT_RIVER, RP = LINE.river;
     const riverG = el("g", { transform: `scale(${SPACING})` });
-    if (RIVER && RP) {
+    if (GEO && GEO.river) {                                  // v4.18 True view: the real Thames at its real width, through the same transform as the track
+      el("path", { class: "river", d: "M " + GEO.river.pts.map(q => q[0] + " " + q[1]).join(" L "), style: `stroke-width: ${GEO.river.width}px` }, riverG);
+      if (GEO.river.label) el("text", { class: "river-label", x: GEO.river.label[0], y: GEO.river.label[1], "text-anchor": "middle" }, riverG).textContent = "Thames";
+    } else if (RIVER && RP) {
       const k = RP.scale || 1;
       const g = el("g", { transform: `translate(${RP.x || 0} ${RP.y || 0}) scale(${k})` }, riverG);
       el("path", { class: "river", d: RIVER.d, style: `stroke-width: ${((RP.width || RIVER.width) / k).toFixed(1)}px` }, g);
@@ -692,7 +714,7 @@
     const SHARE_OFF = [10, -10, 48, -48];   // ranks 0-3: either side of the track inside the train lanes, then outside them
     const shareSegs = [];                   // far-out stripes also count as track for label placement
     (function buildShare() {
-      const SH = window.UNDERCURRENT_SHARED, runs = (SH && SH.runs && SH.runs[LINE.id]) || [];
+      const SH = window.UNDERCURRENT_SHARED, runs = GEO ? (GEO.shared || []) : ((SH && SH.runs && SH.runs[LINE.id]) || []);   // v4.18: the True view brings its own runs (Victoria shares no track)
       if (!runs.length || LINE.noShare) return;
       const ovG = el("g", { class: "share-layer", "pointer-events": "none" });
       const defs = el("defs", {}, ovG);
@@ -708,7 +730,7 @@
         const O = P.map((q, i) => {
           if (i === 0) return { x: q.x + nr[0].x * d, y: q.y + nr[0].y * d };
           if (i === P.length - 1) return { x: q.x + nr[i - 1].x * d, y: q.y + nr[i - 1].y * d };
-          const a = nr[i - 1], b = nr[i], k = d / (1 + a.x * b.x + a.y * b.y);   // mitre join
+          const a = nr[i - 1], b = nr[i], k = d / Math.max(0.35, 1 + a.x * b.x + a.y * b.y);   // mitre join (v4.19: capped, so a hairpin in real track cannot throw the stripe far off)
           return { x: q.x + (a.x + b.x) * k, y: q.y + (a.y + b.y) * k };
         });
         used.add(run.with);
@@ -737,7 +759,7 @@
         :root[data-theme="dark"] .ov-${id} { --oc: ${c.dark}; }` : ""; }).join("");
     })();
 
-    const trackD = ROUTE_LISTS.map(r => "M " + r.map(i => S[i].x + " " + S[i].y).join(" L ")).join(" ");
+    const trackD = ROUTE_LISTS.map(r => "M " + polyD(r.length < 2 ? [S[r[0]]] : r.slice(1).reduce((acc, b, i) => acc.concat(pathPts(r[i], b).slice(1)), [pathPts(r[0], r[1])[0]]))).join(" ");
     const trackPath = el("path", { class: "track", d: trackD });   // track under the trains
     // v3.52: Overground style ("hollow": true in the line file): a coloured outline with the map background showing through the middle, as on TfL's map
     const HOLLOW = !!LINE.hollow;
@@ -797,6 +819,7 @@
     scope.on(svg, "pointermove", trackPtr); scope.on(svg, "pointerdown", trackPtr);
     const ROW_LIMIT = 120;                                   // map units a row may sit from home before it eases back
     function layoutRow(row, byPointer) {
+      const ptr = ixPtr === null ? null : (row.xf ? row.xf.px + (ixPtr - row.xf.px) / row.xf.ls : ixPtr);   // v4.18: a True view label row is drawn scaled, so the pointer is taken into its units
       const pos = row.items.map((it, i) => {
         let shift = 0;
         row.items.forEach((o, j) => {
@@ -817,10 +840,10 @@
       // keeps the pointer on the icon). Safety limit: if it has wandered more than ROW_LIMIT from home, it eases back
       // from any icon, so drift can't build up however long you glide.
       let off = row.off || 0;
-      const pi = row.pin && ixPtr !== null ? row.items.indexOf(row.pin.item) : -1;
+      const pi = row.pin && ptr !== null ? row.items.indexOf(row.pin.item) : -1;
       if (pi >= 0) {
         const [L, R] = spans[pi], m = Math.min(4, (R - L) / 2);
-        const lo = ixPtr - R + m, hi = ixPtr - L - m;          // offsets that keep the pointer on this icon
+        const lo = ptr - R + m, hi = ptr - L - m;          // offsets that keep the pointer on this icon
         const outer = pi === 0 || pi === row.items.length - 1;
         if (byPointer) {
           // The pointer moved: never chase it (that would drag the row along and stop you reaching the next icon).
@@ -955,7 +978,7 @@
     }
 
     // geometry
-    const segs = TRACK_SEGS.map(([a, b]) => [S[a], S[b]]);
+    const segs = TRACK_SEGS.flatMap(([a, b]) => { const P = pathPts(a, b); return P.slice(1).map((q, i) => [P[i], q]); });   // every straight piece of track (a curve is many short ones)
     const ptSeg = (px, py, a, b) => {
       const dx = b.x - a.x, dy = b.y - a.y;
       let k = ((px - a.x) * dx + (py - a.y) * dy) / (dx * dx + dy * dy);
@@ -1040,7 +1063,98 @@
       return bad;
     }
 
+    /* v4.18 True view labels. Stations are never moved, so Zone 1 is crowded; labels therefore keep one size on screen (14 px) rather than one size on the
+       map. Zoomed out they are large against the geometry and the ones that do not fit are left off (the station icon still has its name as a tooltip);
+       zooming in shrinks them against the map until they all fit. Order of fixes: a smaller label, then another side, then none. Re-placed when the zoom
+       moves by a step of 1.3x, not on every wheel tick. */
+    const GEO_LABEL_PX = 14, GEO_STEP = 1.3;
+    let geoLevel = null, geoPending = null, geoBoxMemo = null, geoLabelBox = null;
+    function geoBox() {
+      if (!geoBoxMemo) {
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        TRACK_SEGS.forEach(([a, b]) => pathPts(a, b).forEach(q => { x1 = Math.min(x1, q.x); y1 = Math.min(y1, q.y); x2 = Math.max(x2, q.x); y2 = Math.max(y2, q.y); }));
+        geoBoxMemo = { x1, y1, x2, y2 };
+      }
+      return geoBoxMemo;
+    }
+    function geoUpp() {                                       // map units per screen pixel now (or at the fitted view, before there is one)
+      const r = svg.getBoundingClientRect(), pw = Math.max(280, r.width || 800), ph = Math.max(200, r.height || 600);
+      let w = view.base && view.w > 10 ? view.w : 0;
+      if (!w) { const b = geoBox(), bw = b.x2 - b.x1 + 2 * GEO_PAD, bh = b.y2 - b.y1 + 2 * GEO_PAD; w = bw / bh > pw / ph ? bw : bh * pw / ph; }
+      return w / pw;
+    }
+    const geoLevelOf = upp => Math.round(Math.log(Math.max(0.05, upp)) / Math.log(GEO_STEP));
+    function geoZoomCheck() {
+      if (!GEO || geoPending || txBusy) return;
+      if (geoLevelOf(geoUpp()) === geoLevel) return;
+      geoPending = scope.after(() => { geoPending = null; if (!txBusy) layout(); else geoZoomCheck(); }, 160);
+    }
+    function layoutGeo() {
+      while (labelLayer.firstChild) labelLayer.firstChild.remove();
+      openIx = null;
+      const upp = geoUpp();
+      geoLevel = geoLevelOf(upp);
+      const ls0 = Math.max(0.22, Math.min(2.4, GEO_LABEL_PX * Math.pow(GEO_STEP, geoLevel) / FS));
+      const placed = [];
+      S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
+      const nIx = s => (IX[s.id] || []).length;
+      const termini = new Set(ROUTE_LISTS.flatMap(r => [r[0], r[r.length - 1]]));
+      const order = S.map((s, i) => i).filter(i => !S[i].of).sort((a, b) => (termini.has(b) - termini.has(a)) || (nIx(S[b]) - nIx(S[a])) || (a - b));   // termini, then the busiest interchanges, get first pick
+      const geoCost = (c, s) => {
+        let bad = cost(c, placed);
+        S.forEach(o => { if (o !== s && ptRect(o.x, o.y, c.rect) < 17) bad += 500; });     // not over another station's icon
+        placed.forEach(q => { if (overlap(c.rect, q.rect, 5 * upp)) bad += 500; });         // labels keep about 5 px apart on screen, so one never reads as part of the next
+        return bad;
+      };
+      const scaled = (c, ls) => {                             // the label drawn at ls times its normal size, about the point of it nearest the station
+        const H = LH * (c.lines.length - 1) + FS, px = c.ax;
+        const py = c.dir === "left" || c.dir === "right" ? c.s.y : (c.dir === "top" || c.dir === "ne" || c.dir === "nw") ? c.by + H : c.by;
+        const r = c.rect, f = (v, o) => o + (v - o) * ls;
+        return { ...c, ls, px, py, rect: { x: f(r.x, px), x2: f(r.x2, px), y: f(r.y, py), y2: f(r.y2, py) } };
+      };
+      order.forEach(i => {
+        const s = S[i];
+        const dirs = [s.pref, ...DIRS.filter(d => d !== s.pref)];
+        let best = null;
+        search:
+        for (const f of [1, 0.8]) {
+          for (const D of [LABEL_GAP, LABEL_GAP + 12]) {
+            for (const dir of dirs) {
+              const c = scaled(candidate(s, dir, D), ls0 * f); c.D = D;
+              if (geoCost(c, s) === 0) { best = c; break search; }
+            }
+          }
+        }
+        const node = stationNodes[i];
+        let tt = node.querySelector("title.geo-name");
+        if (!best) {                                          // no room at this zoom: the icon carries the name instead
+          if (!tt) { tt = document.createElementNS(NS, "title"); tt.setAttribute("class", "geo-name"); node.appendChild(tt); }
+          tt.textContent = s.name; s.labelRect = null;
+          return;
+        }
+        if (tt) tt.remove();
+        placed.push(best);
+        s.labelRect = best.rect;
+        if (best.D / upp > 40) {                              // zoomed in far, the label clears the train lanes by a long way: a thin leader joins it to its station
+          const lx = best.px - s.x, ly = best.py - s.y, ll = Math.hypot(lx, ly) || 1;
+          el("line", { class: "geo-leader", x1: (s.x + lx / ll * 14).toFixed(1), y1: (s.y + ly / ll * 14).toFixed(1), x2: (best.px - lx / ll * 3).toFixed(1), y2: (best.py - ly / ll * 3).toFixed(1) }, labelLayer);
+        }
+        const g = el("g", { class: "geo-label", transform: `translate(${best.px.toFixed(1)} ${best.py.toFixed(1)}) scale(${best.ls.toFixed(3)}) translate(${(-best.px).toFixed(1)} ${(-best.py).toFixed(1)})` }, labelLayer);
+        const text = el("text", { class: "label clickable", "text-anchor": best.align }, g);
+        text.addEventListener("click", () => openBoard(i));
+        best.lines.forEach((ln, k) => { el("tspan", { x: best.ax, y: best.by + ASC + k * LH }, text).textContent = ln; });
+        const row = { items: [], xf: { px: best.px, ls: best.ls } };
+        best.mks.forEach(([key, cx, cy]) => marker(g, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row, i));
+        if (row.items.length) layoutRow(row);
+      });
+      if (!view.user) {                                       // the fitted view keeps room for the labels placed at this zoom (a zoomed view leaves the fit alone)
+        const R = placed.map(c => c.rect);
+        geoLabelBox = R.length ? { x1: Math.min(...R.map(r => r.x)), y1: Math.min(...R.map(r => r.y)), x2: Math.max(...R.map(r => r.x2)), y2: Math.max(...R.map(r => r.y2)) } : null;
+      }
+      fitView();
+    }
     function layout() {
+      if (GEO) return layoutGeo();
       while (labelLayer.firstChild) labelLayer.firstChild.remove();
       const placed = [];
       S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
@@ -1075,13 +1189,24 @@
     /* ---------- View: fit to the line, plus zoom and pan ---------- */
     const view = { base: null, x: 0, y: 0, w: 1, h: 1, user: false };
     const narrow = window.matchMedia("(max-width: 860px)");
+    const GEO_PAD = 120;                                      // True view: room for the labels of the end stations
     function fitView() {
+      let x1, y1, x2, y2, pad = 56; // same clearance on every side
+      if (GEO) {                                              // v4.18: the track, not the labels (they change with the zoom), plus a margin for them
+        const b = geoBox(), m = LANE_OUTER + 6;
+        x1 = b.x1 - m; y1 = b.y1 - m; x2 = b.x2 + m; y2 = b.y2 + m; pad = 40;
+        if (geoLabelBox) { x1 = Math.min(x1, geoLabelBox.x1); y1 = Math.min(y1, geoLabelBox.y1); x2 = Math.max(x2, geoLabelBox.x2); y2 = Math.max(y2, geoLabelBox.y2); }
+        if (narrow.matches) {                                  // phones: the map takes the drawing's own shape, so a wide line (the District) is given height, to leave room for the switch and zoom buttons
+          const w = x2 - x1 + 2 * pad, h = y2 - y1 + 2 * pad;
+          if (h < w * 0.85) { const extra = (w * 0.85 - h) / 2; y1 -= extra; y2 += extra; }
+        }
+      } else {
       const bb = content.getBBox();
       // include the train lanes, which can sit outside the labels (e.g. below Brixton)
       const xs = S.map(s => s.x), ys = S.map(s => s.y), m = LANE_OUTER + 6;
-      const x1 = Math.min(bb.x, Math.min(...xs) - m), y1 = Math.min(bb.y, Math.min(...ys) - m);
-      const x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m), y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
-      const pad = 56; // same clearance on every side
+      x1 = Math.min(bb.x, Math.min(...xs) - m); y1 = Math.min(bb.y, Math.min(...ys) - m);
+      x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m); y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
+      }
       view.base = { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
       if (txBusy) return;                                    // the hand-over animation owns the view
       if (view.user) applyView(); else resetView();
@@ -1115,6 +1240,7 @@
       svg.setAttribute("viewBox", `${view.x.toFixed(1)} ${view.y.toFixed(1)} ${view.w.toFixed(1)} ${view.h.toFixed(1)}`);
       svg.classList.toggle("zoomed", view.user);
       const z = document.getElementById("zoom-fit"); if (z) z.disabled = !view.user;
+      if (GEO) geoZoomCheck();                                // True view: labels are re-placed when the zoom has moved a step
     }
     const ZOOM_MAX = 8, ZOOM_OUT = 1.6;
     function toMap(clientX, clientY) {
@@ -1192,13 +1318,50 @@
       const P = st.map(i => S[i]);
       const R = { id, st, LAST: st.length - 1, pos: {} };
       st.forEach((g, k) => { R.pos[g] = k; });
-      R.segLen = P.slice(1).map((s, i) => Math.hypot(s.x - P[i].x, s.y - P[i].y));
+      // v4.18 True view: the whole route as one run of points, and which point each station is (Map view routes are straight between stations)
+      if (GEO) {
+        R.poly = [pathPts(st[0], st[1])[0]]; R.vi = [0];
+        st.slice(1).forEach((g, i) => { R.poly.push(...pathPts(st[i], g).slice(1)); R.vi.push(R.poly.length - 1); });
+      }
+      R.segLen = st.slice(1).map((g, i) => pathLen(pathPts(st[i], g)));
       R.cum = [0]; R.segLen.forEach((l, i) => R.cum.push(R.cum[i] + l));
       R.segOf = D => { let i = 0; while (i < R.segLen.length - 1 && D > R.cum[i + 1]) i++; return i; };
       R.stationAt = D => { for (let k = 0; k <= R.LAST; k++) if (Math.abs(D - R.cum[k]) < 0.5) return k; return -1; };
       R.run = seg => runTime(st[seg], st[seg + 1]);
       R.nominalSpeed = seg => R.segLen[seg] / Math.max(40, R.run(seg) - 15); // track px per second
+      // v4.18 True view: the lane is the track pushed sideways by LANE, then smoothed and pushed clear again, so on a tight bend the inside lane
+      // takes a wider curve and never touches the track (the Map view does the same at its corners with INNER_R)
+      function buildGeoLane(dir) {
+        const side = sgn(dir), Q = R.poly, n = Q.length;
+        const tx = [], ty = [];
+        for (let i = 0; i < n; i++) {
+          const a = Q[Math.max(0, i - 1)], b = Q[Math.min(n - 1, i + 1)], l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+          tx.push((b.x - a.x) / l); ty.push((b.y - a.y) / l);
+        }
+        let Ln = Q.map((q, i) => ({ x: q.x + side * ty[i] * LANE, y: q.y - side * tx[i] * LANE }));
+        const WIN = 14;
+        for (let it = 0; it < 14; it++) {
+          const M = Ln.map((p, i) => i === 0 || i === n - 1 ? p : { x: (Ln[i - 1].x + 2 * p.x + Ln[i + 1].x) / 4, y: (Ln[i - 1].y + 2 * p.y + Ln[i + 1].y) / 4 });
+          for (let i = 1; i < n - 1; i++) {
+            let best = Infinity, bx = 0, by = 0;
+            for (let j = Math.max(0, i - WIN); j < Math.min(n - 1, i + WIN); j++) {
+              const a = Q[j], b = Q[j + 1], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1;
+              const k = Math.max(0, Math.min(1, ((M[i].x - a.x) * dx + (M[i].y - a.y) * dy) / l2)), cx = a.x + k * dx, cy = a.y + k * dy, d = Math.hypot(M[i].x - cx, M[i].y - cy);
+              if (d < best) { best = d; bx = cx; by = cy; }
+            }
+            if (best < LANE) {
+              const ux = best > 1e-6 ? (M[i].x - bx) / best : side * ty[i], uy = best > 1e-6 ? (M[i].y - by) / best : -side * tx[i];
+              M[i] = { x: bx + ux * LANE, y: by + uy * LANE };
+            }
+          }
+          Ln = M;
+        }
+        const cl = [0];
+        for (let i = 1; i < n; i++) cl.push(cl[i - 1] + Math.hypot(Ln[i].x - Ln[i - 1].x, Ln[i].y - Ln[i - 1].y));
+        return { pts: Ln, cl, anchors: R.vi.map(i => cl[i]), total: cl[n - 1] };
+      }
       function buildLane(dir) {
+        if (GEO) return buildGeoLane(dir);
         const side = sgn(dir), LAST = R.LAST;
         const u = R.segLen.map((l, i) => ({ x: (P[i + 1].x - P[i].x) / l, y: (P[i + 1].y - P[i].y) / l }));
         const n = u.map(v => ({ x: side * v.y, y: -side * v.x }));
@@ -1723,7 +1886,9 @@
       const R = t.r;
       const k = t.waitK !== undefined && t.waiting !== null && t.waiting !== undefined ? R.pos[t.waiting] : (t.dir === "S" ? R.LAST : 0);
       const V = S[R.st[k]], W = S[R.st[k === 0 ? 1 : R.LAST - 1]];
-      let ux = V.x - W.x, uy = V.y - W.y; const ul = Math.hypot(ux, uy); ux /= ul; uy /= ul;   // pointing beyond the end of the line
+      let ux = V.x - W.x, uy = V.y - W.y;
+      if (R.poly) { const m = R.poly.length, a = k === 0 ? R.poly[0] : R.poly[m - 1], b = k === 0 ? R.poly[Math.min(4, m - 1)] : R.poly[Math.max(0, m - 5)]; ux = a.x - b.x; uy = a.y - b.y; }   // True view: the end of the real track
+      const ul = Math.hypot(ux, uy); ux /= ul; uy /= ul;   // pointing beyond the end of the line
       const pa = R.poseAt(R.cum[k], t.dir);                                                 // arrival-lane end
       const a0 = Math.atan2(pa.y - V.y, pa.x - V.x), r = Math.hypot(pa.x - V.x, pa.y - V.y);
       const au = Math.atan2(uy, ux);
@@ -1862,8 +2027,8 @@
     const tflNow = () => Date.now() + (CORE ? CORE.clockOffset : 0);
     const perfOf = T => performance.now() + (T - tflNow());        // a time on TfL's clock as this page's animation clock
     const napG = n => n ? byNaptan[n] : undefined;
-    function coreIngest(data, serverDate) {
-      const T = CORE.ingest(data, serverDate, Date.now(), [LINE.api]), now = performance.now();
+    function coreIngest(data, serverDate, receivedAt) {
+      const T = CORE.ingest(data, serverDate, receivedAt || Date.now(), [LINE.api]), now = performance.now();
       fillBoard(data, p => (Date.parse(p.expectedArrival) - T) / 1000, now);
       const snap = CORE.snapshot(T), seen = new Set();
       snap.trains.forEach(c => {
@@ -2208,6 +2373,7 @@
         const data = await res.json();
         if (RECFRAME) recFeed(LINE.id, res.status, data, res.headers.get("date"));
         if (scope.dead) return;                              // the line was switched while this reply was on its way
+        if (CORE) REPLY.set(LINE.api, { data, date: res.headers.get("date"), at: Date.now() });
         (CORE ? coreIngest : ingest)(Array.isArray(data) ? data : [], res.headers.get("date"));
         everLoaded = true; lastOk = Date.now(); fetchError = null;
       } catch (err) {
@@ -2287,7 +2453,7 @@
     scope.on(document, "scroll", hideTip, { passive: true });
 
     if (RECFRAME) window.__ucLive = { id: LINE.id, trains, S, now: () => performance.now(), age: () => performance.now() - lastFrame };
-    if (DEBUG_ON) window.__undercurrent = { DEBUG, trains, S, ROUTES, LANES: R0.LANES, poseAtL: R0.poseAtL, cum: R0.cum, segLen: R0.segLen, TRAIN_SCALE, core: CORE };
+    if (DEBUG_ON) window.__undercurrent = { DEBUG, trains, S, ROUTES, turnRound, loopPose, LANES: R0.LANES, poseAtL: R0.poseAtL, cum: R0.cum, segLen: R0.segLen, TRAIN_SCALE, core: CORE };
 
     /* ---------- Departure board (fixed in the right panel) ---------- */
     const pop = document.getElementById("pop");
@@ -2550,7 +2716,7 @@
     // Each piece is drawn from both ends, so loops and rejoining branches retract and grow correctly.
     function trackReach(si) {
       const dist = S.map(() => Infinity), adj = S.map(() => []); dist[si] = 0;
-      TRACK_SEGS.forEach(([a, b]) => { const l = Math.hypot(S[a].x - S[b].x, S[a].y - S[b].y); adj[a].push([b, l]); adj[b].push([a, l]); });
+      TRACK_SEGS.forEach(([a, b]) => { const l = pathLen(pathPts(a, b)); adj[a].push([b, l]); adj[b].push([a, l]); });
       const todo = new Set(S.keys());
       while (todo.size) {
         let u = -1; todo.forEach(i => { if (u < 0 || dist[i] < dist[u]) u = i; });
@@ -2559,18 +2725,13 @@
       }
       const g = el("g", { "aria-hidden": "true" }); svg.insertBefore(g, trackPath.nextSibling);
       const parts = [];
-      TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => {
-        if (dist[p] === Infinity) return;
-        const len = Math.hypot(S[p].x - S[q].x, S[p].y - S[q].y);
-        const path = el("path", { class: "track", d: `M ${S[p].x} ${S[p].y} L ${S[q].x} ${S[q].y}`, "stroke-dasharray": `${len.toFixed(1)} ${(len + 60).toFixed(1)}` }, g);
+      const piece = (cls, p, q) => {
+        const P = pathPts(p, q), len = pathLen(P);          // v4.18: a piece follows the real track in the True view
+        const path = el("path", { class: cls, d: "M " + polyD(P), "stroke-dasharray": `${len.toFixed(1)} ${(len + 60).toFixed(1)}` }, g);
         parts.push({ path, d0: dist[p], len });
-      }));
-      if (HOLLOW) TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => {   // the hollow middle retracts with the outline
-        if (dist[p] === Infinity) return;
-        const len = Math.hypot(S[p].x - S[q].x, S[p].y - S[q].y);
-        const path = el("path", { class: "track-core", d: `M ${S[p].x} ${S[p].y} L ${S[q].x} ${S[q].y}`, "stroke-dasharray": `${len.toFixed(1)} ${(len + 60).toFixed(1)}` }, g);
-        parts.push({ path, d0: dist[p], len });
-      }));
+      };
+      TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => { if (dist[p] !== Infinity) piece("track", p, q); }));
+      if (HOLLOW) TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => { if (dist[p] !== Infinity) piece("track-core", p, q); }));   // the hollow middle retracts with the outline
       trackPath.style.opacity = 0; if (trackCore) trackCore.style.opacity = 0;
       return {
         set(R) {
@@ -2639,8 +2800,29 @@
       }).then(() => { setOpacity(fade, ""); resetView(); txEnd(); });
     })();
 
+    /* ---------- View switch (v4.18): Map | Line | True, top left of the map like the station page's Linear | Radial ---------- */
+    (function viewSwitch() {
+      const ico = d => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+      const ctl = document.createElement("div");
+      ctl.className = "stn-layout line-views"; ctl.setAttribute("role", "group"); ctl.setAttribute("aria-label", "Map view");
+      const canTrue = hasTrue(LINE.id);
+      const defs = [
+        ["map", "Map", "Map: the hand-made layout", ico('<path d="M4 19V11l7-7h9"/><circle cx="4" cy="19" r="1.6" fill="currentColor"/><circle cx="20" cy="4" r="1.6" fill="currentColor"/>'), true],
+        ["line", "Line", "Coming soon", ico('<path d="M3 12h18"/><circle cx="6" cy="12" r="1.8" fill="var(--pill-bg)"/><circle cx="12" cy="12" r="1.8" fill="var(--pill-bg)"/><circle cx="18" cy="12" r="1.8" fill="var(--pill-bg)"/>'), false],
+        ["true", "True", canTrue ? "True: true to life in shape and scale" : "True view isn't available for this line yet", ico('<path d="M4 20C6 10 10 15 12 9s5-4 8-6"/><circle cx="4" cy="20" r="1.6" fill="currentColor"/><circle cx="20" cy="3.5" r="1.6" fill="currentColor"/>'), canTrue]
+      ];
+      ctl.innerHTML = defs.map(([id, name, tip, svgI, ok]) => `<button type="button" data-v="${id}" title="${tip}" aria-label="${name} view${ok ? "" : ": " + tip}"${ok ? "" : " disabled"} aria-pressed="${(LINE.view === "true" ? "true" : "map") === id}">${svgI}<span>${name}</span></button>`).join("");
+      document.getElementById("map-wrap").appendChild(ctl);
+      scope.later(() => ctl.remove());
+      ctl.querySelectorAll("button").forEach(b => scope.on(b, "click", e => { e.stopPropagation(); switchView(b.dataset.v); }));
+    })();
+
     /* ---------- Start ---------- */
     scope.frame(frame);
+    // v4.18: the same line in another view: carry on with the last reply (trains are re-placed on the new shapes) instead of waiting for the next one
+    const keep = keepReply === LINE.api; keepReply = null;
+    const rc = keep && CORE && REPLY.get(LINE.api);
+    if (rc && Date.now() - rc.at < 120000 && Array.isArray(rc.data)) { try { coreIngest(rc.data, rc.date, rc.at); everLoaded = true; lastOk = rc.at; } catch (e) { console.warn("Undercurrent: could not carry the trains across", e); } }
     poll(); pollStatus();
     scope.every(poll, POLL_MS);
     scope.every(pollStatus, STATUS_MS);
@@ -2667,7 +2849,7 @@
   const lineCache = new Map();                             // id -> Promise of the line's data
   const bust = "?b=" + Date.now();
   if (window.UNDERCURRENT_LINE) lineCache.set(window.UNDERCURRENT_LINE.id, Promise.resolve(window.UNDERCURRENT_LINE));
-  function loadLine(id) {
+  function loadLineData(id) {
     if (!lineCache.has(id)) {
       lineCache.set(id, new Promise((resolve, reject) => {
         const tag = document.createElement("script");
@@ -2686,6 +2868,43 @@
     }
     return lineCache.get(id);
   }
+
+  /* ---------- Line views (v4.18): Map | Line | True ----------
+     Map is the hand-made layout in lines/<id>.js. True is a generated layout true to life in shape and scale (lines/<id>-true.js, made by
+     tools/make_geo_layout.py, loaded only when it is chosen). Line (stations left to right) is not built yet. The choice is remembered per device
+     ("uc-line-view") and shared by every line page; a line without a True layout stays on Map and keeps the choice for the next line that has one.
+     A view is only another set of station positions and track shapes: the trains move by distance along the route, so the train brain is untouched. */
+  const VIEW_KEY = "uc-line-view";
+  const viewPref = () => { try { const v = localStorage.getItem(VIEW_KEY); return v === "true" ? "true" : "map"; } catch (e) { return "map"; } };
+  const hasTrue = id => (window.UNDERCURRENT_LINES || []).some(l => l.id === id && l.geo);
+  const trueCache = new Map();                             // id -> Promise of the line's True layout
+  function loadTrue(id) {
+    if (!trueCache.has(id)) {
+      trueCache.set(id, new Promise((resolve, reject) => {
+        if (window.UNDERCURRENT_TRUE && window.UNDERCURRENT_TRUE[id]) { resolve(window.UNDERCURRENT_TRUE[id]); return; }
+        const tag = document.createElement("script");
+        let timer = null;
+        const fail = why => { clearTimeout(timer); tag.remove(); trueCache.delete(id); reject(new Error(`True view of ${id}: ${why}`)); };
+        timer = setTimeout(() => fail("timed out"), 8000);
+        tag.onload = () => { clearTimeout(timer); tag.remove(); const T = window.UNDERCURRENT_TRUE && window.UNDERCURRENT_TRUE[id]; if (T) resolve(T); else fail("unexpected data"); };
+        tag.onerror = () => fail("could not load");
+        tag.src = `lines/${id}-true.js${bust}`;
+        document.head.appendChild(tag);
+      }));
+    }
+    return trueCache.get(id);
+  }
+  // The line as the chosen view draws it: the same line data with the True layout's station positions and track shapes laid over it
+  function inView(LINE) {
+    if (LINE.kind || viewPref() !== "true" || !hasTrue(LINE.id)) return Promise.resolve(LINE);
+    return loadTrue(LINE.id).then(T => ({
+      ...LINE, view: "true", geo: T, spacing: 1, river: null, emptyAt: T.emptyAt || LINE.emptyAt,
+      stations: LINE.stations.map(s => ({ ...s, ...(T.stations[s.id] ? { x: T.stations[s.id][0], y: T.stations[s.id][1] } : {}), pref: "right" }))
+    }), () => LINE);                                       // if the layout cannot load, the page stays on Map
+  }
+  const loadLine = id => loadLineData(id).then(inView);
+  const REPLY = new Map();                                 // api line -> its last reply, so a view change can carry the trains straight across
+  let keepReply = null;
 
   /* ---------- Mount and unmount ---------- */
   const FADE_SEL = ".line-title, .status, .status-reason, .updated, .stats, #pop-sections, #pop-note, #facts";
@@ -2771,9 +2990,10 @@
     if (pendingURL) { pendingURL = false; followURL(); }
   }
   // Switching from the picker, or with back/forward: no station to zoom into, so the map and panel text cross-fade
-  function plainSwitch(id, push = true) {
+  function plainSwitch(id, push = true, same = false) {
     // v4.15: also station -> station (isStnId): the page stays up, so full screen carries on
-    if (txBusy || !cur || id === cur.id) return;
+    // v4.18: same = the same line in another view (Map or True)
+    if (txBusy || !cur || (id === cur.id && !same)) return;
     if (isStnId(id) ? cur.LINE.kind !== "station" : !knownLine(id)) return;
     txBusy = true; root.classList.add("tx-busy");
     const loading = loadLine(id);
@@ -2788,6 +3008,15 @@
       fadeTo("1", IN, "ease-out");
       setTimeout(() => { els().forEach(n => { n.style.transition = ""; n.style.opacity = ""; }); txEnd(); }, IN + 30);
     }, () => navigateTo(id));
+  }
+  function switchView(v) {
+    if (txBusy || !cur || cur.LINE.kind) return;
+    if (v === "true" && !hasTrue(cur.id)) return;
+    if (v !== "true" && v !== "map") return;
+    if ((cur.LINE.view === "true") === (v === "true")) return;
+    try { localStorage.setItem(VIEW_KEY, v); } catch (e) {}
+    keepReply = cur.LINE.api;
+    plainSwitch(cur.id, false, true);
   }
   let pendingURL = false;
   function followURL() {
@@ -2834,6 +3063,7 @@
       arrival = { naptan, px: px ? +px : NaN, py: py ? +py : NaN };
     }
     try { history.replaceState({ line: LINE.id }, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); } catch (e) {}
-    mount(LINE, arrival);
+    if (!LINE.kind && viewPref() === "true" && hasTrue(LINE.id)) inView(LINE).then(L => mount(L, arrival));   // v4.18: opened on the True view
+    else mount(LINE, arrival);
   })();
 })();
