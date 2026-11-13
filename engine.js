@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.21: True view for the Overground lines (Liberty, Lioness, Mildmay, Suffragette, Weaver, Windrush) and the Elizabeth line (Reading to Shenfield; track beyond Greater London from OSM county extracts). The real Thames now comes from a wide OS Open Rivers extract, with gaps in it bridged. A final lane smoothing takes the last cusp out of tight bends (the lane keeps at least 18 from the track).
    v4.20: True view for the deep-level lines Bakerloo, Central, Jubilee, Northern, Piccadilly and Waterloo & City (the Central's Epping end comes from an OSM Essex extract: tools/geo/extract_outer_track.py). On a tight bend the inside lane may come in to 22 from the track rather than make a cusp (30 smoothing passes). The generator's automatic scale is now 100 drawing units to the km unless the closest stations or the drawing's length say otherwise.
    v4.19: True view for the Circle, District, Hammersmith & City and Metropolitan (tools/make_geo_layout.py now handles branches, loops, second visits to a station and track shared with other lines: the context stripes follow the real track). A hairpin in the track data is smoothed, the stripe mitre is capped, and a True label that has to sit far from its station (zoomed in) gets a thin leader line. The Metropolitan's track beyond Greater London (Moor Park to Amersham and Chesham, Croxley to Watford) comes from OSM county extracts (tools/geo/extract_met_outer.py).
    v4.18: line pages have a view switch, Map | Line | True, top left of the map like the station page's Linear | Radial (remembered per device in "uc-line-view"; Line is disabled, coming soon; True is disabled on lines without a True layout). True is a layout generated from the real track in geo/rail_graph.json (tools/make_geo_layout.py -> lines/<id>-true.js, loaded only when chosen): north up, one scale for x and y, stations never moved, the real Thames at its real width. Only the Victoria line has one so far. The engine draws curved track (pathPts, buildGeoLane keeps each lane clear of the track on bends), True labels keep one size on screen and are re-placed as the zoom moves (a smaller label, then another side, then none: the icon carries the name as a tooltip). Changing view re-mounts the line with the same cross-fade as a line switch and carries the trains across from the last reply.
@@ -142,7 +143,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.20";
+  const VERSION = "4.21";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -1355,6 +1356,21 @@
               M[i] = { x: bx + ux * LANE_MIN, y: by + uy * LANE_MIN };
             }
           }
+          Ln = M;
+        }
+        // final smoothing: a point moves towards its neighbours' average only while it stays at least 18 from the track (clear of a train 21 across), which takes the last cusp out of a tight bend
+        for (let it = 0; it < 24; it++) {
+          const M = Ln.map((p, i) => {
+            if (i === 0 || i === n - 1) return p;
+            const c = { x: (Ln[i - 1].x + 2 * p.x + Ln[i + 1].x) / 4, y: (Ln[i - 1].y + 2 * p.y + Ln[i + 1].y) / 4 };
+            let best = Infinity;
+            for (let j = Math.max(0, i - 26); j < Math.min(n - 1, i + 26); j++) {
+              const a = Q[j], b = Q[j + 1], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1;
+              const k = Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.y - a.y) * dy) / l2));
+              best = Math.min(best, Math.hypot(c.x - (a.x + k * dx), c.y - (a.y + k * dy)));
+            }
+            return best >= 18 ? c : p;
+          });
           Ln = M;
         }
         const cl = [0];
