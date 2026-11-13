@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.20: True view for the deep-level lines Bakerloo, Central, Jubilee, Northern, Piccadilly and Waterloo & City (the Central's Epping end comes from an OSM Essex extract: tools/geo/extract_outer_track.py). On a tight bend the inside lane may come in to 22 from the track rather than make a cusp (30 smoothing passes). The generator's automatic scale is now 100 drawing units to the km unless the closest stations or the drawing's length say otherwise.
    v4.19: True view for the Circle, District, Hammersmith & City and Metropolitan (tools/make_geo_layout.py now handles branches, loops, second visits to a station and track shared with other lines: the context stripes follow the real track). A hairpin in the track data is smoothed, the stripe mitre is capped, and a True label that has to sit far from its station (zoomed in) gets a thin leader line. The Metropolitan's track beyond Greater London (Moor Park to Amersham and Chesham, Croxley to Watford) comes from OSM county extracts (tools/geo/extract_met_outer.py).
    v4.18: line pages have a view switch, Map | Line | True, top left of the map like the station page's Linear | Radial (remembered per device in "uc-line-view"; Line is disabled, coming soon; True is disabled on lines without a True layout). True is a layout generated from the real track in geo/rail_graph.json (tools/make_geo_layout.py -> lines/<id>-true.js, loaded only when chosen): north up, one scale for x and y, stations never moved, the real Thames at its real width. Only the Victoria line has one so far. The engine draws curved track (pathPts, buildGeoLane keeps each lane clear of the track on bends), True labels keep one size on screen and are re-placed as the zoom moves (a smaller label, then another side, then none: the icon carries the name as a tooltip). Changing view re-mounts the line with the same cross-fade as a line switch and carries the trains across from the last reply.
    v4.17: the menu is two halves: Station, Line and Full Map as equal buttons on the left, and what the chosen one opens on the right (the station picker, a plain list of lines, or nine equal squares of London with a Whole map button). The right half starts on the section you are in; on a narrow screen the halves stack and the right slides over. A square opens the Full Map framed on that ninth (?map=full&region=nw|n|ne|w|c|e|sw|s|se; on the Full Map itself the view glides there). The station search box no longer takes focus by itself. The Region card and the Line board (tiles, tracks, silhouettes) are gone; lines/regions.js (tools/make_regions.py) draws the square thumbnails.
@@ -141,7 +142,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.19";
+  const VERSION = "4.20";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -1339,8 +1340,8 @@
           tx.push((b.x - a.x) / l); ty.push((b.y - a.y) / l);
         }
         let Ln = Q.map((q, i) => ({ x: q.x + side * ty[i] * LANE, y: q.y - side * tx[i] * LANE }));
-        const WIN = 14;
-        for (let it = 0; it < 14; it++) {
+        const WIN = 14, LANE_MIN = 22;                       // v4.20: on a tight bend the inside lane may come in to 22 (a train is 21 across, track 7: still clear) rather than make a cusp
+        for (let it = 0; it < 30; it++) {
           const M = Ln.map((p, i) => i === 0 || i === n - 1 ? p : { x: (Ln[i - 1].x + 2 * p.x + Ln[i + 1].x) / 4, y: (Ln[i - 1].y + 2 * p.y + Ln[i + 1].y) / 4 });
           for (let i = 1; i < n - 1; i++) {
             let best = Infinity, bx = 0, by = 0;
@@ -1349,9 +1350,9 @@
               const k = Math.max(0, Math.min(1, ((M[i].x - a.x) * dx + (M[i].y - a.y) * dy) / l2)), cx = a.x + k * dx, cy = a.y + k * dy, d = Math.hypot(M[i].x - cx, M[i].y - cy);
               if (d < best) { best = d; bx = cx; by = cy; }
             }
-            if (best < LANE) {
+            if (best < LANE_MIN) {
               const ux = best > 1e-6 ? (M[i].x - bx) / best : side * ty[i], uy = best > 1e-6 ? (M[i].y - by) / best : -side * tx[i];
-              M[i] = { x: bx + ux * LANE, y: by + uy * LANE };
+              M[i] = { x: bx + ux * LANE_MIN, y: by + uy * LANE_MIN };
             }
           }
           Ln = M;

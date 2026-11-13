@@ -1,16 +1,16 @@
 // Lines available in the picker, in menu order (built lines only)
 window.UNDERCURRENT_LINES = [
-  { id: "bakerloo", name: "Bakerloo" },
-  { id: "central", name: "Central" },
+  { id: "bakerloo", name: "Bakerloo", geo: true },
+  { id: "central", name: "Central", geo: true },
   { id: "circle", name: "Circle", geo: true },
   { id: "district", name: "District", geo: true },
   { id: "hammersmith", name: "Hammersmith & City", geo: true },
-  { id: "jubilee", name: "Jubilee" },
+  { id: "jubilee", name: "Jubilee", geo: true },
   { id: "metropolitan", name: "Metropolitan", geo: true },
-  { id: "northern", name: "Northern" },
-  { id: "piccadilly", name: "Piccadilly" },
+  { id: "northern", name: "Northern", geo: true },
+  { id: "piccadilly", name: "Piccadilly", geo: true },
   { id: "victoria", name: "Victoria", geo: true },   // geo: has a True view (lines/victoria-true.js, made by tools/make_geo_layout.py)
-  { id: "waterloo", name: "Waterloo & City" },
+  { id: "waterloo", name: "Waterloo & City", geo: true },
   { id: "liberty", name: "Liberty", noStations: true },
   { id: "lioness", name: "Lioness", noStations: true },
   { id: "suffragette", name: "Suffragette", noStations: true },
