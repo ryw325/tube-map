@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.22: the Line view (Map | Line | True), for every line: stations in a strip at equal gaps, branches and parallel paths as lanes beside it, the Circle as a ring of two columns like the TfL strip map, a band where the line crosses the Thames. Landscape windows run left to right and portrait ones top to bottom (and turn with the window); a long strip in landscape opens on a readable stretch from its first station, and zooming out shows it all. The layout is made in the browser by lineview.js (loaded only when the Line view is chosen); the engine draws it with the same curved-track code as the True view and the ordinary labels.
    v4.21: True view for the Overground lines (Liberty, Lioness, Mildmay, Suffragette, Weaver, Windrush) and the Elizabeth line (Reading to Shenfield; track beyond Greater London from OSM county extracts). The real Thames now comes from a wide OS Open Rivers extract, with gaps in it bridged. A final lane smoothing takes the last cusp out of tight bends (the lane keeps at least 18 from the track).
    v4.20: True view for the deep-level lines Bakerloo, Central, Jubilee, Northern, Piccadilly and Waterloo & City (the Central's Epping end comes from an OSM Essex extract: tools/geo/extract_outer_track.py). On a tight bend the inside lane may come in to 22 from the track rather than make a cusp (30 smoothing passes). The generator's automatic scale is now 100 drawing units to the km unless the closest stations or the drawing's length say otherwise.
    v4.19: True view for the Circle, District, Hammersmith & City and Metropolitan (tools/make_geo_layout.py now handles branches, loops, second visits to a station and track shared with other lines: the context stripes follow the real track). A hairpin in the track data is smoothed, the stripe mitre is capped, and a True label that has to sit far from its station (zoomed in) gets a thin leader line. The Metropolitan's track beyond Greater London (Moor Park to Amersham and Chesham, Croxley to Watford) comes from OSM county extracts (tools/geo/extract_met_outer.py).
@@ -143,7 +144,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.21";
+  const VERSION = "4.22";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -653,6 +654,7 @@
     // v4.18: the track between two neighbouring stations as a list of points. The Map view draws straight pieces between stations (45 degree
     // layouts); the True view (LINE.geo, from lines/<id>-true.js) follows the real track, so a piece is a curve of many points.
     const GEO = LINE.geo || null;
+    const GEOLAB = GEO && !GEO.fixed;                      // v4.22: the True view sizes and places its own labels; the Line view uses the ordinary ones (GEO.fixed)
     const PATH_MEMO = new Map();
     function pathPts(a, b) {
       if (!GEO) return [S[a], S[b]];
@@ -702,6 +704,14 @@
     if (GEO && GEO.river) {                                  // v4.18 True view: the real Thames at its real width, through the same transform as the track
       el("path", { class: "river", d: "M " + GEO.river.pts.map(q => q[0] + " " + q[1]).join(" L "), style: `stroke-width: ${GEO.river.width}px` }, riverG);
       if (GEO.river.label) el("text", { class: "river-label", x: GEO.river.label[0], y: GEO.river.label[1], "text-anchor": "middle" }, riverG).textContent = "Thames";
+    } else if (GEO && GEO.marks) {                           // v4.22 Line view: where the line crosses the Thames, a river-coloured band across the track
+      GEO.marks.forEach(m => {
+        const a = ((m.ang % 180) + 270) % 180 - 90, tf = `translate(${m.x.toFixed(1)} ${m.y.toFixed(1)}) rotate(${a.toFixed(1)})`;   // upright text whichever way the band lies
+        const g = el("g", { transform: tf }, riverG);
+        el("rect", { class: "river-band", x: -m.len / 2, y: -15, width: m.len, height: 30, rx: 7 }, g);
+        el("text", { class: "river-label", x: 0, y: 5, "text-anchor": "middle" }, g).textContent = "Thames";
+        el("title", {}, g).textContent = m.title || "The line crosses the Thames here";
+      });
     } else if (RIVER && RP) {
       const k = RP.scale || 1;
       const g = el("g", { transform: `translate(${RP.x || 0} ${RP.y || 0}) scale(${k})` }, riverG);
@@ -1087,7 +1097,7 @@
     }
     const geoLevelOf = upp => Math.round(Math.log(Math.max(0.05, upp)) / Math.log(GEO_STEP));
     function geoZoomCheck() {
-      if (!GEO || geoPending || txBusy) return;
+      if (!GEOLAB || geoPending || txBusy) return;
       if (geoLevelOf(geoUpp()) === geoLevel) return;
       geoPending = scope.after(() => { geoPending = null; if (!txBusy) layout(); else geoZoomCheck(); }, 160);
     }
@@ -1156,7 +1166,7 @@
       fitView();
     }
     function layout() {
-      if (GEO) return layoutGeo();
+      if (GEOLAB) return layoutGeo();
       while (labelLayer.firstChild) labelLayer.firstChild.remove();
       const placed = [];
       S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
@@ -1194,7 +1204,7 @@
     const GEO_PAD = 120;                                      // True view: room for the labels of the end stations
     function fitView() {
       let x1, y1, x2, y2, pad = 56; // same clearance on every side
-      if (GEO) {                                              // v4.18: the track, not the labels (they change with the zoom), plus a margin for them
+      if (GEOLAB) {                                           // v4.18: the track, not the labels (they change with the zoom), plus a margin for them
         const b = geoBox(), m = LANE_OUTER + 6;
         x1 = b.x1 - m; y1 = b.y1 - m; x2 = b.x2 + m; y2 = b.y2 + m; pad = 40;
         if (geoLabelBox) { x1 = Math.min(x1, geoLabelBox.x1); y1 = Math.min(y1, geoLabelBox.y1); x2 = Math.max(x2, geoLabelBox.x2); y2 = Math.max(y2, geoLabelBox.y2); }
@@ -1209,6 +1219,7 @@
       x1 = Math.min(bb.x, Math.min(...xs) - m); y1 = Math.min(bb.y, Math.min(...ys) - m);
       x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m); y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
       }
+      if (GEO && GEO.fixed && GEO.orient === "v") y1 -= 70;   // v4.22 Line view, portrait: room above the first station for the view switch
       view.base = { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
       if (txBusy) return;                                    // the hand-over animation owns the view
       if (view.user) applyView(); else resetView();
@@ -1227,6 +1238,10 @@
       if (!view.base) return;
       const f = fitSize(), b = view.base;
       view.w = f.w; view.h = f.h; view.x = b.x + b.w / 2 - f.w / 2; view.y = b.y + b.h / 2 - f.h / 2;
+      if (GEO && GEO.fixed && GEO.orient === "h" && !narrow.matches) {   // v4.22 Line view, landscape: a long strip opens on a readable stretch from its first station (zoom out to see it all)
+        const pxW = Math.max(300, svg.getBoundingClientRect().width || 800), homeW = 1.9 * pxW;
+        if (f.w > homeW) { view.w = homeW; view.h = homeW * f.h / f.w; view.x = b.x; view.y = b.y + b.h / 2 - view.h / 2; }
+      }
       view.user = false;
       applyView();
     }
@@ -1242,7 +1257,7 @@
       svg.setAttribute("viewBox", `${view.x.toFixed(1)} ${view.y.toFixed(1)} ${view.w.toFixed(1)} ${view.h.toFixed(1)}`);
       svg.classList.toggle("zoomed", view.user);
       const z = document.getElementById("zoom-fit"); if (z) z.disabled = !view.user;
-      if (GEO) geoZoomCheck();                                // True view: labels are re-placed when the zoom has moved a step
+      if (GEOLAB) geoZoomCheck();                                // True view: labels are re-placed when the zoom has moved a step
     }
     const ZOOM_MAX = 8, ZOOM_OUT = 1.6;
     function toMap(clientX, clientY) {
@@ -2825,10 +2840,10 @@
       const canTrue = hasTrue(LINE.id);
       const defs = [
         ["map", "Map", "Map: the hand-made layout", ico('<path d="M4 19V11l7-7h9"/><circle cx="4" cy="19" r="1.6" fill="currentColor"/><circle cx="20" cy="4" r="1.6" fill="currentColor"/>'), true],
-        ["line", "Line", "Coming soon", ico('<path d="M3 12h18"/><circle cx="6" cy="12" r="1.8" fill="var(--pill-bg)"/><circle cx="12" cy="12" r="1.8" fill="var(--pill-bg)"/><circle cx="18" cy="12" r="1.8" fill="var(--pill-bg)"/>'), false],
+        ["line", "Line", "Line: stations in a row, branches alongside", ico('<path d="M3 12h18"/><circle cx="6" cy="12" r="1.8" fill="var(--pill-bg)"/><circle cx="12" cy="12" r="1.8" fill="var(--pill-bg)"/><circle cx="18" cy="12" r="1.8" fill="var(--pill-bg)"/>'), true],
         ["true", "True", canTrue ? "True: true to life in shape and scale" : "True view isn't available for this line yet", ico('<path d="M4 20C6 10 10 15 12 9s5-4 8-6"/><circle cx="4" cy="20" r="1.6" fill="currentColor"/><circle cx="20" cy="3.5" r="1.6" fill="currentColor"/>'), canTrue]
       ];
-      ctl.innerHTML = defs.map(([id, name, tip, svgI, ok]) => `<button type="button" data-v="${id}" title="${tip}" aria-label="${name} view${ok ? "" : ": " + tip}"${ok ? "" : " disabled"} aria-pressed="${(LINE.view === "true" ? "true" : "map") === id}">${svgI}<span>${name}</span></button>`).join("");
+      ctl.innerHTML = defs.map(([id, name, tip, svgI, ok]) => `<button type="button" data-v="${id}" title="${tip}" aria-label="${name} view${ok ? "" : ": " + tip}"${ok ? "" : " disabled"} aria-pressed="${(LINE.view || "map") === id}">${svgI}<span>${name}</span></button>`).join("");
       document.getElementById("map-wrap").appendChild(ctl);
       scope.later(() => ctl.remove());
       ctl.querySelectorAll("button").forEach(b => scope.on(b, "click", e => { e.stopPropagation(); switchView(b.dataset.v); }));
@@ -2892,7 +2907,7 @@
      ("uc-line-view") and shared by every line page; a line without a True layout stays on Map and keeps the choice for the next line that has one.
      A view is only another set of station positions and track shapes: the trains move by distance along the route, so the train brain is untouched. */
   const VIEW_KEY = "uc-line-view";
-  const viewPref = () => { try { const v = localStorage.getItem(VIEW_KEY); return v === "true" ? "true" : "map"; } catch (e) { return "map"; } };
+  const viewPref = () => { try { const v = localStorage.getItem(VIEW_KEY); return v === "true" || v === "line" ? v : "map"; } catch (e) { return "map"; } };
   const hasTrue = id => (window.UNDERCURRENT_LINES || []).some(l => l.id === id && l.geo);
   const trueCache = new Map();                             // id -> Promise of the line's True layout
   function loadTrue(id) {
@@ -2912,7 +2927,27 @@
     return trueCache.get(id);
   }
   // The line as the chosen view draws it: the same line data with the True layout's station positions and track shapes laid over it
+  // v4.22: Line view. lineview.js (loaded when first needed) lays the line out as a strip; landscape windows run it left to right, portrait ones top to bottom
+  const lvOrient = () => window.innerWidth >= window.innerHeight * 1.05 ? "h" : "v";
+  let lvLoad = null;
+  const loadLineView = () => lvLoad || (lvLoad = new Promise((resolve, reject) => {
+    if (window.UndercurrentLineView) { resolve(window.UndercurrentLineView); return; }
+    const tag = document.createElement("script");
+    const timer = setTimeout(() => { tag.remove(); lvLoad = null; reject(new Error("Line view: timed out")); }, 8000);
+    tag.onload = () => { clearTimeout(timer); tag.remove(); window.UndercurrentLineView ? resolve(window.UndercurrentLineView) : (lvLoad = null, reject(new Error("Line view: unexpected data"))); };
+    tag.onerror = () => { clearTimeout(timer); tag.remove(); lvLoad = null; reject(new Error("Line view: could not load")); };
+    tag.src = `lineview.js${bust}`;
+    document.head.appendChild(tag);
+  }));
   function inView(LINE) {
+    if (!LINE.kind && viewPref() === "line") {
+      const orient = lvOrient();
+      return Promise.all([loadLineView(), hasTrue(LINE.id) ? loadTrue(LINE.id).catch(() => null) : null]).then(([LV, T]) => {
+        const out = LV.build(LINE, orient, T);
+        return { ...LINE, view: "line", orient, geo: { fixed: true, orient, paths: out.paths, marks: out.marks }, spacing: 1, river: null, emptyAt: out.emptyAt,
+          stations: LINE.stations.map(s => ({ ...s, x: out.stations[s.id][0], y: out.stations[s.id][1], pref: out.pref[s.id] })) };
+      }, () => LINE);                                      // if it cannot load, the page stays on Map
+    }
     if (LINE.kind || viewPref() !== "true" || !hasTrue(LINE.id)) return Promise.resolve(LINE);
     return loadTrue(LINE.id).then(T => ({
       ...LINE, view: "true", geo: T, spacing: 1, river: null, emptyAt: T.emptyAt || LINE.emptyAt,
@@ -3029,12 +3064,18 @@
   function switchView(v) {
     if (txBusy || !cur || cur.LINE.kind) return;
     if (v === "true" && !hasTrue(cur.id)) return;
-    if (v !== "true" && v !== "map") return;
-    if ((cur.LINE.view === "true") === (v === "true")) return;
+    if (v !== "true" && v !== "map" && v !== "line") return;
+    if ((cur.LINE.view || "map") === v) return;
     try { localStorage.setItem(VIEW_KEY, v); } catch (e) {}
     keepReply = cur.LINE.api;
     plainSwitch(cur.id, false, true);
   }
+  // v4.22: turn a Line view when the window turns (landscape runs left to right, portrait top to bottom)
+  let lvTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(lvTimer);
+    lvTimer = setTimeout(() => { if (cur && cur.LINE.view === "line" && cur.LINE.orient !== lvOrient()) { if (txBusy) { window.dispatchEvent(new Event("resize")); return; } keepReply = cur.LINE.api; plainSwitch(cur.id, false, true); } }, 500);
+  });
   let pendingURL = false;
   function followURL() {
     if (new URLSearchParams(location.search).get("station") && cur && cur.LINE.kind !== "station") { location.reload(); return; }   // back to a station page: load it fresh
@@ -3080,7 +3121,7 @@
       arrival = { naptan, px: px ? +px : NaN, py: py ? +py : NaN };
     }
     try { history.replaceState({ line: LINE.id }, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); } catch (e) {}
-    if (!LINE.kind && viewPref() === "true" && hasTrue(LINE.id)) inView(LINE).then(L => mount(L, arrival));   // v4.18: opened on the True view
+    if (!LINE.kind && (viewPref() === "line" || (viewPref() === "true" && hasTrue(LINE.id)))) inView(LINE).then(L => mount(L, arrival));   // v4.18: opened on the True view
     else mount(LINE, arrival);
   })();
 })();

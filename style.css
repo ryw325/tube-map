@@ -740,6 +740,7 @@ html[data-theme="dark"] .menu-lines { --rest: rgba(255,255,255,.1); --rest-ink: 
 .stn-layout button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .stn-layout button:hover:not([aria-pressed="true"]) { background: color-mix(in srgb, var(--pill-bg) 70%, var(--ink)); }
 .stn-layout button:focus-visible { outline: 2px solid var(--line); outline-offset: -3px; }
+.river-band { fill: var(--river); opacity: .9; }   /* v4.22: Line view, where the line crosses the Thames */
 .geo-leader { stroke: var(--ink); stroke-opacity: .35; stroke-width: 1.2px; vector-effect: non-scaling-stroke; pointer-events: none; }   /* v4.19: True view label leader */
 .stn-layout button:disabled { opacity: .4; cursor: not-allowed; }   /* v4.18: Line (coming soon) and True on a line without one */
 .stn-layout button:disabled:hover { background: none; }
