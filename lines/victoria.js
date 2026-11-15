@@ -228,6 +228,7 @@ window.UNDERCURRENT_LINE = {
   ],
   "FPK": [
    "piccadilly",
+   "thameslink",
    "rail"
   ],
   "HAI": [
@@ -241,6 +242,7 @@ window.UNDERCURRENT_LINE = {
    "metropolitan",
    "northern",
    "piccadilly",
+   "thameslink",
    "rail"
   ],
   "EUS": [

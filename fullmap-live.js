@@ -12,7 +12,7 @@
   const BLUR_HIDE = 0.60, BLUR_SHOW = 0.50;   // trains are hidden when more than this share of the trains on screen overlap another (they would blur into the lines); shown again below the second figure
   const HORIZON_MS = 20 * 60000;           // a train whose first stop is further off than this has not started its trip: not drawn
   const TICK_MS = 5000, MIN_AGE_MS = 12000, GROUP_KB = 2000, PAD_M = 1500, MISS_LIMIT = 3, DWELL_S = 20;
-  const NO_FEED = new Set(["dlr", "woolwich-ferry"]);
+  const NO_FEED = new Set(["dlr", "woolwich-ferry", "thameslink"]);
   const WEIGHT_KB = { elizabeth: 800, windrush: 650, northern: 780, central: 470, piccadilly: 450, jubilee: 350, mildmay: 350, district: 320, "hammersmith-city": 280, weaver: 280, lioness: 210, bakerloo: 200, metropolitan: 190, victoria: 180, circle: 130, tram: 90, suffragette: 90, liberty: 60, "waterloo-city": 10, rb1: 30, rb4: 20, rb6: 40, "london-cable-car": 5 };
   const SPEED = { tube: 11, elizabeth: 18, overground: 14, tram: 8, boat: 5, cable: 4 };
   const OVERGROUND = new Set(["liberty", "lioness", "mildmay", "suffragette", "weaver", "windrush"]);

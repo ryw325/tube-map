@@ -946,6 +946,7 @@ window.UNDERCURRENT_LINE = {
    "metropolitan",
    "piccadilly",
    "victoria",
+   "thameslink",
    "rail"
   ],
   "MGT": [
@@ -965,10 +966,12 @@ window.UNDERCURRENT_LINE = {
   ],
   "LNB": [
    "jubilee",
+   "thameslink",
    "rail"
   ],
   "EAC": [
    "bakerloo",
+   "thameslink",
    "rail"
   ],
   "SKW": [
@@ -978,6 +981,7 @@ window.UNDERCURRENT_LINE = {
    "rail"
   ],
   "KSH": [
+   "thameslink",
    "rail"
   ]
  },

@@ -47,7 +47,7 @@ window.UNDERCURRENT_LINE = {
   "CAN": ["windrush"],
   "HBY": ["rail", "victoria", "windrush"],
   "GOK": ["suffragette"],
-  "WHD": ["jubilee", "rail"],
+  "WHD": ["jubilee", "thameslink"],
   "WJN": ["bakerloo", "lioness"],
   "GBY": ["district"],
   "KWG": ["district"],

@@ -865,10 +865,12 @@ window.UNDERCURRENT_LINE = {
    "metropolitan",
    "northern",
    "victoria",
+   "thameslink",
    "rail"
   ],
   "FPK": [
    "victoria",
+   "thameslink",
    "rail"
   ],
   "HRC": [

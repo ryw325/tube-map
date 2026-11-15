@@ -23,7 +23,7 @@
   const PAPER = "#EAD8AD", INK = "#3B2A1A";
   // each line's official colour (the page draws the lines; Artistic styles adjust them in LOOKS below)
   const LINE_COL = { bakerloo: "#B36305", central: "#E32017", circle: "#FFD300", district: "#00782A", "hammersmith-city": "#F3A9BB", jubilee: "#8D9296", metropolitan: "#9B0056", northern: "#000000", piccadilly: "#003688",
-      victoria: "#20A4E0", "waterloo-city": "#95CDBA", elizabeth: "#6950A1", liberty: "#676767", lioness: "#F1B41C", mildmay: "#437EC1", suffragette: "#39B97A", weaver: "#972861", windrush: "#EF4D5E", dlr: "#00AFAD", tram: "#84B817", "london-cable-car": "#E21836", rb1: "#0019A8", rb4: "#0019A8", rb6: "#0019A8" };
+      victoria: "#20A4E0", "waterloo-city": "#95CDBA", elizabeth: "#6950A1", liberty: "#676767", lioness: "#F1B41C", mildmay: "#437EC1", suffragette: "#39B97A", weaver: "#972861", windrush: "#EF4D5E", dlr: "#00AFAD", tram: "#84B817", "london-cable-car": "#E21836", rb1: "#0019A8", rb4: "#0019A8", rb6: "#0019A8", thameslink: "#C27AA0" };   // Thameslink (v4.23): the Tube map's dusty rose, a white dash down the middle (drawLines)
   const mixHex = (a, b, t) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), A = p(a), B = p(b); return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, "0")).join(""); };
   // v3.74: how each Artistic style draws what the page draws over its tiles (lines, stations, labels, zones, trains). One entry per style; Geographic has none.
   const POSTER = { paper: "#EFE3C4", ink: "#2A2624", red: "#B5442F" };
@@ -239,7 +239,7 @@
     /* ---------- What is shown (v3.59 filters; v3.60: Layers pop-up with icon, line and label switches) ---------- */
     const on = { fare: false, cc: false, ulez: false, boroughs: false };      // zones and boundaries: off to start with
     const TYPES = [["bridge", "Bridges"], ["worship", "Places of worship"], ["palace", "Palaces and castles"], ["monument", "Monuments"], ["tower", "Towers"], ["museum", "Museums"], ["theatre", "Theatres and halls"], ["civic", "Civic buildings"], ["stadium", "Stadiums"], ["attraction", "Attractions"], ["airport", "Airports"]];
-    const show = { lines: true, labels: true, icons: true, cut: false, train: "dest", types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
+    const show = { lines: true, thameslink: true, labels: true, icons: true, cut: false, train: "dest", types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
     let style = "geographic";
     try { const v = localStorage.getItem(LS_STYLE); if (STYLES.some(t => t.id === v)) style = v; show.cut = localStorage.getItem(LS_CUT) === "1"; } catch (e) {}
     const T = t => cols && cols.upper ? t.toUpperCase() : t;
@@ -248,6 +248,8 @@
     const art = () => !!look();                       // an Artistic style: one look, shared simplified geometry
     let LB = null, lbLoading = false;          // park and water names (Parchment only), from geo/labels.js
     const typeOn = k => show.icons && show.types[k];
+    const lineOn = lid => lid === "thameslink" ? show.thameslink : show.lines;          // Thameslink has its own switch in Layers
+    const anyLines = () => show.lines || show.thameslink;
     let F = null, fLoading = false, LM = null, RG = null, edgeHits = [], tapHits = [], LIVE = null, liveRunning = false, liveLast = 0;
     // v4.05: the airport arrow pills fade out after PILL_IDLE ms with no touch, key or mouse activity, and come straight back on the next one
     const PILL_IDLE = 10000, PILL_OUT = 900, PILL_IN = 250;
@@ -520,9 +522,9 @@
         }
         return sum;
       } };
-      if (!RG || !show.lines) return G;
+      if (!RG || !anyLines()) return G;
       for (const lid of RG.ids) {
-        if (/^rb/.test(lid)) continue;                                                               // boats are thin dashed routes on the river, not rails
+        if (/^rb/.test(lid) || !lineOn(lid)) continue;                                                               // boats are thin dashed routes on the river, not rails
         for (const sg of RG.d.lines[lid].segments) {
           const b = sg._b; if (b[2] < bx0 || b[0] > bx1 || b[3] < by0 || b[1] > by1) continue;
           let P = sg.path.map(p => [toScreenX(p[0]), toScreenY(p[1])]); if (stripe && sg._u.some(u => u)) P = offsetPts(P, sg._u.map(u => u * stripe));
@@ -558,10 +560,10 @@
         g.fillStyle = cols.fill; g.fill(); g.lineWidth = live ? (art() ? (cols.stW || 1.4) : 1.6) : (cols.stW2 || 1.1); g.strokeStyle = live ? cols.ink : cols.muted; g.stroke();
       };
       for (const st of stations) {
-        const live = st.lines.length > 0, hub = st.lines.length > 1;
+        const nl = show.thameslink ? st.lines.length : st.lines.filter(l => l !== "thameslink").length, live = nl > 0, hub = nl > 1;
         const x = toScreenX(st.x), y = toScreenY(st.y);
         if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-        const r0 = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6), r = px ? 2 * PG.A : live && !isPier(st) && show.lines && RG ? Math.max(r0, bigR) : r0;
+        const r0 = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6), r = px ? 2 * PG.A : live && !isPier(st) && anyLines() && RG ? Math.max(r0, bigR) : r0;
         const drawn = !(lvl === 0 && (!hub || st.modes.includes("river-bus") && st.modes.length === 1)) && !(lvl === 1 && !live && s < 0.12);
         if (wide && live && !(st.modes.includes("river-bus") && st.modes.length === 1)) cand.push([st, x, y, r, drawn]);
         if (!drawn) continue;
@@ -642,7 +644,7 @@
 
     /* ---------- Rail lines (v3.60): drawn here, not in the tiles, so they can be thick, smooth, side by side on shared track, and switched off ---------- */
     function prepRG(d) {
-      const ids = Object.keys(d.lines).filter(l => LINE_COL[l]).sort((a, b) => (a === "circle" || a === "hammersmith-city") - (b === "circle" || b === "hammersmith-city"));
+      const ids = Object.keys(d.lines).filter(l => LINE_COL[l]).sort((a, b) => (a === "thameslink") - (b === "thameslink") || (a === "circle" || a === "hammersmith-city") - (b === "circle" || b === "hammersmith-city"));   // Thameslink is drawn last: no Tube line hides it where they cross or run together
       for (const lid of ids) {
         const ends = {};
         for (const sg of d.lines[lid].segments) {
@@ -693,15 +695,16 @@
     }
     function lineBox() { const s = view.s, pad = 60 / s; return [view.cx - W / 2 / s - pad, view.cy - H / 2 / s - pad, view.cx + W / 2 / s + pad, view.cy + H / 2 / s + pad]; }
     function drawLines() {
-      if (!RG || !show.lines) return;
+      if (!RG || !anyLines()) return;
       const c = gS, s = view.s, lw = lineW(), stripe = stripeOf(lw), bx = lineBox(), pa = art();
       c.lineCap = "round"; c.lineJoin = "round";
       if (pa && look().casing) {                   // all the casings first, so side-by-side stripes keep their colours
         c.strokeStyle = look().casing; c.lineWidth = casingW(lw); c.beginPath();
-        for (const lid of RG.ids) if (!/^rb/.test(lid)) traceLine(c, RG.d.lines[lid], stripe, bx);
+        for (const lid of RG.ids) if (!/^rb/.test(lid) && lineOn(lid)) traceLine(c, RG.d.lines[lid], stripe, bx);
         c.stroke();
       }
       for (const lid of RG.ids) {
+        if (!lineOn(lid)) continue;
         const L = RG.d.lines[lid];
         for (const pass of (theme === "dark" && !pa && lid === "northern") ? [0, 1] : [1]) {
           const boat = /^rb/.test(lid);
@@ -709,19 +712,23 @@
           c.globalAlpha = look() && look().lineAlpha || 1; c.strokeStyle = pass === 0 ? "#69737C" : lineColour(lid); c.lineWidth = pass === 0 ? lw + 2 : boat ? Math.max(1.4, lw * 0.5) : lw; c.setLineDash(boat ? (PG && look().pixel ? [2 * PG.A, 2 * PG.A] : [6, 5]) : []); c.beginPath();
           traceLine(c, L, stripe, bx);
           c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+          if (lid === "thameslink" && lw >= 3.2) {                  // v4.23: Thameslink is drawn as on the Tube map: a white dash down the middle of the line
+            const pxl = PG && look().pixel; c.globalAlpha = look() && look().lineAlpha || 1; c.strokeStyle = pa && look().casing ? look().casing : "#FFFFFF"; c.lineWidth = pxl ? lw / 2 : Math.max(1, lw * 0.34);
+            c.setLineDash(pxl ? [lw, lw] : [lw * 2.4, lw * 1.7]); c.lineCap = "butt"; c.beginPath(); traceLine(c, L, stripe, bx); c.stroke(); c.setLineDash([]); c.lineCap = "round"; c.globalAlpha = 1;
+          }
         }
       }
     }
     // "Cut roads at lines": the road tiles are drawn onto their own canvas and erased along every drawn line (not the boats, which pass under the bridges),
     // so the lines sit clear of the roads like an overpass. Only redrawn with the map (pan, zoom, style, switches), never per train frame.
     function cutRoads(c = ctxR, m = [dpr, 0, 0, dpr, 0, 0], gap = CUT_GAP) {         // v4.12: 16-bit Pixel cuts its low-resolution road canvas, one art pixel clear of the outline
-      if (!RG || !show.lines) return;
+      if (!RG || !anyLines()) return;
       const lw = lineW(), stripe = stripeOf(lw), bx = lineBox(), pa = art();
       c.save(); c.setTransform(...m); c.globalCompositeOperation = "destination-out"; c.lineCap = "round"; c.lineJoin = "round"; c.strokeStyle = "#000";
       c.lineWidth = (pa ? casingW(lw) : lw) + 2 * gap; c.beginPath();
-      for (const lid of RG.ids) if (!/^rb/.test(lid) && !(theme === "dark" && !pa && lid === "northern")) traceLine(c, RG.d.lines[lid], stripe, bx);
+      for (const lid of RG.ids) if (!/^rb/.test(lid) && lineOn(lid) && !(theme === "dark" && !pa && lid === "northern")) traceLine(c, RG.d.lines[lid], stripe, bx);
       c.stroke();
-      if (theme === "dark" && !pa && RG.d.lines.northern) { c.lineWidth = lw + 2 + 2 * CUT_GAP; c.beginPath(); traceLine(c, RG.d.lines.northern, stripe, bx); c.stroke(); }
+      if (theme === "dark" && !pa && RG.d.lines.northern && show.lines) { c.lineWidth = lw + 2 + 2 * CUT_GAP; c.beginPath(); traceLine(c, RG.d.lines.northern, stripe, bx); c.stroke(); }
       c.restore();
     }
     /* ---------- Live trains (v3.65): fullmap-live.js does the feed and the motion; this draws them on their own canvas so the map is not redrawn every frame ---------- */
@@ -811,7 +818,7 @@
         <p class="sub-label">Zones and boundaries</p><div class="fm-sws">${sw("f", "fare", "Fare zones", "#4E6576")}${sw("f", "cc", "Congestion Charge", "#D52B1E")}${sw("f", "ulez", "ULEZ zone", "#1E9E5A")}${sw("f", "boroughs", "Boroughs", "#97AEBC")}</div>
         <p class="sub-label">Icons</p><div class="fm-sws">${sw("s", "icons", "All icons")}</div>
         <div class="fm-chips">${TYPES.map(([k, n]) => `<button type="button" class="fm-chip" aria-pressed="true" data-t="${k}"><svg width="20" height="20" viewBox="0 0 24 24" fill="${k === "airport" ? "currentColor" : "none"}" stroke="${k === "airport" ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${k === "airport" ? PLANE : GLYPH[k]}"/></svg>${n}</button>`).join("")}</div>
-        <p class="sub-label">Rail</p><div class="fm-sws">${sw("s", "lines", "Tube lines")}${sw("s", "labels", "Tube labels")}${sw("s", "cut", "Cut roads at lines")}</div>
+        <p class="sub-label">Rail</p><div class="fm-sws">${sw("s", "lines", "Tube lines")}${sw("s", "thameslink", "Thameslink", "#C27AA0")}${sw("s", "labels", "Tube labels")}${sw("s", "cut", "Cut roads at lines")}</div>
         <p class="sub-label">Train labels</p><div class="seg seg3" role="radiogroup" aria-label="Train labels"><input type="radio" name="fm-tl" id="fm-tl-dest" value="dest"><label for="fm-tl-dest">Destination</label><input type="radio" name="fm-tl" id="fm-tl-vid" value="vid"><label for="fm-tl-vid">Vehicle ID</label><input type="radio" name="fm-tl" id="fm-tl-off" value="off"><label for="fm-tl-off">Off</label></div></div>`;
       document.body.appendChild(sheet);
       let isOpen = false;
@@ -1107,7 +1114,7 @@
       if ("letterSpacing" in c) c.letterSpacing = (cols.ls || 0) + "px";           // wide-spaced capitals in the Poster
       const x0 = view.cx - W / 2 / view.s, x1 = view.cx + W / 2 / view.s, y0 = view.cy - H / 2 / view.s, y1 = view.cy + H / 2 / view.s;
       // two layers per style: the base, then the roads on top (on their own canvas when they are cut at the lines)
-      const cut = show.cut && show.lines && !!RG;
+      const cut = show.cut && anyLines() && !!RG;
       gS = gT = ctx2;
       if (pxOn()) pixelTiles(cut);
       else {

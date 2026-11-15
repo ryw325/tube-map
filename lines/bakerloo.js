@@ -41,7 +41,7 @@ window.UNDERCURRENT_LINE = {
   "PAC": ["circle", "district", "hammersmith", "elizabeth", "rail"], "MYB": ["rail"],
   "BST": ["circle", "hammersmith", "jubilee", "metropolitan"], "OXC": ["central", "victoria"], "PCC": ["piccadilly"],
   "CHX": ["northern", "rail"], "EMB": ["circle", "district", "northern"], "WLO": ["jubilee", "northern", "waterloo", "rail"],
-  "EAC": ["northern", "rail"]
+  "EAC": ["northern", "thameslink", "rail"]
  },
  "river": {"x": 285, "y": 787.5, "scale": 0.75, "width": 44, "label": [480, 760]},
  "facts": [

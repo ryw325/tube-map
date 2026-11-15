@@ -38,10 +38,10 @@ window.UNDERCURRENT_LINE = {
   {"id": "STD", "naptan": "940GZZLUSTD", "code": "SFD", "name": "Stratford",         "x": 1327, "y": 860, "pref": "right"}
  ],
  "ix": {
-  "WYP": ["metropolitan"], "WHP": ["mildmay", "rail"], "FYR": ["metropolitan"],
+  "WYP": ["metropolitan"], "WHP": ["mildmay", "thameslink"], "FYR": ["metropolitan"],
   "BST": ["bakerloo", "circle", "hammersmith", "metropolitan"], "BND": ["central", "elizabeth"],
   "GPK": ["piccadilly", "victoria"], "WSM": ["circle", "district"],
-  "WLO": ["bakerloo", "northern", "waterloo", "rail"], "LNB": ["northern", "rail"],
+  "WLO": ["bakerloo", "northern", "waterloo", "rail"], "LNB": ["northern", "thameslink", "rail"],
   "CWR": ["windrush"], "CYF": ["elizabeth", "dlr"], "CGT": ["dlr"],
   "WHM": ["district", "hammersmith", "dlr", "rail"], "STD": ["central", "elizabeth", "mildmay", "dlr", "rail"]
  },

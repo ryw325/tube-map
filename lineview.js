@@ -57,8 +57,13 @@
   /* ---------- the general layout: spine, branches, parallel paths ---------- */
   function general(LINE, G, orient) {
     const ids = LINE.stations.map(s => s.id), routes = LINE.routes && LINE.routes.length ? LINE.routes : [ids];
-    const spine = routes.reduce((b, r) => r.length > b.length ? r : b, routes[0]);
+    const spine = routes.reduce((b, r) => r.length > b.length ? r : b, routes[0]);   // lvSpine: a line file can name the route that is the strip (the DLR: Bank to Lewisham)
     const P = new Map(), occ = new Map();
+    // lv: a line file can give every station its lane and row (the DLR, a network that no spine-and-branch rule lays out well)
+    if (LINE.lv) {
+      ids.forEach(id => { const q = LINE.lv[id] || [7, 0]; P.set(id, { lane: q[0], row: q[1] }); });
+      routes.forEach(r => r.slice(1).forEach((b, i) => { const A = P.get(r[i]), B = P.get(b), lo = Math.min(A.row, B.row), hi = Math.max(A.row, B.row); [A.lane, B.lane].forEach(l => { if (!occ.has(l)) occ.set(l, []); occ.get(l).push([lo, hi]); }); }));
+    } else {
     spine.forEach((id, i) => P.set(id, { lane: 0, row: i }));
     occ.set(0, [[0, spine.length - 1]]);
     const free = (lane, lo, hi) => !(occ.get(lane) || []).some(([a, b]) => a < hi - 1e-6 && lo < b - 1e-6);
@@ -105,6 +110,7 @@
         run.forEach((id, m) => P.set(id, { lane, row: rows[m], xs }));
         i = j;
       }
+    }
     }
     ids.forEach(id => { if (!P.has(id)) P.set(id, { lane: 7, row: 0 }); });
     const r0 = Math.min(...[...P.values()].map(v => v.row));
@@ -200,8 +206,9 @@
     const pref = {};
     const ids = Object.keys(pos);
     ids.forEach((id, i) => {
-      const ln = L.lane[id], row = Math.round(pos[id][1] / G);
+      const ln = L.lane[id], row = LINE.lv ? Math.floor(pos[id][1] / G + 1e-6) : Math.round(pos[id][1] / G);     // a plan with half rows (lv): a station half a row off a neighbour takes the other side
       if (!h) pref[id] = ln < 0 ? "left" : "right";
+      else if (LINE.lv && LINE.lv[id] && LINE.lv[id][2]) pref[id] = LINE.lv[id][2];                               // a plan can name the side of a label: [lane, row, "top"]
       else pref[id] = ln === 0 ? (row % 2 ? "bottom" : "top") : (row % 2 ? (ln > 0 ? "bottom" : "top") : (ln > 0 ? "top" : "bottom"));   // alternate sides so neighbours' labels do not meet
     });
     const xs = ids.map(id => pos[id][0]), ys = ids.map(id => pos[id][1]);

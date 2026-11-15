@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.23: Trams, DLR and Thameslink: Map, Line and True views for all three; a Line view plan and 'continues' arrow ends; the dashed Thameslink style (white dash down the middle); Thameslink on the Full Map (own Layers switch, drawn on top) and its interchange buttons on every other line; riverPath, title and noLive line options.
    v4.22: the Line view (Map | Line | True), for every line: stations in a strip at equal gaps, branches and parallel paths as lanes beside it, the Circle as a ring of two columns like the TfL strip map, a band where the line crosses the Thames. Landscape windows run left to right and portrait ones top to bottom (and turn with the window); a long strip in landscape opens on a readable stretch from its first station, and zooming out shows it all. The layout is made in the browser by lineview.js (loaded only when the Line view is chosen); the engine draws it with the same curved-track code as the True view and the ordinary labels.
    v4.21: True view for the Overground lines (Liberty, Lioness, Mildmay, Suffragette, Weaver, Windrush) and the Elizabeth line (Reading to Shenfield; track beyond Greater London from OSM county extracts). The real Thames now comes from a wide OS Open Rivers extract, with gaps in it bridged. A final lane smoothing takes the last cusp out of tight bends (the lane keeps at least 18 from the track).
    v4.20: True view for the deep-level lines Bakerloo, Central, Jubilee, Northern, Piccadilly and Waterloo & City (the Central's Epping end comes from an OSM Essex extract: tools/geo/extract_outer_track.py). On a tight bend the inside lane may come in to 22 from the track rather than make a cusp (30 smoothing passes). The generator's automatic scale is now 100 drawing units to the km unless the closest stations or the drawing's length say otherwise.
@@ -144,7 +145,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.22";
+  const VERSION = "4.23";
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
@@ -606,9 +607,9 @@
     /* ---------- Page set-up for this line (every panel field is reset, so nothing carries over from the last line) ---------- */
     (function setUpPage() {
       const name = LINE.name + " line";
-      document.title = `${LINE.name} Line Live`;
+      document.title = `${LINE.title || LINE.name + " Line"} Live`;
       document.querySelector(".eyebrow").textContent = `Live prototype · v${VERSION}`;
-      document.getElementById("line-name").textContent = `${LINE.name} Line`;
+      document.getElementById("line-name").textContent = LINE.title || `${LINE.name} Line`;
       document.getElementById("stat-stations").textContent = LINE.stations.filter(s => !s.of).length;
       ["stat-trains", "stat-nb", "stat-sb"].forEach(id => { document.getElementById(id).textContent = "–"; });
       document.getElementById("dir-n").textContent = LINE.dirs.N.stat || LINE.dirs.N.label;
@@ -683,7 +684,7 @@
       weaver: ["Weaver", "#972861", "ring"], suffragette: ["Suffragette", "#39B97A", "ring"],
       mildmay: ["Mildmay", "#437EC1", "ring"], windrush: ["Windrush", "#EF4D5E", "ring"],
       lioness: ["Lioness", "#F1B41C", "ring"], liberty: ["Liberty", "#676767", "ring"],
-      elizabeth: ["Elizabeth", "#6950A1", "ring"], dlr: ["DLR", "#00AFAD", "ring"],
+      elizabeth: ["Elizabeth", "#6950A1", "ring"], dlr: ["DLR", "#00AFAD", "ring"], trams: ["London Trams", "#84B817", "ring"], thameslink: ["Thameslink", "#C27AA0", "ring"],
       waterloo: ["Waterloo & City", "#95CDBA"], victoria: ["Victoria", "#0098D4"],
       rail: ["National Rail", null, "rail"]
     };
@@ -712,6 +713,9 @@
         el("text", { class: "river-label", x: 0, y: 5, "text-anchor": "middle" }, g).textContent = "Thames";
         el("title", {}, g).textContent = m.title || "The line crosses the Thames here";
       });
+    } else if (LINE.riverPath) {                             // v4.23: a river made for this layout (tools/make_map_candidate.py), already in the Map's coordinates
+      el("path", { class: "river", d: "M " + LINE.riverPath.map(q => q[0] + " " + q[1]).join(" L "), style: `stroke-width: ${LINE.riverWidth || 46}px` }, riverG);
+      if (LINE.riverLabel) el("text", { class: "river-label", x: LINE.riverLabel[0], y: LINE.riverLabel[1], "text-anchor": "middle" }, riverG).textContent = "Thames";
     } else if (RIVER && RP) {
       const k = RP.scale || 1;
       const g = el("g", { transform: `translate(${RP.x || 0} ${RP.y || 0}) scale(${k})` }, riverG);
@@ -771,14 +775,36 @@
         :root[data-theme="dark"] .ov-${id} { --oc: ${c.dark}; }` : ""; }).join("");
     })();
 
+    // v4.23: a route that carries on beyond the drawn end (Thameslink: Gatwick Airport towards Brighton, Luton Airport Parkway towards Bedford) runs a little past its last station,
+    // ends in an arrowhead and says where it goes ("continues" in the line file: [{ at: station id, label: "Towards Brighton" }])
+    const CONT_STUB = 100, CONT_HEAD = 22;
+    const CONT = (LINE.continues || []).map(c => {
+      const gi = byId[c.at], r = gi === undefined ? null : ROUTE_LISTS.find(q => q.length > 1 && (q[0] === gi || q[q.length - 1] === gi));
+      if (!r) return null;
+      const atStart = r[0] === gi, P = atStart ? pathPts(r[0], r[1]) : pathPts(r[r.length - 2], r[r.length - 1]);
+      const E = atStart ? P[0] : P[P.length - 1], inward = atStart ? P : P.slice().reverse();
+      const ref = inward.find(q => Math.hypot(q.x - E.x, q.y - E.y) >= 30) || inward[inward.length - 1];
+      let dx = E.x - ref.x, dy = E.y - ref.y; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+      return { c, E, dx, dy, tip: { x: E.x + dx * (CONT_STUB + CONT_HEAD), y: E.y + dy * (CONT_STUB + CONT_HEAD) } };
+    }).filter(Boolean);
     const trackD = ROUTE_LISTS.map(r => "M " + polyD(r.length < 2 ? [S[r[0]]] : r.slice(1).reduce((acc, b, i) => acc.concat(pathPts(r[i], b).slice(1)), [pathPts(r[0], r[1])[0]]))).join(" ");
     const trackPath = el("path", { class: "track", d: trackD });   // track under the trains
     // v3.52: Overground style ("hollow": true in the line file): a coloured outline with the map background showing through the middle, as on TfL's map
     const HOLLOW = !!LINE.hollow;
     const trackCore = HOLLOW ? el("path", { class: "track-core", d: trackD }) : null;
+    // v4.23: "dashed": true in the line file (Thameslink) draws the line as the Tube map does: the line colour with a short white dash down the middle
+    const trackDash = LINE.dashed ? el("path", { class: "track-dash", d: trackD }) : null;
     const trainLayer = el("g", {});
     const content = el("g", {});                           // stations and labels, drawn above trains
     el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
+    const contLayer = el("g", { class: "continues" }, content);
+    CONT.forEach(k => {
+      const B = { x: k.E.x + k.dx * CONT_STUB, y: k.E.y + k.dy * CONT_STUB }, n = { x: -k.dy, y: k.dx }, w = 13;
+      const sd = `M ${k.E.x.toFixed(1)} ${k.E.y.toFixed(1)} L ${B.x.toFixed(1)} ${B.y.toFixed(1)}`;
+      el("path", { class: "track", d: sd }, contLayer);
+      if (LINE.dashed) el("path", { class: "track-dash", d: sd }, contLayer);
+      el("path", { class: "continues-head", d: `M ${(B.x + n.x * w).toFixed(1)} ${(B.y + n.y * w).toFixed(1)} L ${k.tip.x.toFixed(1)} ${k.tip.y.toFixed(1)} L ${(B.x - n.x * w).toFixed(1)} ${(B.y - n.y * w).toFixed(1)} Z` }, contLayer);
+    });
     const linkLayer = el("g", {}, content);                // dotted links from a second icon to its real station
     const stationLayer = el("g", {}, content);
     const labelLayer = el("g", {}, content);
@@ -1085,6 +1111,7 @@
       if (!geoBoxMemo) {
         let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
         TRACK_SEGS.forEach(([a, b]) => pathPts(a, b).forEach(q => { x1 = Math.min(x1, q.x); y1 = Math.min(y1, q.y); x2 = Math.max(x2, q.x); y2 = Math.max(y2, q.y); }));
+        CONT.forEach(k => { const e = { x: k.tip.x + k.dx * 150, y: k.tip.y + k.dy * 150 }; x1 = Math.min(x1, e.x); y1 = Math.min(y1, e.y); x2 = Math.max(x2, e.x); y2 = Math.max(y2, e.y); });
         geoBoxMemo = { x1, y1, x2, y2 };
       }
       return geoBoxMemo;
@@ -1107,7 +1134,7 @@
       const upp = geoUpp();
       geoLevel = geoLevelOf(upp);
       const ls0 = Math.max(0.22, Math.min(2.4, GEO_LABEL_PX * Math.pow(GEO_STEP, geoLevel) / FS));
-      const placed = [];
+      const placed = contRects(ls0);
       S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
       const nIx = s => (IX[s.id] || []).length;
       const termini = new Set(ROUTE_LISTS.flatMap(r => [r[0], r[r.length - 1]]));
@@ -1163,12 +1190,29 @@
         const R = placed.map(c => c.rect);
         geoLabelBox = R.length ? { x1: Math.min(...R.map(r => r.x)), y1: Math.min(...R.map(r => r.y)), x2: Math.max(...R.map(r => r.x2)), y2: Math.max(...R.map(r => r.y2)) } : null;
       }
+      contLabels(ls0);
       fitView();
+    }
+    function contSpot(k, ls) {                                   // where the "Towards ..." label sits: beyond the arrowhead (to the right of it for a vertical stub)
+      const vert = Math.abs(k.dy) > 0.7, px = vert ? k.tip.x + 14 * ls : k.tip.x + k.dx * 12 * ls, py = vert ? k.tip.y : k.tip.y + k.dy * 12 * ls;
+      const anchor = vert ? "start" : k.dx > 0.5 ? "start" : k.dx < -0.5 ? "end" : "middle";
+      const by = vert ? py + 6 * ls : Math.abs(k.dy) > 0.5 ? (k.dy > 0 ? py + 17 * ls : py - 5 * ls) : py + 6 * ls;
+      const w = k.c.label.length * 8.6 * ls, h = 20 * ls, x = anchor === "start" ? px : anchor === "end" ? px - w : px - w / 2;
+      return { px, py, by, anchor, rect: { x, y: by - 16 * ls, x2: x + w, y2: by - 16 * ls + h } };
+    }
+    function contRects(ls) {                                     // the stubs and their labels, so that station labels keep clear of them
+      return CONT.flatMap(k => [{ rect: { x: Math.min(k.E.x, k.tip.x) - 14, y: Math.min(k.E.y, k.tip.y) - 14, x2: Math.max(k.E.x, k.tip.x) + 14, y2: Math.max(k.E.y, k.tip.y) + 14 } }, { rect: contSpot(k, ls).rect }]);
+    }
+    function contLabels(ls) {                                    // "Towards Brighton" beyond the arrowhead (the True view sizes it like its other labels)
+      CONT.forEach(k => {
+        const sp = contSpot(k, 1), g = el("g", ls === 1 ? {} : { transform: `translate(${sp.px.toFixed(1)} ${sp.py.toFixed(1)}) scale(${ls.toFixed(3)}) translate(${(-sp.px).toFixed(1)} ${(-sp.py).toFixed(1)})` }, labelLayer);
+        el("text", { class: "continues-label", x: sp.px.toFixed(1), y: sp.by.toFixed(1), "text-anchor": sp.anchor }, g).textContent = k.c.label;
+      });
     }
     function layout() {
       if (GEOLAB) return layoutGeo();
       while (labelLayer.firstChild) labelLayer.firstChild.remove();
-      const placed = [];
+      const placed = contRects(1);
       S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
       S.forEach(s => {
         if (s.of) return;
@@ -1195,6 +1239,7 @@
         best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row, S.indexOf(s)));
         if (row.items.length) layoutRow(row);
       });
+      contLabels(1);
       fitView();
     }
 
@@ -1220,6 +1265,10 @@
       x2 = Math.max(bb.x + bb.width, Math.max(...xs) + m); y2 = Math.max(bb.y + bb.height, Math.max(...ys) + m);
       }
       if (GEO && GEO.fixed && GEO.orient === "v") y1 -= 70;   // v4.22 Line view, portrait: room above the first station for the view switch
+      if (CONT.length) {                                       // v4.23: a line that runs on past its first station (Thameslink at Luton) keeps its arrow and label clear of the view switch
+        const r = svg.getBoundingClientRect(), bw = x2 - x1 + 2 * pad, bh = y2 - y1 + 2 * pad, a = !narrow.matches && r.width > 10 && r.height > 10 ? r.width / r.height : bw / bh;
+        y1 -= 64 * (bw / bh > a ? bw / a : bh) / Math.max(200, r.height || 600);
+      }
       view.base = { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
       if (txBusy) return;                                    // the hand-over animation owns the view
       if (view.user) applyView(); else resetView();
@@ -2397,6 +2446,7 @@
     async function poll() {
       lastFetch = Date.now();
       if (SOURCE !== "tfl") { fetchError = NO_FEED; updatePanel(); return; }
+      if (LINE.noLive) { fetchError = LINE.noLive; updatePanel(); return; }      // v4.23: no arrivals to ask for (the DLR feed has no train numbers); the line status below still runs
       try {
         const res = await scope.fetch(apiUrl(`/Line/${LINE.api}/Arrivals`), { cache: "no-store" });
         if (res.status === 429) throw new Error("TfL is limiting requests. Add an API key below, or wait a minute.");
@@ -2764,7 +2814,7 @@
       };
       TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => { if (dist[p] !== Infinity) piece("track", p, q); }));
       if (HOLLOW) TRACK_SEGS.forEach(([a, b]) => [[a, b], [b, a]].forEach(([p, q]) => { if (dist[p] !== Infinity) piece("track-core", p, q); }));   // the hollow middle retracts with the outline
-      trackPath.style.opacity = 0; if (trackCore) trackCore.style.opacity = 0;
+      trackPath.style.opacity = 0; if (trackCore) trackCore.style.opacity = 0; if (trackDash) trackDash.style.opacity = 0;
       return {
         set(R) {
           parts.forEach(p => {
@@ -2773,7 +2823,7 @@
             p.path.style.visibility = v < 0.5 ? "hidden" : "";
           });
         },
-        done() { g.remove(); trackPath.style.opacity = ""; if (trackCore) trackCore.style.opacity = ""; }
+        done() { g.remove(); trackPath.style.opacity = ""; if (trackCore) trackCore.style.opacity = ""; if (trackDash) trackDash.style.opacity = ""; }
       };
     }
     function switchLine(id, si) {
