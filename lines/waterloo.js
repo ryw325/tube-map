@@ -9,17 +9,18 @@ window.UNDERCURRENT_LINE = {
  },
  "spacing": 1.3,
  "stations": [
-  {"id": "BNK", "naptan": "940GZZLUBNK", "code": "BNK", "name": "Bank",     "x": 660, "y": 540, "pref": "right"},
-  {"id": "WLO", "naptan": "940GZZLUWLO", "code": "WLO", "name": "Waterloo", "x": 300, "y": 900, "pref": "left"}
+  {"id": "BNK", "naptan": "940GZZLUBNK", "code": "BNK", "name": "Bank",     "x": 224, "y": 120, "pref": "right"},
+  {"id": "WLO", "naptan": "940GZZLUWLO", "code": "WLO", "name": "Waterloo", "x": 120, "y": 224, "pref": "right"}
  ],
  "routes": [["BNK", "WLO"]],
  "run": [240],
- "emptyAt": [860, 1080],
+ "emptyAt": [172, 304],
  "ix": {
   "BNK": ["central", "northern", "dlr"],
   "WLO": ["bakerloo", "jubilee", "northern", "rail"]
  },
- "river": {"x": -500, "y": 110, "scale": 1, "width": 44, "label": [1100, 610]},
+ "river": null, "riverPath": [[-2498,2196],[-1438,1135],[-1253,950],[-1006,950],[-903,1052],[-848,996],[-848,856],[-943,760],[-943,685],[-876,617],[-876,451],[-801,377],[-731,377],[-684,424],[-599,424],[-547,372],[-483,372],[-384,472],[-275,472],[-157,354],[-89,354],[92,172],[373,172],[529,327],[556,300],[556,210],[949,210],[1041,118],[1288,118],[1477,308],[1665,308],[1828,471],[2889,1532]],
+ "riverLabel": [373, 172],
  "facts": [
   {"tag": "History", "text": "The Waterloo & City line opened in 1898 and was built by the London and South Western Railway to carry commuters from Waterloo to the City."},
   {"tag": "History", "text": "It has long been nicknamed 'the Drain'."},

@@ -1,4 +1,7 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.26: The Maps of all 21 lines are now the generated geo-schematic layouts, each with the one angular master Thames (45 and 90 degree turns only; every station on its real bank). Also publishes the performance meter and Display load (v4.24, v4.25).
+   v4.25: Display load (Prefs): the Performance block is now Display load, with the current level, the peak level and when it happened, the share of time at each level and a 24 hour colour history strip (15 minutes a bar, worst level in each), all kept in localStorage for 24 hours so they survive reloads and the 4am reload; Copy report button in Prefs; peak and history lines in the report. Thresholds, warning and polling unchanged.
+   v4.24: Performance meter and warning (Stage 1, warn only): one PERF settings table, device hints, frame, long-task and reply-processing readings, an OK, Strained or Struggling verdict, a calm warning when the display is struggling, an Artistic style note on the Full Map, a Performance block in Prefs, the ?perf overlay with Copy report, window.__uc.perf under ?debug, and a perf summary in the recording file's meta. Nothing changes by itself; polling and data freshness are untouched.
    v4.23: Trams, DLR and Thameslink: Map, Line and True views for all three; a Line view plan and 'continues' arrow ends; the dashed Thameslink style (white dash down the middle); Thameslink on the Full Map (own Layers switch, drawn on top) and its interchange buttons on every other line; riverPath, title and noLive line options.
    v4.22: the Line view (Map | Line | True), for every line: stations in a strip at equal gaps, branches and parallel paths as lanes beside it, the Circle as a ring of two columns like the TfL strip map, a band where the line crosses the Thames. Landscape windows run left to right and portrait ones top to bottom (and turn with the window); a long strip in landscape opens on a readable stretch from its first station, and zooming out shows it all. The layout is made in the browser by lineview.js (loaded only when the Line view is chosen); the engine draws it with the same curved-track code as the True view and the ordinary labels.
    v4.21: True view for the Overground lines (Liberty, Lioness, Mildmay, Suffragette, Weaver, Windrush) and the Elizabeth line (Reading to Shenfield; track beyond Greater London from OSM county extracts). The real Thames now comes from a wide OS Open Rivers extract, with gaps in it bridged. A final lane smoothing takes the last cusp out of tight bends (the lane keeps at least 18 from the track).
@@ -145,8 +148,41 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.23";
+  const VERSION = "4.26";
+  /* ---------- Performance settings (v4.24): every number the performance meter uses, in one place ----------
+     THE THRESHOLDS ARE PROVISIONAL: they are first guesses until they have been tested on real hardware (a TV stick, a low-power tablet).
+     mode "warn" is the only mode built: the meter measures and shows a note, and never changes polling, data freshness or anything in trains-core.js.
+     "auto" is reserved for the commercial version, which will step down by itself (fewer effects, slower animation); it is not built, and nothing reads it yet. */
+  const PERF = {
+    mode: "warn",
+    ringMs: 30000,                 // the frame ring covers about 30 s
+    ringSize: 4096,                // fixed ring buffer (room for 135 fps over 30 s), never grows
+    minFrames: 60,                 // no verdict until this many frames have been seen since the window restarted
+    strainedP95Ms: 33,             // Strained: the slowest 5% of frames are over this (below about 30 fps)
+    strugglingP95Ms: 50,           // Struggling: over this (below about 20 fps) ...
+    strugglingLongMsPerMin: 2000,  // ... or more than this much long-task time per minute ...
+    strugglingReplyMedianMs: 250,  // ... or the median reply processing time is over this
+    replyKeep: 20,                 // the last 20 replies are kept
+    replyMinCount: 3,              // the reply median counts toward the verdict only once this many replies are in (one slow reply is not a trend)
+    longMinuteMs: 60000,           // long tasks are reported per this much time
+    longMinSpanMs: 30000,          // ... scaled up from at least this much observed time (a short span would blow up a start-up hiccup into a false alarm)
+    longRing: 512,                 // long tasks kept
+    ignoreMs: 10000,               // ignored after a page load, a line, station, view or style switch, a cross-fade and a tab coming back
+    holdUpMs: 30000,               // a worse level must hold this long (visible running) before it counts
+    holdDownMs: 120000,            // a better level must hold this long before the level drops back
+    warnHideMs: 20000,             // the warning hides itself after this long
+    tickMs: 1000,                  // how often readings and the verdict are worked out and the readouts refresh
+    weakCores: 2,                  // hints that suggest a weak device: this many cores or fewer ...
+    weakMemoryGB: 2,               // ... or this much memory or less (the same rule the Full Map uses for its Drag | Buttons default)
+    recorderEveryMs: 30000,        // the recorder adds a perf summary this often
+    eventsKeep: 20,                // level changes kept for the report
+    historyKey: "uc-perf-hist",    // v4.25: peak, time at each level and the history strip are kept in localStorage ...
+    historyHours: 24,              // ... for this long, so they survive reloads (the daily 4am reload, the Full Map's page loads)
+    historyBucketMs: 900000,       // one history bar = 15 minutes (96 bars = 24 h), coloured by the worst level reached in it
+    historySaveMs: 30000           // saved at most this often (and when the page is left or hidden, and on every level change)
+  };
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
+  const PERF_ON = /[?&]perf\b/.test(location.search);        // v4.24: ?perf shows the always-on readout with a Copy report button
   const RECFRAME = /[?&]recframe\b/.test(location.search);   // v3.23: a hidden copy of the page that the recorder reads
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
   function recFeed(...a) { try { const R = window.parent.UndercurrentRecorder; if (R && R.feed) R.feed(...a); } catch (e) {} }
@@ -171,6 +207,7 @@
       try { return fn.apply(this, arguments); } finally { guard.gen = prev; }
     };
     const sT = window.setTimeout, sI = window.setInterval, cI = window.clearInterval, rAF = window.requestAnimationFrame;
+    guard.nativeRAF = rAF;                                   // v4.24: the performance meter's frame sampler uses the plain one, so it allocates nothing per frame
     window.setTimeout = function (fn, ...a) { return sT.call(window, typeof fn === "function" ? stamp(fn, guard.gen) : fn, ...a); };
     window.setInterval = function (fn, ...a) { const id = sI.call(window, typeof fn === "function" ? stamp(fn, guard.gen) : fn, ...a); guard.intervals.add(id); return id; };
     window.clearInterval = function (id) { guard.intervals.delete(id); return cI.call(window, id); };
@@ -503,6 +540,7 @@
     sheetScrim.hidden = false; el.hidden = false;
     void el.offsetWidth; sheetScrim.classList.add("in"); el.classList.add("in");
     el.querySelector(".sheet-x").focus({ preventScroll: true });
+    if (id === "sheet-prefs") perfPaintPrefs();            // v4.24: the Performance block
   }
   function closeSheet(now) {
     if (!sheetEl) return;
@@ -2456,7 +2494,9 @@
         if (RECFRAME) recFeed(LINE.id, res.status, data, res.headers.get("date"));
         if (scope.dead) return;                              // the line was switched while this reply was on its way
         if (CORE) REPLY.set(LINE.api, { data, date: res.headers.get("date"), at: Date.now() });
+        const pt0 = performance.now();                       // v4.24: the performance meter times each reply's processing
         (CORE ? coreIngest : ingest)(Array.isArray(data) ? data : [], res.headers.get("date"));
+        if (window.UndercurrentPerf) window.UndercurrentPerf.reply(performance.now() - pt0);
         everLoaded = true; lastOk = Date.now(); fetchError = null;
       } catch (err) {
         if (RECFRAME) recFeed(LINE.id, 0, null, null, String((err && err.message) || err));
@@ -3022,6 +3062,7 @@
   }
   function mount(LINE, arrival) {
     const gen = ++guard.mounts, scope = makeScope(gen);
+    perfRestart("mount");                                   // v4.24: a new line, station, view or page: the performance window starts again
     const prev = guard.gen; guard.gen = gen;                // timers started while building are stamped with this line
     try { cur = { id: LINE.id, LINE, scope, api: null }; cur.api = LINE.kind === "fullmap" ? mountFullMap(LINE, scope) : LINE.kind === "station" ? mountStation(LINE, scope) : mountLine(LINE, scope, arrival); }
     finally { guard.gen = prev; }
@@ -3147,6 +3188,290 @@
     location.replace(cur && (cur.LINE.kind === "station" || cur.LINE.kind === "fullmap") ? location.href : lineURL(cur ? cur.id : new URLSearchParams(location.search).get("line") || ""));
   }, 5000);
 
+  /* ---------- Performance meter (v4.24) ----------
+     Works out how well this device is coping and warns when it is struggling. It is wired ONCE here in the shell (never on a line scope), so the leak
+     checks and the repeating-timer count per line are unchanged: one 1 s timer and one frame sampler, both made before the first line mounts.
+     It only measures and warns (PERF.mode "warn"). It never touches polling, data freshness or trains-core.js.
+     Cost: the frame sampler writes two numbers into a fixed ring per frame (no allocation, no layout reads); everything else happens once a second.
+     Ignored: hidden tabs, the first PERF.ignoreMs after a page load, a line, station, view or style switch, a cross-fade, or a tab coming back (perfRestart). */
+  const PERF_LEVELS = ["OK", "Strained", "Struggling"];
+  const P = {
+    on: !RECFRAME, hints: null, state: "ignoring", why: "load",
+    ft: new Float32Array(PERF.ringSize), ts: new Float64Array(PERF.ringSize), scratch: new Float32Array(PERF.ringSize), head: 0, count: 0,
+    last: 0, ignoreUntil: 0, wasBusy: false,
+    ltT: new Float64Array(PERF.longRing), ltD: new Float32Array(PERF.longRing), ltHead: 0, ltCount: 0, ltSupported: false,
+    rp: new Float32Array(PERF.replyKeep), rpScr: new Float32Array(PERF.replyKeep), rpHead: 0, rpCount: 0,
+    R: { n: 0, fps: null, medMs: null, p95Ms: null, ltMsPerMin: null, ltCount: 0, replyN: 0, replyMedMs: null, replyMaxMs: null },
+    level: 0, raw: null, up: 0, upTo: 0, down: 0, downTo: 0, lastTick: 0, runMs: 0, events: [], warned: false,  lastReport: ""
+  };
+  const perfR = v => v === null || v === undefined || !isFinite(v) ? null : Math.round(v * 10) / 10;
+  function perfHints() {                                  // read once at start-up; a first guess only, never a reason to warn on its own
+    const n = navigator, s = window.screen || {}, cores = n.hardwareConcurrency || null, mem = n.deviceMemory || null;
+    return { cores, memoryGB: mem, pixelRatio: window.devicePixelRatio || 1, screen: (s.width || 0) + "x" + (s.height || 0), window: innerWidth + "x" + innerHeight,
+      userAgent: n.userAgent, reducedMotion: !!reduceMotionPref, weak: !!((cores && cores <= PERF.weakCores) || (mem && mem <= PERF.weakMemoryGB)) };
+  }
+  P.hints = perfHints();
+  // v4.25: 24 h history: seconds of visible running at each level per 15 min bucket, the peak level, and the level changes. Kept in localStorage.
+  const HIST = { b: {}, pk: null, dirty: false, lastSave: 0 };
+  const HIST_MS = PERF.historyHours * 3600000, HIST_N = Math.round(HIST_MS / PERF.historyBucketMs);
+  const histIdx = t => Math.floor((t === undefined ? Date.now() : t) / PERF.historyBucketMs);
+  const histWorst = a => a ? (a[2] > 0 ? 2 : a[1] > 0 ? 1 : a[0] > 0 ? 0 : -1) : -1;
+  function histPrune() {
+    const now = Date.now(), lo = histIdx(now) - (HIST_N - 1);
+    for (const k in HIST.b) if (+k < lo || +k > histIdx(now) + 1) delete HIST.b[k];
+    if (HIST.pk && HIST.pk.t < now - HIST_MS) {                  // the peak has aged out: the next worst thing still inside the window
+      HIST.pk = null; let best = 0, at = 0;
+      for (const k in HIST.b) { const w = histWorst(HIST.b[k]); if (w > 0 && (w > best || (w === best && +k > at))) { best = w; at = +k; } }
+      if (best) HIST.pk = { l: best, t: at * PERF.historyBucketMs };
+    }
+    P.events = P.events.filter(e => e.t >= now - HIST_MS).slice(-PERF.eventsKeep);
+  }
+  function histLoad() {
+    try {
+      const j = JSON.parse(localStorage.getItem(PERF.historyKey) || "null");
+      if (!j || j.v !== 1 || !j.b || typeof j.b !== "object") return;
+      for (const k in j.b) { const a = j.b[k]; if (Array.isArray(a) && a.length === 3 && a.every(x => typeof x === "number" && x >= 0 && isFinite(x))) HIST.b[k] = a; }
+      if (j.pk && (j.pk.l === 1 || j.pk.l === 2) && isFinite(j.pk.t)) HIST.pk = { l: j.pk.l, t: j.pk.t };
+      if (Array.isArray(j.ev)) j.ev.forEach(e => { if (e && isFinite(e.t) && PERF_LEVELS.includes(e.from) && PERF_LEVELS.includes(e.to)) P.events.push({ t: e.t, at: 0, from: e.from, to: e.to }); });
+    } catch (e) {}                                              // no storage or a damaged record: start empty
+    histPrune();
+  }
+  function histSave() {
+    try {
+      histPrune();
+      const b = {}; for (const k in HIST.b) b[k] = HIST.b[k].map(x => Math.round(x * 10) / 10);
+      localStorage.setItem(PERF.historyKey, JSON.stringify({ v: 1, b, pk: HIST.pk, ev: P.events.slice(-PERF.eventsKeep).map(e => ({ t: e.t, from: e.from, to: e.to })), saved: Date.now() }));
+      HIST.dirty = false;
+    } catch (e) {}
+    HIST.lastSave = performance.now();
+  }
+  histLoad();
+  P.ignoreUntil = performance.now() + PERF.ignoreMs;
+  function perfRestart(why) {                             // the window starts again: nothing seen so far counts
+    if (!P.on) return;
+    P.ignoreUntil = performance.now() + PERF.ignoreMs; P.why = why || "restart";
+    P.head = 0; P.count = 0; P.last = 0; P.ltCount = 0; P.rpCount = 0; P.up = 0; P.down = 0; P.state = "ignoring";
+  }
+  function perfFrame(t) {                                 // every frame: two writes into a ring, nothing else
+    guard.nativeRAF.call(window, perfFrame);
+    if (document.visibilityState !== "visible") { P.last = 0; return; }
+    if (txBusy) { P.wasBusy = true; P.last = 0; return; }   // a hand-over or cross-fade is running
+    if (P.wasBusy) { P.wasBusy = false; perfRestart("switch"); }
+    if (t < P.ignoreUntil) { P.last = 0; return; }
+    if (P.last) { const i = P.head; P.ft[i] = t - P.last; P.ts[i] = t; P.head = (i + 1) % PERF.ringSize; if (P.count < PERF.ringSize) P.count++; }
+    P.last = t;
+  }
+  function perfLong(start, dur) {
+    if (start < P.ignoreUntil || document.visibilityState !== "visible") return;
+    const i = P.ltHead; P.ltT[i] = start; P.ltD[i] = dur; P.ltHead = (i + 1) % PERF.longRing; if (P.ltCount < PERF.longRing) P.ltCount++;
+  }
+  function perfReply(ms) {                                // the time one TfL reply took to process (line and station pages: coreIngest; Full Map: ingest and coreApply)
+    if (!P.on || txBusy || document.visibilityState !== "visible" || performance.now() < P.ignoreUntil) return;
+    P.rp[P.rpHead] = ms; P.rpHead = (P.rpHead + 1) % PERF.replyKeep; if (P.rpCount < PERF.replyKeep) P.rpCount++;
+  }
+  function perfSet(l) {
+    const from = P.level; P.level = l; P.up = 0; P.down = 0;
+    P.events.push({ t: Date.now(), at: Math.round(performance.now() / 1000), from: PERF_LEVELS[from], to: PERF_LEVELS[l] });
+    if (P.events.length > PERF.eventsKeep) P.events.shift();
+    if (l > 0 && (!HIST.pk || l >= HIST.pk.l)) HIST.pk = { l, t: Date.now() };   // v4.25: the peak of the last 24 h (the latest time the worst level was reached)
+    HIST.dirty = true; histSave();
+    try { window.dispatchEvent(new CustomEvent("uc-perf", { detail: { level: l } })); } catch (e) {}
+    if (l === 2 && PERF.mode === "warn") perfWarn();      // Strained shows nothing to the user; it only appears in the readouts
+  }
+  function perfTick() {
+    if (!P.on) return;
+    const now = performance.now(), vis = document.visibilityState === "visible", R = P.R;
+    const dt = Math.min(now - (P.lastTick || now), 2500); P.lastTick = now;
+    P.state = !vis ? "hidden" : (txBusy || now < P.ignoreUntil) ? "ignoring" : "running";
+    // frames over the last PERF.ringMs
+    const from = now - PERF.ringMs; let n = 0, sum = 0;
+    for (let k = 0; k < P.count; k++) { const i = (P.head - 1 - k + PERF.ringSize) % PERF.ringSize; if (P.ts[i] < from) break; const v = P.ft[i]; P.scratch[n++] = v; sum += v; }
+    R.n = n;
+    if (n) { const a = P.scratch.subarray(0, n); a.sort(); R.medMs = (a[(n - 1) >> 1] + a[n >> 1]) / 2; R.p95Ms = a[Math.min(n - 1, Math.ceil(n * 0.95) - 1)]; R.fps = sum > 0 ? 1000 * n / sum : null; }
+    else { R.medMs = R.p95Ms = R.fps = null; }
+    // long tasks per minute (scaled up from the time actually observed)
+    let lt = 0, lc = 0; const lfrom = now - PERF.longMinuteMs;
+    for (let k = 0; k < P.ltCount; k++) { const i = (P.ltHead - 1 - k + PERF.longRing) % PERF.longRing; if (P.ltT[i] < lfrom) break; lt += P.ltD[i]; lc++; }
+    R.ltCount = lc; R.ltMsPerMin = P.ltSupported && n ? lt * PERF.longMinuteMs / Math.max(PERF.longMinSpanMs, Math.min(PERF.longMinuteMs, now - P.ignoreUntil)) : null;
+    // reply processing, last PERF.replyKeep replies
+    R.replyN = P.rpCount;
+    if (P.rpCount) { for (let k = 0; k < P.rpCount; k++) P.rpScr[k] = P.rp[k]; const a = P.rpScr.subarray(0, P.rpCount); a.sort(); R.replyMedMs = (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2; R.replyMaxMs = a[a.length - 1]; }
+    else { R.replyMedMs = R.replyMaxMs = null; }
+    // verdict: the raw reading must hold for holdUpMs (worse) or holdDownMs (better) of visible running before the level changes
+    let raw = null;
+    if (P.state === "running" && n >= PERF.minFrames) {
+      raw = 0;
+      if (R.p95Ms > PERF.strainedP95Ms) raw = 1;
+      if (R.p95Ms > PERF.strugglingP95Ms || (R.ltMsPerMin !== null && R.ltMsPerMin > PERF.strugglingLongMsPerMin) || (R.replyN >= PERF.replyMinCount && R.replyMedMs > PERF.strugglingReplyMedianMs)) raw = 2;
+    }
+    P.raw = raw;
+    if (P.state === "running") { const k = histIdx(), a = HIST.b[k] || (HIST.b[k] = [0, 0, 0]); a[P.level] += dt / 1000; HIST.dirty = true; }   // v4.25: visible running time at the confirmed level
+    if (HIST.dirty && now - HIST.lastSave >= PERF.historySaveMs) histSave();
+    if (raw !== null) {
+      P.runMs += dt;
+      if (raw > P.level) { P.down = 0; P.upTo = P.up ? Math.min(P.upTo, raw) : raw; P.up += dt; if (P.up >= PERF.holdUpMs) perfSet(P.upTo); }
+      else if (raw < P.level) { P.up = 0; P.downTo = P.down ? Math.max(P.downTo, raw) : raw; P.down += dt; if (P.down >= PERF.holdDownMs) perfSet(P.downTo); }
+      else { P.up = 0; P.down = 0; }
+    }
+    perfPaint();
+  }
+  function perfSummary() {
+    const R = P.R;
+    return { t: new Date().toISOString(), level: PERF_LEVELS[P.level], state: P.state, frames: R.n, fps: perfR(R.fps), medMs: perfR(R.medMs), p95Ms: perfR(R.p95Ms),
+      longMsPerMin: perfR(R.ltMsPerMin), replyMedMs: perfR(R.replyMedMs), replyMaxMs: perfR(R.replyMaxMs), replies: R.replyN };
+  }
+  const perfMs = v => v === null || v === undefined ? "–" : (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10) + " ms";
+  const hmFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" });
+  const whenText = t => { const d = new Date(t), same = dayFmt.format(d) === dayFmt.format(new Date()); return (same ? "today " : dayFmt.format(d) === dayFmt.format(new Date(Date.now() - 86400000)) ? "yesterday " : dayFmt.format(d) + " ") + hmFmt.format(d); };
+  const histTotals = () => { const t = [0, 0, 0]; for (const k in HIST.b) { t[0] += HIST.b[k][0]; t[1] += HIST.b[k][1]; t[2] += HIST.b[k][2]; } return t; };
+  function perfPeakText() {
+    const tot = histTotals(); histPrune();
+    if (HIST.pk) return PERF_LEVELS[HIST.pk.l] + ", " + whenText(HIST.pk.t);
+    return tot[0] + tot[1] + tot[2] >= 30 ? "OK throughout" : "–";
+  }
+  function perfShareText() {
+    const t = histTotals(), all = t[0] + t[1] + t[2];
+    if (all < 30) return "–";
+    const pc = v => v > 0 && v / all * 100 < 1 ? "<1%" : Math.round(v / all * 100) + "%";
+    return `OK ${pc(t[0])} · Strained ${pc(t[1])} · Struggling ${pc(t[2])}`;
+  }
+  // one character per 15 minutes, oldest first, 96 characters = 24 h: - nothing counted, 0 OK, 1 Strained, 2 Struggling (the worst level in that quarter hour)
+  function perfHistString() { const now = histIdx(); let out = ""; for (let i = HIST_N - 1; i >= 0; i--) { const w = histWorst(HIST.b[now - i]); out += w < 0 ? "-" : w; } return out; }
+  function perfPage() {
+    const L = cur && cur.LINE;
+    let style = "n/a"; if (L && L.kind === "fullmap") { try { style = localStorage.getItem("uc-fm-style") || "geographic"; } catch (e) { style = "geographic"; } }
+    return { page: !L ? "starting" : L.kind === "fullmap" ? "Full Map" : L.kind === "station" ? "Station page " + cur.id.slice(8) : "Line page " + cur.id,
+      view: L && !L.kind ? (L.view || "map") : "n/a", style };
+  }
+  function perfReport() {
+    const R = P.R, H = P.hints, pg = perfPage(), now = new Date(), th = root.getAttribute("data-theme") || "auto";
+    const pending = P.raw !== null && P.raw > P.level ? ` (now reads ${PERF_LEVELS[P.raw]}, held ${Math.round(P.up / 1000)} of ${PERF.holdUpMs / 1000} s)` : P.raw !== null && P.raw < P.level ? ` (now reads ${PERF_LEVELS[P.raw]}, held ${Math.round(P.down / 1000)} of ${PERF.holdDownMs / 1000} s)` : "";
+    const lines = [
+      "Undercurrent performance report",
+      `Version: ${VERSION}`,
+      `Date and time: ${now.toISOString()} (London: ${dateFmt.format(now)}, ${timeFmt.format(now)})`,
+      `Page: ${pg.page}`, `View: ${pg.view}`, `Map style: ${pg.style}`, `Theme: ${th}`, `Address: ${location.pathname}${location.search}`,
+      `Mode: ${PERF.mode}`,
+      `Level: ${PERF_LEVELS[P.level]}${pending}`,
+      `State: ${P.state}${P.state === "ignoring" ? " (" + P.why + "; the first " + PERF.ignoreMs / 1000 + " s are not counted)" : ""}; ${Math.round(P.runMs / 1000)} s of visible running counted since the page loaded`,
+      `Readings (frames: last ${PERF.ringMs / 1000} s; long tasks: per minute; replies: last ${PERF.replyKeep}):`,
+      `  Frames counted: ${R.n}`,
+      `  Frame rate: ${R.fps === null ? "–" : perfR(R.fps) + " fps"}`,
+      `  Median frame: ${perfMs(perfR(R.medMs))}`,
+      `  95th percentile frame: ${perfMs(perfR(R.p95Ms))}`,
+      `  Long tasks: ${P.ltSupported ? (R.ltMsPerMin === null ? "–" : perfMs(perfR(R.ltMsPerMin)) + " per minute (" + R.ltCount + " in the last minute)") : "not supported by this browser"}`,
+      `  Reply processing: median ${perfMs(perfR(R.replyMedMs))}, max ${perfMs(perfR(R.replyMaxMs))} (${R.replyN} replies)`,
+      `Device hints (first guess only):`,
+      `  Cores: ${H.cores === null ? "unknown" : H.cores}`, `  Memory: ${H.memoryGB === null ? "unknown (not reported by this browser)" : H.memoryGB + " GB"}`,
+      `  Pixel ratio: ${H.pixelRatio}`, `  Screen: ${H.screen}`, `  Window at start: ${H.window}; now ${innerWidth}x${innerHeight}`,
+      `  Reduced motion: ${H.reducedMotion ? "yes" : "no"}`, `  Weak by hints (${PERF.weakCores} cores or fewer, or ${PERF.weakMemoryGB} GB or less): ${H.weak ? "yes" : "no"}`,
+      `  User agent: ${H.userAgent}`,
+      `Display load, last ${PERF.historyHours} h (kept in this browser):`,
+      `  Peak: ${perfPeakText()}`,
+      `  Time at each level: ${perfShareText()} (of ${Math.round(histTotals().reduce((x, y) => x + y, 0) / 360) / 10} h of counted visible running)`,
+      `  History, oldest first, ${PERF.historyBucketMs / 60000} min per character, worst level in each (- nothing counted, 0 OK, 1 Strained, 2 Struggling): ${perfHistString()}`,
+      `Level changes: ${P.events.length ? P.events.map(e => `${new Date(e.t).toISOString().slice(11, 19)}Z ${e.from} to ${e.to}`).join("; ") : "none"}`,
+      `Thresholds (provisional): Strained p95 frame over ${PERF.strainedP95Ms} ms; Struggling p95 over ${PERF.strugglingP95Ms} ms, or long tasks over ${PERF.strugglingLongMsPerMin} ms per minute, or median reply over ${PERF.strugglingReplyMedianMs} ms; hold ${PERF.holdUpMs / 1000} s up, ${PERF.holdDownMs / 1000} s down`
+    ];
+    return lines.join("\n");
+  }
+  async function perfCopy() {
+    const text = perfReport(); let ok = false; P.lastReport = text;
+    try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); ok = true; } } catch (e) {}
+    if (!ok) { try { const ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0"; document.body.appendChild(ta); ta.select(); ok = document.execCommand("copy"); ta.remove(); } catch (e) {} }
+    return { ok, text };
+  }
+  // the Copy report buttons (the ?perf overlay and Prefs): copy, or show the report in a text box to copy by hand
+  async function perfCopyUI(btn, ta) {
+    const r = await perfCopy();
+    if (r.ok) { ta.hidden = true; btn.textContent = "Copied"; } else { ta.hidden = false; ta.value = r.text; ta.focus(); ta.select(); btn.textContent = "Select all and copy"; }
+    setTimeout(() => { btn.textContent = "Copy report"; }, 3000);
+  }
+  // the warning (warn mode): one small calm note, once per page load, hides itself after PERF.warnHideMs, tap to dismiss
+  function perfWarn() {
+    if (P.warned || PERF.mode !== "warn") return;
+    P.warned = true;
+    const el = document.createElement("div"); el.className = "perf-toast"; el.id = "perf-toast"; el.setAttribute("role", "status");
+    el.innerHTML = '<span>This display is struggling to keep up. Performance details in Prefs.</span><button type="button" class="perf-toast-x" aria-label="Dismiss"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
+    let gone = false;
+    const hide = () => { if (gone) return; gone = true; el.classList.remove("in"); if (reduceMotionPref) el.remove(); else setTimeout(() => el.remove(), 260); };
+    el.addEventListener("click", hide);
+    document.body.appendChild(el); void el.offsetWidth; el.classList.add("in");
+    setTimeout(hide, PERF.warnHideMs);
+  }
+  // readouts: the Prefs block (refreshed while open) and the ?perf overlay (every second)
+  const perfPrefsDl = document.getElementById("perf-dl");
+  let perfRows = null;
+  if (perfPrefsDl) {
+    perfPrefsDl.innerHTML = ["level|Now", "peak|Peak (24 h)", "share|Time at each level", "fps|Frame rate", "p95|Slowest 5% of frames", "long|Long tasks per minute", "reply|Reply processing (median)", "dev|Device", "scr|Screen", "misc|Browser"]
+      .map(r => { const [k, l] = r.split("|"); return `<div><dt>${l}</dt><dd id="pf-${k}"></dd></div>`; }).join("");
+    perfRows = {}; perfPrefsDl.querySelectorAll("dd").forEach(d => { perfRows[d.id.slice(3)] = d; });
+  }
+  const perfStrip = document.getElementById("perf-strip");   // v4.25: 96 bars, one per 15 minutes of the last 24 h
+  if (perfStrip) for (let i = 0; i < HIST_N; i++) perfStrip.appendChild(document.createElement("i"));
+  const perfStateText = () => P.state === "running" ? "" : P.state === "ignoring" ? " · settling" : " · paused";
+  const perfSet1 = (el, v) => { if (el && el.textContent !== v) el.textContent = v; };
+  function perfPaintPrefs() {
+    if (!perfRows) return;
+    const R = P.R, H = P.hints;
+    perfRows.level.innerHTML = '<i class="perf-dot" data-level="' + P.level + '"></i><span></span>'; perfRows.level.lastChild.textContent = PERF_LEVELS[P.level] + perfStateText();
+    perfSet1(perfRows.peak, perfPeakText()); perfSet1(perfRows.share, perfShareText());
+    if (perfStrip) {
+      const now = histIdx(), kids = perfStrip.children;
+      for (let i = 0; i < HIST_N; i++) {
+        const k = now - (HIST_N - 1 - i), w = histWorst(HIST.b[k]), v = w < 0 ? "-" : String(w), el = kids[i];
+        if (el.dataset.l !== v || el.dataset.k !== String(k)) { el.dataset.l = v; el.dataset.k = k; el.title = hmFmt.format(new Date(k * PERF.historyBucketMs)) + " to " + hmFmt.format(new Date((k + 1) * PERF.historyBucketMs)) + ": " + (w < 0 ? "not counted" : PERF_LEVELS[w]); }
+      }
+    }
+    perfSet1(perfRows.fps, R.fps === null ? "–" : perfR(R.fps) + " fps");
+    perfSet1(perfRows.p95, perfMs(perfR(R.p95Ms)));
+    perfSet1(perfRows.long, !P.ltSupported ? "not supported here" : R.ltMsPerMin === null ? "–" : perfMs(perfR(R.ltMsPerMin)));
+    perfSet1(perfRows.reply, R.replyN ? `${perfMs(perfR(R.replyMedMs))} (max ${perfMs(perfR(R.replyMaxMs))}, ${R.replyN})` : "–");
+    perfSet1(perfRows.dev, `${H.cores === null ? "?" : H.cores} cores · ${H.memoryGB === null ? "memory unknown" : H.memoryGB + " GB"} · ratio ${H.pixelRatio}`);
+    perfSet1(perfRows.scr, `${H.screen} · window ${innerWidth}x${innerHeight}${H.reducedMotion ? " · reduced motion" : ""}`);
+    perfSet1(perfRows.misc, H.userAgent);
+  }
+  let perfOv = null, perfOvText = null, perfOvLvl = null;
+  function perfPaintOverlay() {
+    const R = P.R, H = P.hints, pg = perfPage();
+    const pend = P.raw !== null && P.raw > P.level ? ` → ${PERF_LEVELS[P.raw]} ${Math.round(P.up / 1000)}/${PERF.holdUpMs / 1000}s` : P.raw !== null && P.raw < P.level ? ` ← ${PERF_LEVELS[P.raw]} ${Math.round(P.down / 1000)}/${PERF.holdDownMs / 1000}s` : "";
+    perfOvLvl.dataset.level = P.level; perfSet1(perfOvLvl, PERF_LEVELS[P.level] + perfStateText());
+    perfSet1(perfOvText, `v${VERSION} · ${pg.page}${pg.view !== "n/a" ? " (" + pg.view + ")" : ""}${pg.style !== "n/a" ? " · " + pg.style : ""}\n` +
+      `fps ${R.fps === null ? "–" : perfR(R.fps)} · frame ${perfMs(perfR(R.medMs))} · p95 ${perfMs(perfR(R.p95Ms))}\n` +
+      `peak 24 h ${perfPeakText()}\n` +
+      `long tasks ${!P.ltSupported ? "n/a" : R.ltMsPerMin === null ? "–" : perfMs(perfR(R.ltMsPerMin)) + "/min"}\n` +
+      `reply med ${perfMs(perfR(R.replyMedMs))} · max ${perfMs(perfR(R.replyMaxMs))} · n ${R.replyN}\n` +
+      `${H.cores === null ? "?" : H.cores} cores · ${H.memoryGB === null ? "mem ?" : H.memoryGB + " GB"} · ratio ${H.pixelRatio}${pend ? "\n" + pend.trim() : ""}`);
+  }
+  function perfPaint() {
+    if (sheetEl && sheetEl.id === "sheet-prefs") perfPaintPrefs();
+    if (perfOv) perfPaintOverlay();
+  }
+  if (P.on) {
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") perfRestart("tab visible again"); else histSave(); });
+    window.addEventListener("pagehide", histSave);
+    { const pb = document.getElementById("perf-prefs-copy"), pt = document.getElementById("perf-prefs-ta"); if (pb && pt) pb.addEventListener("click", () => perfCopyUI(pb, pt)); }
+    try {
+      if (window.PerformanceObserver && (PerformanceObserver.supportedEntryTypes || []).includes("longtask")) {
+        new PerformanceObserver(list => { for (const e of list.getEntries()) perfLong(e.startTime, e.duration); }).observe({ type: "longtask" });
+        P.ltSupported = true;
+      }
+    } catch (e) {}                                          // Safari and others: no long-task readings, nothing else changes
+    if (PERF_ON) {
+      perfOv = document.createElement("div"); perfOv.id = "perf-overlay"; perfOv.className = "perf-overlay";
+      perfOv.innerHTML = '<div class="perf-ov-head"><span>Performance</span><b class="perf-lvl" id="perf-ov-lvl" data-level="0">OK</b></div><pre class="perf-ov-text" id="perf-ov-text"></pre><div class="perf-ov-actions"><button type="button" id="perf-copy">Copy report</button></div><textarea class="perf-ov-ta" id="perf-ov-ta" readonly hidden rows="7" aria-label="Performance report"></textarea>';
+      document.body.appendChild(perfOv);
+      perfOvText = perfOv.querySelector("#perf-ov-text"); perfOvLvl = perfOv.querySelector("#perf-ov-lvl");
+      const btn = perfOv.querySelector("#perf-copy"), ta = perfOv.querySelector("#perf-ov-ta");
+      btn.addEventListener("click", () => perfCopyUI(btn, ta));
+      perfPaintOverlay();
+    }
+    guard.nativeRAF.call(window, perfFrame);
+    setInterval(perfTick, PERF.tickMs);
+  }
+  window.UndercurrentPerf = { reply: perfReply, restart: perfRestart, slow: () => P.on && (P.level >= 1 || P.hints.weak), get level() { return P.level; }, summary: perfSummary, report: perfReport, PERF };
+
   /* ---------- Debug readout (?debug) ---------- */
   if (DEBUG_ON) {
     const box = document.createElement("div");
@@ -3157,7 +3482,8 @@
       box.textContent = `mount ${guard.mounts} · ${cur ? cur.id : "-"}\nline items ${cur ? cur.scope.count() : 0} · repeating timers ${guard.intervals.size}\n` +
         `strays ${guard.strays} · problems ${guard.problems.length}\npage elements ${document.getElementsByTagName("*").length} · heap ${mem}`;
     }, 1000);
-    window.__uc = { guard, loadLine, plainSwitch, get cur() { return cur; } };
+    window.__uc = { guard, loadLine, plainSwitch, get cur() { return cur; },
+      perf: { PERF, hints: P.hints, get level() { return P.level; }, get levelName() { return PERF_LEVELS[P.level]; }, get raw() { return P.raw; }, get state() { return P.state; }, get readings() { return Object.assign({ ltSupported: P.ltSupported }, P.R); }, get events() { return P.events; }, get warned() { return P.warned; }, get history() { return { buckets: HIST.b, peak: HIST.pk, string: perfHistString(), share: perfShareText() }; }, save: histSave, get up() { return P.up; }, get down() { return P.down; }, summary: perfSummary, report: perfReport } };   // v4.24
   }
 
   /* ---------- Start: mount the line the page was opened on ---------- */

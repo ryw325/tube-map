@@ -32,9 +32,9 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUWWL",
    "code": "WAL",
    "name": "Walthamstow Central",
-   "x": 930,
-   "y": 140,
-   "pref": "top",
+   "x": 1008,
+   "y": 120,
+   "pref": "right",
    "lines": [
     "Walthamstow",
     "Central"
@@ -45,9 +45,9 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUBLR",
    "code": "BLR",
    "name": "Blackhorse Road",
-   "x": 810,
-   "y": 140,
-   "pref": "top",
+   "x": 885,
+   "y": 120,
+   "pref": "right",
    "lines": [
     "Blackhorse",
     "Road"
@@ -58,9 +58,9 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUTMH",
    "code": "TOT",
    "name": "Tottenham Hale",
-   "x": 690,
-   "y": 140,
-   "pref": "top",
+   "x": 766,
+   "y": 120,
+   "pref": "right",
    "lines": [
     "Tottenham",
     "Hale"
@@ -71,9 +71,9 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUSVS",
    "code": "SVS",
    "name": "Seven Sisters",
-   "x": 570,
-   "y": 140,
-   "pref": "top",
+   "x": 686,
+   "y": 200,
+   "pref": "right",
    "lines": [
     "Seven",
     "Sisters"
@@ -84,8 +84,8 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUFPK",
    "code": "FPK",
    "name": "Finsbury Park",
-   "x": 480,
-   "y": 230,
+   "x": 582,
+   "y": 304,
    "pref": "right"
   },
   {
@@ -93,8 +93,8 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUHAI",
    "code": "HBY",
    "name": "Highbury & Islington",
-   "x": 480,
-   "y": 340,
+   "x": 490,
+   "y": 396,
    "pref": "right",
    "lines": [
     "Highbury &",
@@ -106,9 +106,9 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUKSX",
    "code": "KGX",
    "name": "King's Cross St. Pancras",
-   "x": 400,
-   "y": 420,
-   "pref": "bottom",
+   "x": 396,
+   "y": 490,
+   "pref": "right",
    "lines": [
     "King's Cross",
     "St. Pancras"
@@ -119,26 +119,26 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUEUS",
    "code": "EUS",
    "name": "Euston",
-   "x": 310,
-   "y": 420,
-   "pref": "top"
+   "x": 287,
+   "y": 490,
+   "pref": "right"
   },
   {
    "id": "WRR",
    "naptan": "940GZZLUWRR",
    "code": "WST",
    "name": "Warren Street",
-   "x": 250,
-   "y": 480,
-   "pref": "left"
+   "x": 196,
+   "y": 490,
+   "pref": "right"
   },
   {
    "id": "OXC",
    "naptan": "940GZZLUOXC",
    "code": "OXC",
    "name": "Oxford Circus",
-   "x": 250,
-   "y": 580,
+   "x": 120,
+   "y": 565,
    "pref": "right"
   },
   {
@@ -146,26 +146,26 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUGPK",
    "code": "GPK",
    "name": "Green Park",
-   "x": 190,
-   "y": 640,
-   "pref": "left"
+   "x": 120,
+   "y": 676,
+   "pref": "right"
   },
   {
    "id": "VIC",
    "naptan": "940GZZLUVIC",
    "code": "VIC",
    "name": "Victoria",
-   "x": 190,
-   "y": 740,
-   "pref": "left"
+   "x": 120,
+   "y": 793,
+   "pref": "right"
   },
   {
    "id": "PCO",
    "naptan": "940GZZLUPCO",
    "code": "PIM",
    "name": "Pimlico",
-   "x": 260,
-   "y": 810,
+   "x": 206,
+   "y": 879,
    "pref": "right"
   },
   {
@@ -173,8 +173,8 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUVXL",
    "code": "VXH",
    "name": "Vauxhall",
-   "x": 330,
-   "y": 880,
+   "x": 287,
+   "y": 960,
    "pref": "right"
   },
   {
@@ -182,17 +182,17 @@ window.UNDERCURRENT_LINE = {
    "naptan": "940GZZLUSKW",
    "code": "SKW",
    "name": "Stockwell",
-   "x": 330,
-   "y": 980,
-   "pref": "left"
+   "x": 374,
+   "y": 1047,
+   "pref": "right"
   },
   {
    "id": "BXN",
    "naptan": "940GZZLUBXN",
    "code": "BRX",
    "name": "Brixton",
-   "x": 400,
-   "y": 1050,
+   "x": 456,
+   "y": 1129,
    "pref": "right"
   }
  ],
@@ -273,7 +273,9 @@ window.UNDERCURRENT_LINE = {
    "northern"
   ]
  },
- "river": {"x": 0, "y": 0, "scale": 1, "label": [480, 765]},
+ "emptyAt": [436, 1209],
+ "river": null, "riverPath": [[-2537,2981],[-1476,1920],[-1243,1687],[-932,1687],[-803,1816],[-733,1746],[-733,1568],[-853,1447],[-853,1353],[-768,1268],[-768,1058],[-674,964],[-585,964],[-526,1023],[-419,1023],[-354,958],[-273,958],[-147,1084],[-10,1084],[139,935],[224,935],[453,706],[807,706],[1003,902],[1038,867],[1038,755],[1533,755],[1649,639],[1960,639],[2198,877],[2436,877],[2642,1083],[3702,2144]],
+ "riverLabel": [453, 706],
  "facts": [
   {
    "tag": "History",

@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tube Live</title>
 <script>if (/[?&]from=/.test(location.search)) { document.documentElement.classList.add("tx-in", "tx-away"); setTimeout(function () { var c = document.documentElement.classList; if (c.contains("tx-in")) c.remove("tx-in", "tx-away"); }, 5000); }  /* only used if a line ever has to switch by a full page load (the fallback): keep the panels slid off screen from the first paint */</script>
-<link rel="stylesheet" href="style.css?v=4.23">
+<link rel="stylesheet" href="style.css?v=4.26">
 </head>
 <body>
 <div class="wrap">
   <aside class="panel">
     <div class="panel-head">
       <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span></h1>
-      <p class="eyebrow">Live prototype · v4.23</p>
+      <p class="eyebrow">Live prototype · v4.26</p>
     </div>
 
     <div>
@@ -196,10 +196,19 @@
         </form>
         <small class="key-note" id="key-note">Optional. Saved only in this browser.</small>
       </details>
+      <div class="perf-block" id="perf-block">
+        <p class="sub-label">Display load</p>
+        <dl class="perf-dl" id="perf-dl"></dl>
+        <div class="perf-strip" id="perf-strip" role="img" aria-label="Display load over the last 24 hours, 15 minutes a bar"></div>
+        <div class="perf-strip-key" aria-hidden="true"><span>24 h ago</span><span>now</span></div>
+        <p class="perf-note">Each bar is 15 minutes, coloured by the worst level in it. Grey: not counted (page closed, tab hidden or just switched).</p>
+        <div class="perf-actions"><button type="button" id="perf-prefs-copy">Copy report</button></div>
+        <textarea class="perf-ta" id="perf-prefs-ta" readonly hidden rows="8" aria-label="Performance report"></textarea>
+      </div>
   </div>
 </section>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "4.23"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "4.26"; -->
 <script src="lines/index.js"></script>
 <script src="lines/shared.js"></script>
 <script src="lines/hubs.js"></script>

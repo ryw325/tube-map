@@ -793,6 +793,7 @@
     function setStyle(id) {
       if (!STYLES.some(t => t.id === id)) return;
       style = id; try { localStorage.setItem(LS_STYLE, id); } catch (e) {}
+      if (window.UndercurrentPerf) window.UndercurrentPerf.restart("style");   // v4.24: the performance window starts again after a style switch
       merged.clear();                                                 // the merged road tiles belong to the old style
       PG = null; pxWater = null; pxPal = null; shimmer();             // and the pixel grid, its water and its palette
       cols = null; prepStyle(); dirty();
@@ -828,7 +829,8 @@
         sheet.querySelectorAll('input[name="fm-tl"]').forEach(r => { r.checked = r.value === show.train; });
         const cat = (STYLES.find(t => t.id === style) || STYLES[0]).cat;
         sheet.querySelectorAll('input[name="fm-cat"]').forEach(r => { r.checked = r.value === cat; });
-        sheet.querySelector(".fm-styles").innerHTML = STYLES.filter(t => t.cat === cat).map(t => `<label class="fm-style-opt"><input type="radio" name="fm-style" value="${t.id}"${t.id === style ? " checked" : ""}><span>${t.name}</span></label>`).join("");
+        sheet.querySelector(".fm-styles").innerHTML = STYLES.filter(t => t.cat === cat).map(t => `<label class="fm-style-opt"><input type="radio" name="fm-style" value="${t.id}"${t.id === style ? " checked" : ""}><span>${t.name}</span></label>`).join("")
+        if (cat === "artistic" && window.UndercurrentPerf && window.UndercurrentPerf.slow()) sheet.querySelector(".fm-styles").insertAdjacentHTML("beforeend", '<p class="fm-slow">May run slowly on this device.</p>');   // v4.24: a note only, nothing is hidden or blocked
         sheet.querySelectorAll("[data-t]").forEach(b => { b.setAttribute("aria-pressed", String(show.types[b.dataset.t])); b.disabled = !show.icons; });
       };
       const open = () => { if (isOpen) return; isOpen = true; paint(); scrim.hidden = false; sheet.hidden = false; void sheet.offsetWidth; scrim.classList.add("in"); sheet.classList.add("in"); sheet.querySelector(".sheet-x").focus({ preventScroll: true }); };
@@ -836,6 +838,7 @@
         if (!isOpen) return; isOpen = false; sheet.classList.remove("in"); scrim.classList.remove("in");
         scope.after(() => { if (!isOpen) { sheet.hidden = true; scrim.hidden = true; } }, reduceMotion ? 0 : 220); btn.focus({ preventScroll: true });
       };
+      scope.on(window, "uc-perf", () => { if (isOpen) paint(); });   // v4.24: the device got Strained or recovered while the pop-up was open
       scope.on(btn, "click", open); scope.on(sheet.querySelector("[data-close]"), "click", close); scope.on(scrim, "click", close);
       scope.on(document, "keydown", e => { if (isOpen && e.key === "Escape") close(); });
       scope.on(sheet, "change", e => { const r = e.target; if (r && r.name === "fm-style") { setStyle(r.value); paint(); return; }

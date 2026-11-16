@@ -142,6 +142,10 @@
       age[id] = Math.round(L.age());
       if (age[id] > 5000) m.stale++;
     });
+    try {                                                  // v4.24: a performance summary every 30 s (level and readings from the engine's meter)
+      const PF = window.UndercurrentPerf;
+      if (PF && t - (m.perfLastT || 0) >= PF.PERF.recorderEveryMs) { m.perfLastT = t; (m.perf = m.perf || []).push(PF.summary()); }
+    } catch (e) {}
     const vis = document.visibilityState;
     if (vis !== "visible") m.hidden++;
     (rec.persist ? rec.pendS : rec.memS).push({ t, vis, age, lines });
@@ -217,6 +221,7 @@
               stopped: reason, lines: m.lines, kinds: m.kinds || {}, sampleMs: m.sampleMs || SAMPLE_MS, marks: mk.length, samples: samples.length, feeds: feeds.length, hiddenSamples: m.hidden, staleLineSamples: m.stale,
               resumes: (m.resumes || []).map(t => new Date(t).toISOString()), gaps: (m.gaps || []).map(g => ({ from: new Date(g.from).toISOString(), to: new Date(g.to).toISOString() })),
               userAgent: navigator.userAgent, screen: innerWidth + "x" + innerHeight,
+              perf: m.perf || [],                                   // v4.24: level and readings every 30 s (an extra field; older readers ignore it)
               apiKey: (() => { try { return !!localStorage.getItem("tfl-app-key"); } catch (e) { return null; } })(),
               notes: "Each sample's lines object is keyed by line or station id (kinds says which). Line rows follow fields.train: positions are the engine's model position in map units (x, y) and route distance (D), not screen pixels; dest, next and waiting are station indexes into stations[line]; eta is seconds to the next stop as the engine sees it. Station rows follow fields.stationTrain: x, y in map units with the station at 0,0; s is distance along the train's lane (negative before the station); q is stops out (fractional); stops and at are what the feed's location says (stops still to make, standing at a stop); eta is seconds to the station; stations[station id] holds the station's details. A line's age is ms since its hidden copy last drew a frame (over 5000 means it was paused). gaps are times the page was reloading and nothing was sampled; resumes are when the recording carried on after a reload." },
       fields: { train: TRAIN_FIELDS, stationTrain: STATION_TRAIN_FIELDS, station: ["i", "id", "naptan", "name", "of"], feed: FEED_FIELDS, fullmapTrain: m.fmFields || null, fullmapFeed: FM_FEED_FIELDS },

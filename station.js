@@ -1204,7 +1204,9 @@
         const data = await res.json();
         if (scope.dead) return;
         if (RECFRAME) recFeed(STN.id, res.status, data, res.headers.get("date"));
+        const pt0 = performance.now();                       // v4.24: the performance meter times each reply's processing
         if (CORE) coreIngest(Array.isArray(data) ? data : [], res.headers.get("date")); else ingest(Array.isArray(data) ? data : []);
+        if (window.UndercurrentPerf) window.UndercurrentPerf.reply(performance.now() - pt0);
         everLoaded = true; lastOk = Date.now(); fetchError = null;
       } catch (err) {
         if (scope.dead) return;

@@ -9,19 +9,19 @@ window.UNDERCURRENT_LINE = {
  },
  "spacing": 1.3,
  "stations": [
-  {"id": "GOK", "naptan": "910GGOSPLOK", "code": "GOK", "name": "Gospel Oak", "x": 0, "y": 0, "pref": "bottom"},
-  {"id": "UHW", "naptan": "910GUPRHLWY", "code": "UHW", "name": "Upper Holloway", "x": 60, "y": -60, "pref": "left"},
-  {"id": "CRH", "naptan": "910GCROUCHH", "code": "CRH", "name": "Crouch Hill", "x": 120, "y": -120, "pref": "left"},
-  {"id": "HGL", "naptan": "910GHRGYGL", "code": "HGN", "name": "Harringay Green Lanes", "x": 200, "y": -120, "pref": "bottom", "lines": ["Harringay", "Green Lanes"]},
-  {"id": "STT", "naptan": "910GSTOTNHM", "code": "STT", "name": "South Tottenham", "x": 280, "y": -120, "pref": "top", "lines": ["South", "Tottenham"]},
-  {"id": "BLR", "naptan": "910GBLCHSRD", "code": "BLR", "name": "Blackhorse Road", "x": 360, "y": -120, "pref": "bottom", "lines": ["Blackhorse", "Road"]},
-  {"id": "WQR", "naptan": "910GWLTHQRD", "code": "WQR", "name": "Walthamstow Queen's Road", "x": 420, "y": -60, "pref": "right", "lines": ["Walthamstow", "Queen's Road"]},
-  {"id": "LMR", "naptan": "910GLEYTNMR", "code": "LMR", "name": "Leyton Midland Road", "x": 480, "y": 0, "pref": "right", "lines": ["Leyton", "Midland Road"]},
-  {"id": "LHR", "naptan": "910GLYTNSHR", "code": "LHR", "name": "Leytonstone High Road", "x": 540, "y": 60, "pref": "right", "lines": ["Leytonstone", "High Road"]},
-  {"id": "WNP", "naptan": "910GWNSTDPK", "code": "WNP", "name": "Wanstead Park", "x": 600, "y": 120, "pref": "bottom", "lines": ["Wanstead", "Park"]},
-  {"id": "WGP", "naptan": "910GWDGRNPK", "code": "WGP", "name": "Woodgrange Park", "x": 680, "y": 120, "pref": "top", "lines": ["Woodgrange", "Park"]},
-  {"id": "BKG", "naptan": "910GBARKING", "code": "BKG", "name": "Barking", "x": 760, "y": 120, "pref": "bottom"},
-  {"id": "BKR", "naptan": "910GBARKRIV", "code": "BKR", "name": "Barking Riverside", "x": 820, "y": 180, "pref": "right"}
+  {"id": "GOK", "naptan": "910GGOSPLOK", "code": "GOK", "name": "Gospel Oak", "x": 120, "y": 378, "pref": "right"},
+  {"id": "UHW", "naptan": "910GUPRHLWY", "code": "UHW", "name": "Upper Holloway", "x": 209, "y": 289, "pref": "right"},
+  {"id": "CRH", "naptan": "910GCROUCHH", "code": "CRH", "name": "Crouch Hill", "x": 292, "y": 206, "pref": "right"},
+  {"id": "HGL", "naptan": "910GHRGYGL", "code": "HGN", "name": "Harringay Green Lanes", "x": 378, "y": 120, "pref": "right", "lines": ["Harringay", "Green Lanes"]},
+  {"id": "STT", "naptan": "910GSTOTNHM", "code": "STT", "name": "South Tottenham", "x": 505, "y": 120, "pref": "right", "lines": ["South", "Tottenham"]},
+  {"id": "BLR", "naptan": "910GBLCHSRD", "code": "BLR", "name": "Blackhorse Road", "x": 639, "y": 120, "pref": "right", "lines": ["Blackhorse", "Road"]},
+  {"id": "WQR", "naptan": "910GWLTHQRD", "code": "WQR", "name": "Walthamstow Queen's Road", "x": 723, "y": 204, "pref": "right", "lines": ["Walthamstow", "Queen's Road"]},
+  {"id": "LMR", "naptan": "910GLEYTNMR", "code": "LMR", "name": "Leyton Midland Road", "x": 812, "y": 293, "pref": "right", "lines": ["Leyton", "Midland Road"]},
+  {"id": "LHR", "naptan": "910GLYTNSHR", "code": "LHR", "name": "Leytonstone High Road", "x": 896, "y": 377, "pref": "right", "lines": ["Leytonstone", "High Road"]},
+  {"id": "WNP", "naptan": "910GWNSTDPK", "code": "WNP", "name": "Wanstead Park", "x": 986, "y": 467, "pref": "right", "lines": ["Wanstead", "Park"]},
+  {"id": "WGP", "naptan": "910GWDGRNPK", "code": "WGP", "name": "Woodgrange Park", "x": 1070, "y": 551, "pref": "right", "lines": ["Woodgrange", "Park"]},
+  {"id": "BKG", "naptan": "910GBARKING", "code": "BKG", "name": "Barking", "x": 1169, "y": 650, "pref": "right"},
+  {"id": "BKR", "naptan": "910GBARKRIV", "code": "BKR", "name": "Barking Riverside", "x": 1274, "y": 755, "pref": "right"}
  ],
  "routes": [
   ["GOK", "UHW", "CRH", "HGL", "STT", "BLR", "WQR", "LMR", "LHR", "WNP", "WGP", "BKG", "BKR"]
@@ -31,7 +31,8 @@ window.UNDERCURRENT_LINE = {
   "BLR": ["victoria"],
   "BKG": ["district", "hammersmith", "rail"]
  },
- "emptyAt": [312, 234],
- "river": {"x": -660, "y": -300, "scale": 1.0, "width": 44, "label": [1105.0, 615.0]},
+ "emptyAt": [698, 835],
+ "river": null, "riverPath": [[-2517,589],[-1456,1650],[-1322,1784],[-1156,1784],[-970,1597],[-721,1597],[-618,1700],[-562,1644],[-562,1502],[-658,1405],[-658,1330],[-590,1262],[-590,1094],[-515,1019],[-444,1019],[-397,1066],[-311,1066],[-259,1014],[-194,1014],[-94,1115],[16,1115],[135,996],[203,996],[386,813],[670,813],[826,969],[854,942],[854,852],[1250,852],[1343,759],[1592,759],[1782,950],[1972,950],[2137,1114],[2248,1114],[2300,1062],[2372,1062],[2502,1192],[2866,1192],[4366,1192]],
+ "riverLabel": [670, 813],
  "facts": []
 };

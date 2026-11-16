@@ -9,9 +9,9 @@ window.UNDERCURRENT_LINE = {
  },
  "spacing": 1.3,
  "stations": [
-  {"id": "ROM", "naptan": "910GROMFORD", "code": "ROM", "name": "Romford", "x": 0, "y": 0, "pref": "top"},
-  {"id": "EPK", "naptan": "910GEMRSPKH", "code": "EMP", "name": "Emerson Park", "x": 200, "y": 0, "pref": "top", "lines": ["Emerson", "Park"]},
-  {"id": "UPM", "naptan": "910GUPMNSTR", "code": "UPM", "name": "Upminster", "x": 320, "y": 120, "pref": "bottom"}
+  {"id": "ROM", "naptan": "910GROMFORD", "code": "ROM", "name": "Romford", "x": 120, "y": 120, "pref": "right"},
+  {"id": "EPK", "naptan": "910GEMRSPKH", "code": "EMP", "name": "Emerson Park", "x": 218, "y": 218, "pref": "right", "lines": ["Emerson", "Park"]},
+  {"id": "UPM", "naptan": "910GUPMNSTR", "code": "UPM", "name": "Upminster", "x": 313, "y": 313, "pref": "right"}
  ],
  "routes": [
   ["ROM", "EPK", "UPM"]
@@ -20,7 +20,8 @@ window.UNDERCURRENT_LINE = {
   "ROM": ["elizabeth", "rail"],
   "UPM": ["district", "rail"]
  },
- "emptyAt": [182, 156],
- "river": {"x": -640, "y": -205, "scale": 0.75, "width": 44, "label": [1105.0, 615.0]},
+ "emptyAt": [217, 393],
+ "river": null, "riverPath": [[-2902,662],[-1402,662],[-1354,662],[-1322,694],[-1264,694],[-1229,658],[-1185,658],[-1117,727],[-1043,727],[-962,646],[-916,646],[-792,522],[-600,522],[-494,628],[-475,609],[-475,548],[-207,548],[-144,485],[25,485],[154,614],[282,614],[394,726],[469,726],[504,691],[553,691],[641,779],[888,779],[963,704],[963,640],[1086,517],[1250,517],[1296,470],[1215,389],[1215,340],[1270,284],[1438,284],[1486,332],[1739,332],[1784,378],[2845,1438]],
+ "riverLabel": [154, 614],
  "facts": []
 };

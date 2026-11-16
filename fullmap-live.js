@@ -243,7 +243,7 @@
         const t0 = performance.now(), data = JSON.parse(txt), t1 = Date.now();
         recFeed(res.status, data, res.headers.get("date"), null, group);
         const cl = group.filter(inCore);
-        if (cl.length) { CORE.ingest(Array.isArray(data) ? data : [], res.headers.get("date"), t1, cl); coreApply(t1); }
+        if (cl.length) { const pt0 = performance.now(); CORE.ingest(Array.isArray(data) ? data : [], res.headers.get("date"), t1, cl); coreApply(t1); if (window.UndercurrentPerf) window.UndercurrentPerf.reply(performance.now() - pt0); }   // v4.24: timed for the performance meter
         for (const l of group) { if (!inCore(l)) ingest(l, Array.isArray(data) ? data : [], t1); S.fetched[l] = t1; }
         const ms = performance.now() - t0; S.parseMs = ms; S.parseMax = Math.max(S.parseMax, ms); S.polls++; S.ok = Date.now(); S.err = null;
       } catch (err) {
