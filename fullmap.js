@@ -941,7 +941,7 @@
 
     /* ---------- Drawing (only when something changed) ---------- */
     let pending = 0, anim = null, isDirty = true;
-    function dirty() { isDirty = true; if (!pending) pending = scope.frame(tick); }
+    function dirty() { isDirty = true; if (!pending) pending = scope.frame(tick, true); }
     function tick(now) {
       pending = 0;
       if (anim) {
@@ -955,7 +955,7 @@
       }
       if (pillMoving(now)) isDirty = true;                      // an airport pill is fading in or out
       if (isDirty) { isDirty = false; draw(); }
-      if (anim || isDirty || pillMoving(now)) pending = scope.frame(tick);
+      if (anim || isDirty || pillMoving(now)) pending = scope.frame(tick, true);
     }
     // any touch, mouse, wheel or key counts as activity: it brings the airport pills back, and they fade again after PILL_IDLE of quiet
     const poke = () => { lastAct = performance.now(); if (pillGo(1, PILL_IN)) dirty(); };

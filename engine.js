@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.28: Light display mode: a Full | Light setting in Prefs (and ?light); Light caps the animation loops at 30 fps and switches off transitions (the reduced-motion path); the Full Map's pan and zoom drawing is not capped; the performance report, overlay and recorder summary say which mode
    v4.27: design log items L4 to L10 and F5 to F8, and 16-bit Pixel removed. Elizabeth's panel says Westbound and Eastbound (L4); the Thames fades out at the edges of the map instead of running on as long straight stretches (L5); the Line view has no river (L6); Line view branches sit on their geographic side, north above and south below, and the Circle ring is the right way up (L7, Elizabeth names its spine route with lvSpine); zoomed in, icons, trains, labels and the track shrink in steps, trains riding closer to the track (L8); one label size at each zoom in the True view (L9); Thameslink's white dash is drawn once per track piece, so it is dashed everywhere (L10); Full Map: a train drawn later covers the label of one under it (F5), landmark and airport badges are rounded squares (F6), Layers has five line switches (Underground, Overground with DLR and Trams, Hybrid Rail, River boats, Cable car), remembered, hiding lines and trains, and stations with no line left shrink (F8), and every line is bent gently to pass through its station icon (F7). 16-bit Pixel is gone (127 MB of tiles moved out of geo/tiles).
    v4.26: The Maps of all 21 lines are now the generated geo-schematic layouts, each with the one angular master Thames (45 and 90 degree turns only; every station on its real bank). Also publishes the performance meter and Display load (v4.24, v4.25).
    v4.25: Display load (Prefs): the Performance block is now Display load, with the current level, the peak level and when it happened, the share of time at each level and a 24 hour colour history strip (15 minutes a bar, worst level in each), all kept in localStorage for 24 hours so they survive reloads and the 4am reload; Copy report button in Prefs; peak and history lines in the report. Thresholds, warning and polling unchanged.
@@ -149,7 +150,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.27";
+  const VERSION = "4.28";
   /* ---------- Performance settings (v4.24): every number the performance meter uses, in one place ----------
      THE THRESHOLDS ARE PROVISIONAL: they are first guesses until they have been tested on real hardware (a TV stick, a low-power tablet).
      mode "warn" is the only mode built: the meter measures and shows a note, and never changes polling, data freshness or anything in trains-core.js.
@@ -180,7 +181,8 @@
     historyKey: "uc-perf-hist",    // v4.25: peak, time at each level and the history strip are kept in localStorage ...
     historyHours: 24,              // ... for this long, so they survive reloads (the daily 4am reload, the Full Map's page loads)
     historyBucketMs: 900000,       // one history bar = 15 minutes (96 bars = 24 h), coloured by the worst level reached in it
-    historySaveMs: 30000           // saved at most this often (and when the page is left or hidden, and on every level change)
+    historySaveMs: 30000,          // saved at most this often (and when the page is left or hidden, and on every level change)
+    lightFps: 30                   // v4.28: Light display mode: the animation loops run at most this many times a second (the meter's own sampler is not capped)
   };
   const DEBUG_ON = /[?&]debug\b/.test(location.search);
   const PERF_ON = /[?&]perf\b/.test(location.search);        // v4.24: ?perf shows the always-on readout with a Copy report button
@@ -188,8 +190,23 @@
   const recBusy = () => { try { return !!(window.UndercurrentRecorder && window.UndercurrentRecorder.active); } catch (e) { return false; } };
   function recFeed(...a) { try { const R = window.parent.UndercurrentRecorder; if (R && R.feed) R.feed(...a); } catch (e) {} }
   const AGE_FIX = !/[?&]noage\b/.test(location.search);   // ?noage turns the data-age correction off (for comparing)
-  const reduceMotionPref = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /* v4.28: Light display mode, a manual setting for weak devices (Prefs, or ?light and ?light=0, remembered in "uc-light"; read once at load, so changing it reloads the page).
+     Light = the animation loops run at most PERF.lightFps times a second (scope.frame), and no transitions: it switches on the reduced-motion path that already exists.
+     It never touches polling, data freshness or trains-core.js. The recorder's hidden copy never uses it. */
+  const LIGHT = (() => {
+    if (RECFRAME) return false;
+    let on = false;
+    try {
+      const q = new URLSearchParams(location.search);
+      if (q.has("light")) { on = !/^(0|off|false|no)$/i.test(q.get("light")); try { localStorage.setItem("uc-light", on ? "1" : "0"); } catch (e) {} }
+      else on = localStorage.getItem("uc-light") === "1";
+    } catch (e) {}
+    return on;
+  })();
+  const osReduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const reduceMotionPref = LIGHT || osReduceMotion;       // Light also means no transitions
   const root = document.documentElement;
+  if (LIGHT) root.classList.add("uc-light");              // style.css switches off transitions and animations under it
   const svg = document.getElementById("map");
   let menuOpen = false;                                   // v3.03: the menu overlay is showing
   let txBusy = false;                                      // true while a line hand-over is running (spans both lines)
@@ -216,6 +233,11 @@
   })();
 
   /* ---------- Scope: everything a mounted line starts goes through here, so unmount can undo all of it ---------- */
+  // v4.28 Light: one gate shared by every animation loop. All callbacks of one frame get the same timestamp, so they run or skip together;
+  // a frame less than (1000 / lightFps - 6) ms after the last one that ran is skipped, so a 60 Hz display runs every second frame and a 30 Hz one every frame.
+  const GATE_MS = 1000 / PERF.lightFps - 6;
+  let gateT = -1;
+  const frameGate = t => { if (t === gateT) return true; if (gateT < 0 || t - gateT >= GATE_MS) { gateT = t; return true; } return false; };
   function makeScope(gen) {
     const undo = new Set(), timeouts = new Set(), intervals = new Set(), frames = new Set();
     const ac = window.AbortController ? new AbortController() : null;
@@ -234,7 +256,17 @@
       stopEvery(id) { if (intervals.delete(id)) clearInterval(id); },
       after(fn, ms) { const id = as(() => setTimeout(() => { timeouts.delete(id); if (!dead) fn(); }, ms)); timeouts.add(id); return id; },
       stopAfter(id) { if (timeouts.delete(id)) clearTimeout(id); },
-      frame(fn) { const id = as(() => requestAnimationFrame(t => { frames.delete(id); if (!dead) fn(t); })); frames.add(id); return id; },
+      frame(fn, free) {                                      // free = true: not capped in Light (drawing that follows a finger: the Full Map's pan and zoom)
+        if (!LIGHT || free) { const id = as(() => requestAnimationFrame(t => { frames.delete(id); if (!dead) fn(t); })); frames.add(id); return id; }
+        let cid = 0;                                         // Light: a skipped frame asks for the next one, and `frames` always holds the live request so dispose() can cancel it
+        const go = t => {
+          frames.delete(cid);
+          if (dead) return;
+          if (!frameGate(t)) { cid = as(() => requestAnimationFrame(go)); frames.add(cid); return; }
+          fn(t);
+        };
+        cid = as(() => requestAnimationFrame(go)); frames.add(cid); return cid;
+      },
       observe(obs) { undo.add(() => obs.disconnect()); return obs; },
       fetch(url, opts) { return fetch(url, Object.assign({}, opts, ac ? { signal: ac.signal } : {})); },
       later(fn) { undo.add(fn); },                           // any other clean-up step
@@ -2372,7 +2404,7 @@
       t.node = g;
     }
 
-    const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = reduceMotionPref;                   // v4.28: includes Light
     let lastFrame = performance.now();
 
     // Yellow tag beside a train for 30 seconds after its destination changes
@@ -2678,7 +2710,7 @@
     }
     // Text too long for its space on the board glides across and back, like a dot-matrix display.
     // Timed from one shared clock, so the once-a-second board refresh never makes it jump.
-    const reduceMotionBoard = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotionBoard = reduceMotionPref;              // v4.28: includes Light
     const MQ_EPOCH = performance.now(), MQ_SPEED = 45, MQ_HOLD = 1.6;
     function marquee(root) {
       root.querySelectorAll(".mq").forEach(m => {
@@ -3283,7 +3315,7 @@
   function perfHints() {                                  // read once at start-up; a first guess only, never a reason to warn on its own
     const n = navigator, s = window.screen || {}, cores = n.hardwareConcurrency || null, mem = n.deviceMemory || null;
     return { cores, memoryGB: mem, pixelRatio: window.devicePixelRatio || 1, screen: (s.width || 0) + "x" + (s.height || 0), window: innerWidth + "x" + innerHeight,
-      userAgent: n.userAgent, reducedMotion: !!reduceMotionPref, weak: !!((cores && cores <= PERF.weakCores) || (mem && mem <= PERF.weakMemoryGB)) };
+      userAgent: n.userAgent, reducedMotion: osReduceMotion, light: LIGHT, weak: !!((cores && cores <= PERF.weakCores) || (mem && mem <= PERF.weakMemoryGB)) };
   }
   P.hints = perfHints();
   // v4.25: 24 h history: seconds of visible running at each level per 15 min bucket, the peak level, and the level changes. Kept in localStorage.
@@ -3392,7 +3424,7 @@
   }
   function perfSummary() {
     const R = P.R;
-    return { t: new Date().toISOString(), level: PERF_LEVELS[P.level], state: P.state, frames: R.n, fps: perfR(R.fps), medMs: perfR(R.medMs), p95Ms: perfR(R.p95Ms),
+    return { t: new Date().toISOString(), level: PERF_LEVELS[P.level], light: LIGHT, state: P.state, frames: R.n, fps: perfR(R.fps), medMs: perfR(R.medMs), p95Ms: perfR(R.p95Ms),
       longMsPerMin: perfR(R.ltMsPerMin), replyMedMs: perfR(R.replyMedMs), replyMaxMs: perfR(R.replyMaxMs), replies: R.replyN };
   }
   const perfMs = v => v === null || v === undefined ? "–" : (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10) + " ms";
@@ -3428,6 +3460,7 @@
       `Date and time: ${now.toISOString()} (London: ${dateFmt.format(now)}, ${timeFmt.format(now)})`,
       `Page: ${pg.page}`, `View: ${pg.view}`, `Map style: ${pg.style}`, `Theme: ${th}`, `Address: ${location.pathname}${location.search}`,
       `Mode: ${PERF.mode}`,
+      `Display: ${LIGHT ? "Light (animation capped at " + PERF.lightFps + " fps, no transitions)" : "Full"}`,
       `Level: ${PERF_LEVELS[P.level]}${pending}`,
       `State: ${P.state}${P.state === "ignoring" ? " (" + P.why + "; the first " + PERF.ignoreMs / 1000 + " s are not counted)" : ""}; ${Math.round(P.runMs / 1000)} s of visible running counted since the page loaded`,
       `Readings (frames: last ${PERF.ringMs / 1000} s; long tasks: per minute; replies: last ${PERF.replyKeep}):`,
@@ -3512,7 +3545,7 @@
     const R = P.R, H = P.hints, pg = perfPage();
     const pend = P.raw !== null && P.raw > P.level ? ` → ${PERF_LEVELS[P.raw]} ${Math.round(P.up / 1000)}/${PERF.holdUpMs / 1000}s` : P.raw !== null && P.raw < P.level ? ` ← ${PERF_LEVELS[P.raw]} ${Math.round(P.down / 1000)}/${PERF.holdDownMs / 1000}s` : "";
     perfOvLvl.dataset.level = P.level; perfSet1(perfOvLvl, PERF_LEVELS[P.level] + perfStateText());
-    perfSet1(perfOvText, `v${VERSION} · ${pg.page}${pg.view !== "n/a" ? " (" + pg.view + ")" : ""}${pg.style !== "n/a" ? " · " + pg.style : ""}\n` +
+    perfSet1(perfOvText, `v${VERSION}${LIGHT ? " · Light" : ""} · ${pg.page}${pg.view !== "n/a" ? " (" + pg.view + ")" : ""}${pg.style !== "n/a" ? " · " + pg.style : ""}\n` +
       `fps ${R.fps === null ? "–" : perfR(R.fps)} · frame ${perfMs(perfR(R.medMs))} · p95 ${perfMs(perfR(R.p95Ms))}\n` +
       `peak 24 h ${perfPeakText()}\n` +
       `long tasks ${!P.ltSupported ? "n/a" : R.ltMsPerMin === null ? "–" : perfMs(perfR(R.ltMsPerMin)) + "/min"}\n` +
@@ -3523,6 +3556,20 @@
     if (sheetEl && sheetEl.id === "sheet-prefs") perfPaintPrefs();
     if (perfOv) perfPaintOverlay();
   }
+  // v4.28: the Full | Light control in Prefs. The choice is read once at load (the reduced-motion flag is captured at start-up), so changing it saves and reloads.
+  (function lightControl() {
+    const full = document.getElementById("lt-full"), lite = document.getElementById("lt-light");
+    if (!full || !lite) return;
+    (LIGHT ? lite : full).checked = true;
+    const change = () => {
+      const on = lite.checked; if (on === LIGHT) return;
+      const u = new URL(location.href); u.searchParams.delete("light");      // a ?light in the address would override the choice on the next load
+      let saved = false; try { localStorage.setItem("uc-light", on ? "1" : "0"); saved = true; } catch (e) {}
+      if (!saved) u.searchParams.set("light", on ? "1" : "0");             // no storage: the address carries it instead
+      location.replace(u.href);
+    };
+    full.addEventListener("change", change); lite.addEventListener("change", change);
+  })();
   if (P.on) {
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") perfRestart("tab visible again"); else histSave(); });
     window.addEventListener("pagehide", histSave);
@@ -3558,7 +3605,7 @@
         `strays ${guard.strays} · problems ${guard.problems.length}\npage elements ${document.getElementsByTagName("*").length} · heap ${mem}`;
     }, 1000);
     window.__uc = { guard, loadLine, plainSwitch, get cur() { return cur; },
-      perf: { PERF, hints: P.hints, get level() { return P.level; }, get levelName() { return PERF_LEVELS[P.level]; }, get raw() { return P.raw; }, get state() { return P.state; }, get readings() { return Object.assign({ ltSupported: P.ltSupported }, P.R); }, get events() { return P.events; }, get warned() { return P.warned; }, get history() { return { buckets: HIST.b, peak: HIST.pk, string: perfHistString(), share: perfShareText() }; }, save: histSave, get up() { return P.up; }, get down() { return P.down; }, summary: perfSummary, report: perfReport } };   // v4.24
+      perf: { PERF, light: LIGHT, hints: P.hints, get level() { return P.level; }, get levelName() { return PERF_LEVELS[P.level]; }, get raw() { return P.raw; }, get state() { return P.state; }, get readings() { return Object.assign({ ltSupported: P.ltSupported }, P.R); }, get events() { return P.events; }, get warned() { return P.warned; }, get history() { return { buckets: HIST.b, peak: HIST.pk, string: perfHistString(), share: perfShareText() }; }, save: histSave, get up() { return P.up; }, get down() { return P.down; }, summary: perfSummary, report: perfReport } };   // v4.24
   }
 
   /* ---------- Start: mount the line the page was opened on ---------- */

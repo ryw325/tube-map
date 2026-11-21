@@ -948,3 +948,7 @@ html.uc-max.fm-style-poster .fm-pad { right: 28px; bottom: 184px; }
 .perf-actions button { border: 0; border-radius: 999px; padding: 8px 14px; background: var(--ink); color: var(--bg); font: 600 13px/1 var(--sans); cursor: pointer; }
 .perf-ta { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg); color: var(--ink); font: 10px/1.35 var(--mono); }
 .perf-ta[hidden] { display: none; }
+
+/* v4.28 Light display mode (Prefs, ?light): no transitions or animations anywhere. The reduced-motion branches in the scripts do the rest, and the animation loops are capped in engine.js (scope.frame). */
+html.uc-light *, html.uc-light *::before, html.uc-light *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+.sheet-body > .seg + .perf-note { margin-bottom: 4px; }

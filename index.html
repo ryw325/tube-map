@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tube Live</title>
 <script>if (/[?&]from=/.test(location.search)) { document.documentElement.classList.add("tx-in", "tx-away"); setTimeout(function () { var c = document.documentElement.classList; if (c.contains("tx-in")) c.remove("tx-in", "tx-away"); }, 5000); }  /* only used if a line ever has to switch by a full page load (the fallback): keep the panels slid off screen from the first paint */</script>
-<link rel="stylesheet" href="style.css?v=4.27">
+<link rel="stylesheet" href="style.css?v=4.28">
 </head>
 <body>
 <div class="wrap">
   <aside class="panel">
     <div class="panel-head">
       <h1 class="line-title"><span class="swatch" aria-hidden="true"></span><span id="line-name">Loading…</span></h1>
-      <p class="eyebrow">Live prototype · v4.27</p>
+      <p class="eyebrow">Live prototype · v4.28</p>
     </div>
 
     <div>
@@ -196,6 +196,12 @@
         </form>
         <small class="key-note" id="key-note">Optional. Saved only in this browser.</small>
       </details>
+      <p class="sub-label">Display mode</p>
+      <div class="seg" role="radiogroup" aria-label="Display mode">
+        <input type="radio" name="lite" id="lt-full" value="full" checked><label for="lt-full">Full</label>
+        <input type="radio" name="lite" id="lt-light" value="light"><label for="lt-light">Light</label>
+      </div>
+      <p class="perf-note">Light is for slower devices: animation runs at 30 frames a second and screens change without fades or slides. Live data is just as fresh. Changing it reloads the page.</p>
       <div class="perf-block" id="perf-block">
         <p class="sub-label">Display load</p>
         <dl class="perf-dl" id="perf-dl"></dl>
@@ -208,7 +214,7 @@
   </div>
 </section>
 
-<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "4.27"; -->
+<!-- Pages opened before v2.5 look for this line to know a newer version exists: const VERSION = "4.28"; -->
 <script src="lines/index.js"></script>
 <script src="lines/shared.js"></script>
 <script src="lines/hubs.js"></script>
