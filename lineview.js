@@ -1,7 +1,7 @@
 /* Line view layout (v4.22): one line as a strip, stations at equal gaps, branches as parallel lanes. No DOM; loaded only when the Line view is chosen.
-   UndercurrentLineView.build(LINE, orient, T) -> { stations: {id: [x, y]}, pref: {id: side}, paths: {"a>b": [[x, y], ...]}, marks: [...], emptyAt, extent }
+   UndercurrentLineView.build(LINE, orient, T) -> { stations: {id: [x, y]}, pref: {id: side}, paths: {"a>b": [[x, y], ...]}, emptyAt, extent }
      orient "v": stations run top to bottom (phones, portrait); "h": left to right (landscape). The layout is made vertically and turned 90 degrees for "h".
-     T is the line's True layout (lines/<id>-true.js) if it has one; it is only used to find where the line crosses the Thames.
+     T is the line's True layout (lines/<id>-true.js) if it has one. (v4.27: the Line view has no river; T is used to put branches on their geographic side.)
    How it is laid out:
      * the longest route is the spine (lane 0); a lane step is LANE_GAP, a row step is GAP
      * any other route is walked along: a run of stations that is not placed yet either leaves a placed station (a branch: rows carry on in the direction
@@ -55,10 +55,11 @@
   }
 
   /* ---------- the general layout: spine, branches, parallel paths ---------- */
-  function general(LINE, G, orient) {
+  function general(LINE, G, orient, T) {
     const ids = LINE.stations.map(s => s.id), routes = LINE.routes && LINE.routes.length ? LINE.routes : [ids];
-    const spine = routes.reduce((b, r) => r.length > b.length ? r : b, routes[0]);   // lvSpine: a line file can name the route that is the strip (the DLR: Bank to Lewisham)
+    const spine = routes[LINE.lvSpine] || routes.reduce((b, r) => r.length > b.length ? r : b, routes[0]);   // lvSpine: a line file can name (by number) the route that is the strip (Elizabeth: Reading to Abbey Wood, so the Heathrow branches hang below it)
     const P = new Map(), occ = new Map();
+    const runList = [];                                       // every run of stations placed as a branch, for the geographic sides below
     // lv: a line file can give every station its lane and row (the DLR, a network that no spine-and-branch rule lays out well)
     if (LINE.lv) {
       ids.forEach(id => { const q = LINE.lv[id] || [7, 0]; P.set(id, { lane: q[0], row: q[1] }); });
@@ -105,6 +106,7 @@
           lo = Math.min(rq, rows[0]); hi = Math.max(rq, rows[0]);
         } else { rows = run.map((_, m) => m); lo = 0; hi = k - 1; }
         const lane = take(lo, hi, [p, q].filter(Boolean));
+        runList.push({ lane, lo, hi, ids: run });
         // a parallel path between two close rows would need a slant shallower than 30 degrees: bring its lane in a little so the slant stays steep
         const gapRows = p && q ? Math.abs(P.get(q).row - P.get(p).row) / (k + 1) : 1, xs = Math.max(0.45, Math.min(1, gapRows * G / (LANE_GAP * 0.95)));
         run.forEach((id, m) => P.set(id, { lane, row: rows[m], xs }));
@@ -113,6 +115,22 @@
     }
     }
     ids.forEach(id => { if (!P.has(id)) P.set(id, { lane: 7, row: 0 }); });
+    // v4.27: a branch goes on its geographic side of the spine: north at the top (landscape; the left in portrait), south at the bottom (the right). The side is read
+    // from the line's True layout (a branch whose stations lie north of the spine beside them is a north branch). Lines with a plan of their own (lv) and lines without a True layout keep their lanes.
+    if (T && T.stations && !LINE.lv) {
+      const Ty = id => T.stations[id] ? T.stations[id][1] : null, sy = spine.map(Ty);
+      const refY = row => { const i = Math.max(0, Math.min(spine.length - 1, row)), a = Math.floor(i), b = Math.ceil(i); return sy[a] === null || sy[b] === null ? null : sy[a] + (sy[b] - sy[a]) * (i - a); };
+      const order = runList.map((r, i) => ({ ...r, i })).sort((a, b) => Math.abs(a.lane) - Math.abs(b.lane) || b.lane - a.lane || a.i - b.i);   // inner lanes first, so a branch off a branch stays outside it
+      const nocc = new Map([[0, occ.get(0) || []]]);
+      const freeIn = (lane, lo, hi) => !(nocc.get(lane) || []).some(([a, b]) => a < hi - 1e-6 && lo < b - 1e-6);
+      order.forEach(r => {
+        let sum = 0, n = 0;
+        r.ids.forEach(id => { const v = P.get(id), y = Ty(id), ry = refY(v.row); if (y !== null && ry !== null) { sum += y - ry; n++; } });
+        const sd = n && Math.abs(sum / n) > 1e-6 ? (sum < 0 ? -1 : 1) : Math.sign(r.lane) || 1;
+        for (let k = 1; k < 12; k++) if (freeIn(sd * k, r.lo, r.hi)) { if (!nocc.has(sd * k)) nocc.set(sd * k, []); nocc.get(sd * k).push([r.lo, r.hi]); r.ids.forEach(id => { P.get(id).lane = sd * k; }); break; }
+      });
+      occ.clear(); nocc.forEach((v, k) => occ.set(k, v));
+    }
     const r0 = Math.min(...[...P.values()].map(v => v.row));
     // three lanes side by side leave the middle one no room for its labels (they would sit on the next lane): then the lanes are spread wide enough for a label between
     let stack = 0;
@@ -128,7 +146,7 @@
   }
 
   /* ---------- a line that visits stations twice: stem, ring (two columns, a U at each end), and the second visits beside the first ---------- */
-  function ring(LINE, G) {
+  function ring(LINE, G, T) {
     const r = LINE.routes[0], of = {};
     LINE.stations.forEach(s => { if (s.of) of[s.id] = s.of; });
     const real = r.filter(id => !of[id]), tail = r.filter(id => of[id]);
@@ -153,55 +171,24 @@
       else pts = [pos[a], pos[b]];
       paths[k] = pts;
     }
+    // v4.27: the column that lies further south goes to the bottom (landscape; the right in portrait), so the ring is the right way up on the map
+    const my = ids => { const v = ids.map(id => T && T.stations && T.stations[id] ? T.stations[id][1] : null).filter(y => y !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const yRight = my(ringIds.slice(0, m)), yLeft = my(left);
+    if (yRight !== null && yLeft !== null && yLeft > yRight) {
+      Object.keys(pos).forEach(id => { pos[id] = [-pos[id][0], pos[id][1]]; lane[id] = -lane[id]; });
+      Object.keys(paths).forEach(k => { paths[k] = paths[k].map(q => [-q[0], q[1]]); });
+    }
     const pieces = r.slice(1).map((b, i) => [r[i], b]);
     return { pos, lane, paths, pieces, ring: true };
-  }
-
-  /* ---------- where the line crosses the Thames (from its True layout) ---------- */
-  function crossings(T, pieces, pos, lane) {
-    const marks = [];
-    if (!T || !T.river || !T.paths) return marks;
-    const R = T.river.pts;
-    const inter = (a, b, c, d) => {
-      const den = (b[0] - a[0]) * (d[1] - c[1]) - (b[1] - a[1]) * (d[0] - c[0]);
-      if (Math.abs(den) < 1e-9) return null;
-      const u = ((c[0] - a[0]) * (d[1] - c[1]) - (c[1] - a[1]) * (d[0] - c[0])) / den, v = ((c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])) / den;
-      return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? u : null;
-    };
-    pieces.forEach(([a, b]) => {
-      const tp = T.paths[a + ">" + b] || (T.paths[b + ">" + a] && T.paths[b + ">" + a].slice().reverse());
-      if (!tp) return;
-      const total = plen(tp); let acc = 0, hit = null;
-      for (let i = 1; i < tp.length && hit === null; i++) {
-        const l = hyp(tp[i][0] - tp[i - 1][0], tp[i][1] - tp[i - 1][1]);
-        for (let j = 1; j < R.length; j++) { const u = inter(tp[i - 1], tp[i], R[j - 1], R[j]); if (u !== null) { hit = (acc + l * u) / total; break; } }
-        acc += l;
-      }
-      if (hit !== null) marks.push({ a, b, f: hit });
-    });
-    return marks;
   }
 
   function build(LINE, orient, T) {
     const h = orient === "h", G = GAP[orient === "h" ? "h" : "v"];
     const hasOf = LINE.stations.some(s => s.of);
-    const L = hasOf ? ring(LINE, G) : general(LINE, G, orient === 'h' ? 'h' : 'v');
+    const L = hasOf ? ring(LINE, G, T) : general(LINE, G, orient === 'h' ? 'h' : 'v', T);
     const pos = L.pos, paths = {};
     // dense, rounded pieces
     Object.keys(L.paths).forEach(k => { paths[k] = resample(rounded(L.paths[k], FILLET), STEP); paths[k][0] = L.paths[k][0].slice(); paths[k][paths[k].length - 1] = L.paths[k][L.paths[k].length - 1].slice(); });
-    // the Thames: a band across the piece at the same fraction along it as the real crossing
-    const marks = [];
-    crossings(T, L.pieces, pos, L.lane).forEach(c => {
-      const pp = paths[c.a + ">" + c.b] || (paths[c.b + ">" + c.a] && paths[c.b + ">" + c.a].slice().reverse());
-      if (!pp) return;
-      const tot = plen(pp); let acc = 0, x = pp[0][0], y = pp[0][1], ang = 90;
-      for (let i = 1; i < pp.length; i++) {
-        const l = hyp(pp[i][0] - pp[i - 1][0], pp[i][1] - pp[i - 1][1]);
-        if (acc + l >= c.f * tot) { const f = (c.f * tot - acc) / (l || 1); x = pp[i - 1][0] + (pp[i][0] - pp[i - 1][0]) * f; y = pp[i - 1][1] + (pp[i][1] - pp[i - 1][1]) * f; ang = Math.atan2(pp[i][1] - pp[i - 1][1], pp[i][0] - pp[i - 1][0]) * 180 / Math.PI; break; }
-        acc += l;
-      }
-      marks.push({ x, y, ang: ang + 90, len: 190, title: (T && T.name) || "The line crosses the Thames here" });
-    });
     // label sides: outward from the middle lane (vertical); alternating above and below along a row of stations (horizontal)
     const pref = {};
     const ids = Object.keys(pos);
@@ -214,11 +201,10 @@
     const xs = ids.map(id => pos[id][0]), ys = ids.map(id => pos[id][1]);
     let ext = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
     // turn it for a landscape screen: x and y change places (so the first station is at the left)
-    let stations = {}, outPaths = {}, outMarks = marks;
+    let stations = {}, outPaths = {};
     if (h) {
       ids.forEach(id => { stations[id] = [pos[id][1], pos[id][0]]; });
       Object.keys(paths).forEach(k => { outPaths[k] = paths[k].map(p => [p[1], p[0]]); });
-      outMarks = marks.map(m => ({ ...m, x: m.y, y: m.x, ang: 270 - m.ang }));   // x and y swapped: a direction of travel t becomes 90 - t, and the band stays across it
       ext = [ext[1], ext[0], ext[3], ext[2]];
     } else {
       ids.forEach(id => { stations[id] = [pos[id][0], pos[id][1]]; });
@@ -229,9 +215,8 @@
     const sh = p => [p[0] + dx, p[1] + dy];
     Object.keys(stations).forEach(id => { stations[id] = sh(stations[id]); });
     Object.keys(outPaths).forEach(k => { outPaths[k] = outPaths[k].map(sh); });
-    outMarks = outMarks.map(m => ({ ...m, x: m.x + dx, y: m.y + dy }));
     ext = [ext[0] + dx, ext[1] + dy, ext[2] + dx, ext[3] + dy];
-    return { stations, pref, paths: outPaths, marks: outMarks, emptyAt: [Math.round((ext[0] + ext[2]) / 2), Math.round(ext[3] + (h ? 150 : 190))], extent: ext, orient, ring: L.ring };
+    return { stations, pref, paths: outPaths, emptyAt: [Math.round((ext[0] + ext[2]) / 2), Math.round(ext[3] + (h ? 150 : 190))], extent: ext, orient, ring: L.ring };
   }
 
   window.UndercurrentLineView = { build, GAP, LANE_GAP };

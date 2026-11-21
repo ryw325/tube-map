@@ -4,9 +4,10 @@ window.UNDERCURRENT_LINE = {
  "colour": {"light": "#6950A1", "dark": "#A08BD6"},
  "train": {"light": "#3A2C66", "dark": "#E6DFF5"},
  "dirs": {
-  "S": {"label": "Eastbound", "stat": "To Shenfield & Abbey Wood", "platform": ["southbound", "eastbound"]},
-  "N": {"label": "Westbound", "stat": "To Reading & Heathrow", "platform": ["northbound", "westbound"]}
+  "S": {"label": "Eastbound", "stat": "Eastbound", "platform": ["southbound", "eastbound"]},
+  "N": {"label": "Westbound", "stat": "Westbound", "platform": ["northbound", "westbound"]}
  },
+ "lvSpine": 0,
  "spacing": 1.3,
  "stations": [
   {"id": "RDG", "naptan": "910GRDNGSTN", "code": "RDG", "name": "Reading", "x": 120, "y": 1828, "pref": "right"},

@@ -217,7 +217,7 @@
       if (c.fadeFrom && T >= c.fadeFrom) { t.alpha = Math.max(0, Math.min(1, (c.fadeTo - T) / Math.max(1, c.fadeTo - c.fadeFrom))); t.dead = t.dead || now; }
       else t.alpha = Math.min(1, (now - t.born) / 600, t.hideAt ? 1 - (now - t.hideAt) / 600 : 1);
     }
-    const hiddenT = (t, now) => t.core ? t.hidden : t.plan[0].eta - now > HORIZON_MS;
+    const hiddenT = (t, now) => (o.lineShown && !o.lineShown(t.line)) || (t.core ? t.hidden : t.plan[0].eta - now > HORIZON_MS);   // v4.27: a train of a line switched off in Layers is hidden
 
     // v4.07: every reply (and every failed request) goes to the in-site recorder too, when it is recording the Full Map
     const recFeed = (...a) => { try { const R = window.UndercurrentRecorder; if (R && R.active) R.feed("fullmap", ...a); } catch (e) {} };
@@ -340,27 +340,6 @@
       const share = vis.length > 8 ? overl / vis.length : 0;
       S.blurShare = share; S.blur = S.blur ? share > BLUR_SHOW : share > BLUR_HIDE;
       if (S.blur) return 0;
-      // v4.12 16-bit Pixel: a sprite on the page's art-pixel grid (grid = fullmap.js PG): 4 x 4 pixels of line colour, a one-pixel dark border, one white highlight pixel.
-      // No label fits inside, so at the two closest ladder steps the label sits just above the sprite in the bitmap font with a hard shadow.
-      if (tstyle && tstyle.sprite && tstyle.grid) {
-        const G = tstyle.grid, A = G.A, mode = S.labelMode || "off", out = [];
-        for (const { t, x, y } of vis) {
-          n++; const sx = Math.round((x + G.ox) / A) * A - G.ox, sy = Math.round((y + G.oy) / A) * A - G.oy; out.push([t, sx, sy]);
-          c.globalAlpha = t.alpha; c.fillStyle = tstyle.outline; c.fillRect(sx - 3 * A, sy - 3 * A, 6 * A, 6 * A);
-          c.fillStyle = tstyle.fill(t.line); c.fillRect(sx - 2 * A, sy - 2 * A, 4 * A, 4 * A);
-          c.fillStyle = "#FFFFFF"; c.fillRect(sx - A, sy - 2 * A, A, A);
-        }
-        if (tstyle.labels && mode !== "off") {
-          c.font = `8px ${font || "monospace"}`; c.textAlign = "center"; c.textBaseline = "alphabetic";
-          for (const [t, sx, sy] of out) {
-            const txt = mode === "vid" ? String(t.vid).slice(-3) : (t.code || (t.code = destCode(t)));
-            if (!txt || /^rb|ferry|cable/.test(t.line) && mode === "vid") continue;
-            const lx = Math.round(sx), ly = Math.round(sy - 3 * A - 3); c.globalAlpha = t.alpha;
-            c.fillStyle = tstyle.outline; c.fillText(txt, lx + 2, ly + 2); c.fillStyle = "#FFFFFF"; c.fillText(txt, lx, ly);
-          }
-        }
-        c.globalAlpha = 1; return n;
-      }
       if (glow) { const R = Math.round(W * 1.5), sp = glowFor(glow, R); for (const { t, x, y } of vis) { c.globalAlpha = t.alpha; c.drawImage(sp, x - R, y - R); } c.globalAlpha = 1; }
       if (tstyle && tstyle.glowLine) { const R = Math.round(W * 1.9); for (const { t, x, y } of vis) { c.globalAlpha = t.alpha; c.drawImage(glowFor(hexRgba(tstyle.fill(t.line), 0.6), R), x - R, y - R); } c.globalAlpha = 1; }   // a soft glow in the line colour round each train
       // Open-world blips: a ring in the line colour grows and fades about once every 1.4 s, staggered by vehicle so trains do not pulse together. Hidden when more than RING_MAX trains are drawn (frame rate).
@@ -375,6 +354,7 @@
         c.globalAlpha = 1;
       }
       if (tstyle && tstyle.core) shapes.core = pathFor(false, L * 0.8, W * 0.52), shapes.coreBoat = pathFor(true, L * 0.8, W * 0.44);
+      const mode = S.labelMode || "off", fs = Math.max(8.5, W * 0.56);
       for (const { t, x, y, ang } of vis) {
         n++; const boat = /^rb|ferry/.test(t.line);
         c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(-ang);
@@ -382,16 +362,14 @@
         if (tstyle && tstyle.core) { c.fillStyle = "rgba(255,255,255,.92)"; c.fill(boat ? shapes.coreBoat : shapes.core); }       // the white core: the brightest thing on screen
         if (tstyle && tstyle.windows && !boat && (S.labelMode || "off") === "off") { const ww = L * 0.2, wh = W * 0.36; c.fillStyle = tstyle.windows; c.beginPath(); c.roundRect(-L * 0.3, -wh / 2, ww, wh, wh * 0.25); c.roundRect(L * 0.05, -wh / 2, ww, wh, wh * 0.25); c.fill(); }   // labels off: two small cream windows
         c.restore();
-      }
-      // labels sit inside the train: the destination code (the same shorthand as the line maps) or the last 3 digits of the vehicle number (as on the station pages)
-      const mode = S.labelMode || "off", fs = Math.max(8.5, W * 0.56);
-      if (mode !== "off" && W >= 10) {
-        c.font = `700 ${fs}px ${font || "sans-serif"}`; c.textBaseline = "middle"; c.textAlign = "center";
-        for (const { t, x, y, ang } of vis) {
+        // v4.27: the label sits inside its train and is drawn straight after it, so a train drawn later covers both the body and the label of one drawn earlier
+        // (all the bodies used to be drawn first and then all the labels, so a label showed through the train on top of it)
+        // labels: the destination code (the same shorthand as the line maps) or the last 3 digits of the vehicle number (as on the station pages)
+        if (mode !== "off" && W >= 10) {
           const txt = mode === "vid" ? String(t.vid).slice(-3) : (t.code || (t.code = destCode(t)));
           if (!txt || /^rb|ferry|cable/.test(t.line) && mode === "vid") continue;
           const flip = Math.cos(ang) < 0;                                   // keep the text the right way up
-          c.save(); c.globalAlpha = t.alpha; c.translate(x, y); c.rotate(flip ? -ang + Math.PI : -ang);
+          c.save(); c.globalAlpha = t.alpha; c.font = `700 ${fs}px ${font || "sans-serif"}`; c.textBaseline = "middle"; c.textAlign = "center"; c.translate(x, y); c.rotate(flip ? -ang + Math.PI : -ang);
           c.fillStyle = tstyle && tstyle.core ? "#0D1014" : darkText(colour(t.line)) ? "#23272B" : "#FFFFFF"; c.fillText(txt, -L * 0.04, 0.5); c.restore();
         }
       }

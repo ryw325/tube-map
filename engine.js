@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.27: design log items L4 to L10 and F5 to F8, and 16-bit Pixel removed. Elizabeth's panel says Westbound and Eastbound (L4); the Thames fades out at the edges of the map instead of running on as long straight stretches (L5); the Line view has no river (L6); Line view branches sit on their geographic side, north above and south below, and the Circle ring is the right way up (L7, Elizabeth names its spine route with lvSpine); zoomed in, icons, trains, labels and the track shrink in steps, trains riding closer to the track (L8); one label size at each zoom in the True view (L9); Thameslink's white dash is drawn once per track piece, so it is dashed everywhere (L10); Full Map: a train drawn later covers the label of one under it (F5), landmark and airport badges are rounded squares (F6), Layers has five line switches (Underground, Overground with DLR and Trams, Hybrid Rail, River boats, Cable car), remembered, hiding lines and trains, and stations with no line left shrink (F8), and every line is bent gently to pass through its station icon (F7). 16-bit Pixel is gone (127 MB of tiles moved out of geo/tiles).
    v4.26: The Maps of all 21 lines are now the generated geo-schematic layouts, each with the one angular master Thames (45 and 90 degree turns only; every station on its real bank). Also publishes the performance meter and Display load (v4.24, v4.25).
    v4.25: Display load (Prefs): the Performance block is now Display load, with the current level, the peak level and when it happened, the share of time at each level and a 24 hour colour history strip (15 minutes a bar, worst level in each), all kept in localStorage for 24 hours so they survive reloads and the 4am reload; Copy report button in Prefs; peak and history lines in the report. Thresholds, warning and polling unchanged.
    v4.24: Performance meter and warning (Stage 1, warn only): one PERF settings table, device hints, frame, long-task and reply-processing readings, an OK, Strained or Struggling verdict, a calm warning when the display is struggling, an Artistic style note on the Full Map, a Performance block in Prefs, the ?perf overlay with Copy report, window.__uc.perf under ?debug, and a perf summary in the recording file's meta. Nothing changes by itself; polling and data freshness are untouched.
@@ -148,7 +149,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.26";
+  const VERSION = "4.27";
   /* ---------- Performance settings (v4.24): every number the performance meter uses, in one place ----------
      THE THRESHOLDS ARE PROVISIONAL: they are first guesses until they have been tested on real hardware (a TV stick, a low-power tablet).
      mode "warn" is the only mode built: the meter measures and shows a note, and never changes polling, data freshness or anything in trains-core.js.
@@ -693,6 +694,10 @@
     // v4.18: the track between two neighbouring stations as a list of points. The Map view draws straight pieces between stations (45 degree
     // layouts); the True view (LINE.geo, from lines/<id>-true.js) follows the real track, so a piece is a curve of many points.
     const GEO = LINE.geo || null;
+    // v4.27: zooming in makes the station icons, trains and labels a little smaller (about half their size at 8 times the zoom) so the trains have more track to cover on screen.
+    // zs is the size factor (1 at the opening view); it changes in steps of the same 1.3x as the True view's labels, and everything near the track (the train lanes, the label gap) follows it.
+    const ZOOM_SHRINK = 0.33;
+    let zs = 1, zsLevel = 0, zsPending = null;
     const GEOLAB = GEO && !GEO.fixed;                      // v4.22: the True view sizes and places its own labels; the Line view uses the ordinary ones (GEO.fixed)
     const PATH_MEMO = new Map();
     function pathPts(a, b) {
@@ -739,18 +744,20 @@
     };
     // The Thames: the same master shape on every line, only moved and resized to suit this map
     const RIVER = window.UNDERCURRENT_RIVER, RP = LINE.river;
-    const riverG = el("g", { transform: `scale(${SPACING})` });
+    // v4.27: the river fades out towards the edge of the fitted view (a soft mask in map units, set by fitView), so it no longer runs off the map as a long straight stretch.
+    // Only how it is drawn changes: the river's shape is the master Thames, as before.
+    const riverW = el("g", {});
+    const riverG = el("g", { transform: `scale(${SPACING})` }, riverW);
+    const riverFade = (() => {
+      const df = el("defs", {}, riverW), m = el("mask", { id: "river-fade", maskUnits: "userSpaceOnUse", x: -1e5, y: -1e5, width: 2e5, height: 2e5, style: "color-interpolation: sRGB" }, df);
+      const f = el("filter", { id: "river-fade-blur", filterUnits: "userSpaceOnUse", x: -1e5, y: -1e5, width: 2e5, height: 2e5 }, df), blur = el("feGaussianBlur", { stdDeviation: 100 }, f);
+      el("rect", { x: -1e5, y: -1e5, width: 2e5, height: 2e5, fill: "#000" }, m);
+      return { rect: el("rect", { fill: "#fff", filter: "url(#river-fade-blur)", x: 0, y: 0, width: 1, height: 1 }, m), blur, on: false };
+    })();
     if (GEO && GEO.river) {                                  // v4.18 True view: the real Thames at its real width, through the same transform as the track
       el("path", { class: "river", d: "M " + GEO.river.pts.map(q => q[0] + " " + q[1]).join(" L "), style: `stroke-width: ${GEO.river.width}px` }, riverG);
       if (GEO.river.label) el("text", { class: "river-label", x: GEO.river.label[0], y: GEO.river.label[1], "text-anchor": "middle" }, riverG).textContent = "Thames";
-    } else if (GEO && GEO.marks) {                           // v4.22 Line view: where the line crosses the Thames, a river-coloured band across the track
-      GEO.marks.forEach(m => {
-        const a = ((m.ang % 180) + 270) % 180 - 90, tf = `translate(${m.x.toFixed(1)} ${m.y.toFixed(1)}) rotate(${a.toFixed(1)})`;   // upright text whichever way the band lies
-        const g = el("g", { transform: tf }, riverG);
-        el("rect", { class: "river-band", x: -m.len / 2, y: -15, width: m.len, height: 30, rx: 7 }, g);
-        el("text", { class: "river-label", x: 0, y: 5, "text-anchor": "middle" }, g).textContent = "Thames";
-        el("title", {}, g).textContent = m.title || "The line crosses the Thames here";
-      });
+    } else if (GEO && GEO.fixed) {                           // v4.27 Line view: no river at all (the v4.22 river bands where the line crossed the Thames are gone)
     } else if (LINE.riverPath) {                             // v4.23: a river made for this layout (tools/make_map_candidate.py), already in the Map's coordinates
       el("path", { class: "river", d: "M " + LINE.riverPath.map(q => q[0] + " " + q[1]).join(" L "), style: `stroke-width: ${LINE.riverWidth || 46}px` }, riverG);
       if (LINE.riverLabel) el("text", { class: "river-label", x: LINE.riverLabel[0], y: LINE.riverLabel[1], "text-anchor": "middle" }, riverG).textContent = "Thames";
@@ -831,7 +838,23 @@
     const HOLLOW = !!LINE.hollow;
     const trackCore = HOLLOW ? el("path", { class: "track-core", d: trackD }) : null;
     // v4.23: "dashed": true in the line file (Thameslink) draws the line as the Tube map does: the line colour with a short white dash down the middle
-    const trackDash = LINE.dashed ? el("path", { class: "track-dash", d: trackD }) : null;
+    // v4.27: every piece of track is dashed once. Routes that share a piece (Thameslink's trunk is in up to 7) would each draw their own dashes, starting at different
+    // points, and the gaps would fill in to a solid white line; so a piece already drawn by an earlier route ends the run and the next new piece starts another.
+    const dashD = (() => {
+      const done = new Set(), runs = [];
+      ROUTE_LISTS.forEach(r => {
+        let cur = null;
+        for (let i = 1; i < r.length; i++) {
+          const k = r[i - 1] < r[i] ? r[i - 1] + ">" + r[i] : r[i] + ">" + r[i - 1];
+          if (done.has(k)) { cur = null; continue; }
+          done.add(k);
+          const P = pathPts(r[i - 1], r[i]);
+          if (cur) cur.push(...P.slice(1)); else { cur = P.slice(); runs.push(cur); }
+        }
+      });
+      return runs.map(P => "M " + polyD(P)).join(" ");
+    })();
+    const trackDash = LINE.dashed ? el("path", { class: "track-dash", d: dashD }) : null;
     const trainLayer = el("g", {});
     const content = el("g", {});                           // stations and labels, drawn above trains
     el("path", { class: "track", d: trackD, visibility: "hidden" }, content); // keeps the fitted view anchored to the line
@@ -1128,11 +1151,11 @@
       return { s, dir, lines, align, ax, by, rect, mks };
     }
 
-    function cost(c, placed) {
+    function cost(c, placed, clear = CLEAR) {
       let bad = 0;
       segs.forEach(([a, b]) => {
         const d = segRectDist(a, b, c.rect);
-        if (d < CLEAR) bad += (CLEAR - d) * 10;
+        if (d < clear) bad += (clear - d) * 10;
       });
       shareSegs.forEach(([a, b]) => { const d = segRectDist(a, b, c.rect); if (d < 12) bad += (12 - d) * 10; });
       placed.forEach(p => { if (overlap(c.rect, p.rect, 8)) bad += 500; });
@@ -1172,12 +1195,10 @@
       const upp = geoUpp();
       geoLevel = geoLevelOf(upp);
       const ls0 = Math.max(0.22, Math.min(2.4, GEO_LABEL_PX * Math.pow(GEO_STEP, geoLevel) / FS));
-      const placed = contRects(ls0);
-      S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
       const nIx = s => (IX[s.id] || []).length;
       const termini = new Set(ROUTE_LISTS.flatMap(r => [r[0], r[r.length - 1]]));
       const order = S.map((s, i) => i).filter(i => !S[i].of).sort((a, b) => (termini.has(b) - termini.has(a)) || (nIx(S[b]) - nIx(S[a])) || (a - b));   // termini, then the busiest interchanges, get first pick
-      const geoCost = (c, s) => {
+      const geoCost = (c, s, placed) => {
         let bad = cost(c, placed);
         S.forEach(o => { if (o !== s && ptRect(o.x, o.y, c.rect) < 17) bad += 500; });     // not over another station's icon
         placed.forEach(q => { if (overlap(c.rect, q.rect, 5 * upp)) bad += 500; });         // labels keep about 5 px apart on screen, so one never reads as part of the next
@@ -1189,19 +1210,35 @@
         const r = c.rect, f = (v, o) => o + (v - o) * ls;
         return { ...c, ls, px, py, rect: { x: f(r.x, px), x2: f(r.x2, px), y: f(r.y, py), y2: f(r.y2, py) } };
       };
-      order.forEach(i => {
-        const s = S[i];
-        const dirs = [s.pref, ...DIRS.filter(d => d !== s.pref)];
-        let best = null;
-        search:
-        for (const f of [1, 0.8]) {
+      // v4.27: one label size for every label at this zoom (it used to try 1 and then 0.8 of it station by station, so neighbours could differ). The whole layout is tried at the
+      // full size, then at smaller sizes, down to a floor of about 9 px on screen; the first size at which nearly every label fits is used, and the few that still do not fit
+      // are left off (the icon carries the name), as before.
+      const pass = lsU => {
+        const placed = contRects(lsU), out = [];
+        S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
+        order.forEach(i => {
+          const s = S[i], dirs = [s.pref, ...DIRS.filter(d => d !== s.pref)];
+          let best = null;
+          search:
           for (const D of [LABEL_GAP, LABEL_GAP + 12]) {
             for (const dir of dirs) {
-              const c = scaled(candidate(s, dir, D), ls0 * f); c.D = D;
-              if (geoCost(c, s) === 0) { best = c; break search; }
+              const c = scaled(candidate(s, dir, D), lsU); c.D = D;
+              if (geoCost(c, s, placed) === 0) { best = c; break search; }
             }
           }
-        }
+          if (best) placed.push(best);
+          out.push([i, best]);
+        });
+        return { out, placed, miss: out.filter(o => !o[1]).length };
+      };
+      let ls = ls0, res = null;
+      for (const f of [1, 0.92, 0.84, 0.76, 0.7, 0.65]) {
+        ls = ls0 * f; res = pass(ls);
+        if (res.miss <= Math.ceil(0.03 * order.length)) break;
+      }
+      const placed = res.placed;
+      res.out.forEach(([i, best]) => {
+        const s = S[i];
         const node = stationNodes[i];
         let tt = node.querySelector("title.geo-name");
         if (!best) {                                          // no room at this zoom: the icon carries the name instead
@@ -1210,7 +1247,6 @@
           return;
         }
         if (tt) tt.remove();
-        placed.push(best);
         s.labelRect = best.rect;
         if (best.D / upp > 40) {                              // zoomed in far, the label clears the train lanes by a long way: a thin leader joins it to its station
           const lx = best.px - s.x, ly = best.py - s.y, ll = Math.hypot(lx, ly) || 1;
@@ -1228,7 +1264,7 @@
         const R = placed.map(c => c.rect);
         geoLabelBox = R.length ? { x1: Math.min(...R.map(r => r.x)), y1: Math.min(...R.map(r => r.y)), x2: Math.max(...R.map(r => r.x2)), y2: Math.max(...R.map(r => r.y2)) } : null;
       }
-      contLabels(ls0);
+      contLabels(ls);
       fitView();
     }
     function contSpot(k, ls) {                                   // where the "Towards ..." label sits: beyond the arrowhead (to the right of it for a vertical stub)
@@ -1250,6 +1286,8 @@
     function layout() {
       if (GEOLAB) return layoutGeo();
       while (labelLayer.firstChild) labelLayer.firstChild.remove();
+      const ls = zs, clear = CLEAR * ls;                       // v4.27: zoomed in, a label, its gap to the station and the clearance round the train lanes all shrink with the icons and trains
+      const about = (c, s) => { const f = (v, o) => o + (v - o) * ls, r = c.rect; return { ...c, rect: { x: f(r.x, s.x), x2: f(r.x2, s.x), y: f(r.y, s.y), y2: f(r.y2, s.y) } }; };   // scaled about the station
       const placed = contRects(1);
       S.forEach(s => { if (s.of) placed.push({ rect: { x: s.x - 16, y: s.y - 16, x2: s.x + 16, y2: s.y + 16 } }); });   // labels keep clear of second icons
       S.forEach(s => {
@@ -1259,22 +1297,23 @@
         outer:
         for (const D of [LABEL_GAP, LABEL_GAP + 12]) {
           for (const dir of order) {
-            const c = candidate(s, dir, D);
-            const k = cost(c, placed);
+            const c = ls === 1 ? candidate(s, dir, D) : about(candidate(s, dir, D), s);
+            const k = cost(c, placed, clear);
             if (k === 0) { best = c; bestCost = 0; break outer; }
             if (k < bestCost) { best = c; bestCost = k; }
           }
         }
         placed.push(best);
         s.labelRect = best.rect;
-        const text = el("text", { class: "label clickable", "text-anchor": best.align }, labelLayer);
+        const host = ls === 1 ? labelLayer : el("g", { transform: `translate(${s.x} ${s.y}) scale(${ls.toFixed(3)}) translate(${-s.x} ${-s.y})` }, labelLayer);
+        const text = el("text", { class: "label clickable", "text-anchor": best.align }, host);
         text.addEventListener("click", () => openBoard(S.indexOf(s)));
         best.lines.forEach((ln, i) => {
           el("tspan", { x: best.ax, y: best.by + ASC + i * LH }, text).textContent = ln;
         });
-        const row = { items: [] };
+        const row = ls === 1 ? { items: [] } : { items: [], xf: { px: s.x, ls } };
         openIx = null;
-        best.mks.forEach(([key, cx, cy]) => marker(labelLayer, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row, S.indexOf(s)));
+        best.mks.forEach(([key, cx, cy]) => marker(host, key, cx, cy, best.align, best.dir === "top" ? "up" : best.dir === "bottom" ? "down" : "mid", row, S.indexOf(s)));
         if (row.items.length) layoutRow(row);
       });
       contLabels(1);
@@ -1308,6 +1347,13 @@
         y1 -= 64 * (bw / bh > a ? bw / a : bh) / Math.max(200, r.height || 600);
       }
       view.base = { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
+      if (riverW.querySelector("path.river")) {                // the river fades out towards the edge of what the fitted view shows
+        const fs = fitSize(), b = view.base, F = Math.min(fs.w, fs.h) * 0.15, ix = b.x + b.w / 2 - fs.w / 2 + F * 0.5, iy = b.y + b.h / 2 - fs.h / 2 + F * 0.5;
+        riverFade.blur.setAttribute("stdDeviation", (F * 0.3).toFixed(1));
+        riverFade.rect.setAttribute("x", ix.toFixed(1)); riverFade.rect.setAttribute("y", iy.toFixed(1));
+        riverFade.rect.setAttribute("width", Math.max(10, fs.w - F).toFixed(1)); riverFade.rect.setAttribute("height", Math.max(10, fs.h - F).toFixed(1));
+        if (!riverFade.on) { riverFade.on = true; riverW.setAttribute("mask", "url(#river-fade)"); }
+      }
       if (txBusy) return;                                    // the hand-over animation owns the view
       if (view.user) applyView(); else resetView();
     }
@@ -1329,6 +1375,7 @@
         const pxW = Math.max(300, svg.getBoundingClientRect().width || 800), homeW = 1.9 * pxW;
         if (f.w > homeW) { view.w = homeW; view.h = homeW * f.h / f.w; view.x = b.x; view.y = b.y + b.h / 2 - view.h / 2; }
       }
+      view.homeW = view.w;                                    // v4.27: the width of the opening view; sizes shrink as the view gets narrower than this
       view.user = false;
       applyView();
     }
@@ -1345,7 +1392,30 @@
       svg.classList.toggle("zoomed", view.user);
       const z = document.getElementById("zoom-fit"); if (z) z.disabled = !view.user;
       if (GEOLAB) geoZoomCheck();                                // True view: labels are re-placed when the zoom has moved a step
+      zoomSizeCheck();
     }
+    // v4.27: icons, trains and labels follow the zoom in steps (the same 1.3x step as the True view's labels); the labels are then placed again
+    function applyZs() {
+      if (zs === 1) svg.style.removeProperty("--zs"); else svg.style.setProperty("--zs", zs.toFixed(3));   // the track and its dash thin with the icons (style.css)
+      stationNodes.forEach((g, i) => {
+        const s = S[i];
+        if (zs === 1) g.removeAttribute("transform"); else g.setAttribute("transform", `translate(${s.x} ${s.y}) scale(${zs.toFixed(3)}) translate(${-s.x} ${-s.y})`);
+      });
+    }
+    function zoomSizeCheck() {
+      if (zsPending || txBusy || !view.base || !view.homeW) return;
+      const lv = Math.max(0, Math.round(Math.log(view.homeW / view.w) / Math.log(GEO_STEP)));
+      if (lv === zsLevel) return;
+      zsPending = scope.after(() => {
+        zsPending = null;
+        if (txBusy) { zoomSizeCheck(); return; }
+        const l2 = Math.max(0, Math.round(Math.log(view.homeW / view.w) / Math.log(GEO_STEP)));
+        if (l2 === zsLevel) return;
+        zsLevel = l2; zs = Math.pow(GEO_STEP, -ZOOM_SHRINK * l2);
+        applyZs(); layout();
+      }, 160);
+    }
+
     const ZOOM_MAX = 8, ZOOM_OUT = 1.6;
     function toMap(clientX, clientY) {
       const r = svg.getBoundingClientRect();
@@ -2434,7 +2504,12 @@
         } else if (t.x === null || t.pendingD === null) { t.x = p.x; t.y = p.y; t.ang = p.ang; }
         const a = ((t.ang % 360) + 360) % 360;
         const flip = a > 90 && a < 270;
-        t.node.setAttribute("transform", `translate(${t.x.toFixed(1)} ${t.y.toFixed(1)}) rotate(${t.ang.toFixed(1)}) scale(${TRAIN_SCALE})`);
+        let tx = t.x, ty = t.y;
+        if (zs !== 1) {                                              // v4.27: zoomed in, the train is smaller and rides closer to the track (its lane is LANE from it)
+          const th = (t.ang - (t.dir === "N" ? 180 : 0)) * Math.PI / 180, pull = sgn(t.dir) * LANE * (1 - zs);
+          tx -= pull * Math.sin(th); ty += pull * Math.cos(th);
+        }
+        t.node.setAttribute("transform", `translate(${tx.toFixed(1)} ${ty.toFixed(1)}) rotate(${t.ang.toFixed(1)}) scale(${(TRAIN_SCALE * zs).toFixed(3)})`);
         t.node.setAttribute("opacity", t.opacity.toFixed(2));
         if (t.core) { const sk = CoreLib.skippingAt(t.core, tflNow()); if (sk !== t.skOn) { t.skOn = sk; t.node.firstChild.setAttribute("d", sk ? CARRIAGE_SKIP : CARRIAGE); } }
         t.text.setAttribute("transform", flip ? "translate(-1 0) rotate(180)" : "translate(-1 0)");
@@ -3034,7 +3109,7 @@
       const orient = lvOrient();
       return Promise.all([loadLineView(), hasTrue(LINE.id) ? loadTrue(LINE.id).catch(() => null) : null]).then(([LV, T]) => {
         const out = LV.build(LINE, orient, T);
-        return { ...LINE, view: "line", orient, geo: { fixed: true, orient, paths: out.paths, marks: out.marks }, spacing: 1, river: null, emptyAt: out.emptyAt,
+        return { ...LINE, view: "line", orient, geo: { fixed: true, orient, paths: out.paths }, spacing: 1, river: null, riverPath: null, riverLabel: null, emptyAt: out.emptyAt,
           stations: LINE.stations.map(s => ({ ...s, x: out.stations[s.id][0], y: out.stations[s.id][1], pref: out.pref[s.id] })) };
       }, () => LINE);                                      // if it cannot load, the page stays on Map
     }
