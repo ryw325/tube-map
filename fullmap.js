@@ -20,7 +20,7 @@
   const PAPER = "#EAD8AD", INK = "#3B2A1A";
   // each line's official colour (the page draws the lines; Artistic styles adjust them in LOOKS below)
   const LINE_COL = { bakerloo: "#B36305", central: "#E32017", circle: "#FFD300", district: "#00782A", "hammersmith-city": "#F3A9BB", jubilee: "#8D9296", metropolitan: "#9B0056", northern: "#000000", piccadilly: "#003688",
-      victoria: "#20A4E0", "waterloo-city": "#95CDBA", elizabeth: "#6950A1", liberty: "#676767", lioness: "#F1B41C", mildmay: "#437EC1", suffragette: "#39B97A", weaver: "#972861", windrush: "#EF4D5E", dlr: "#00AFAD", tram: "#84B817", "london-cable-car": "#E21836", rb1: "#0019A8", rb4: "#0019A8", rb6: "#0019A8", thameslink: "#C27AA0" };   // Thameslink (v4.23): the Tube map's dusty rose, a white dash down the middle (drawLines)
+      victoria: "#20A4E0", "waterloo-city": "#95CDBA", elizabeth: "#6950A1", liberty: "#676767", lioness: "#F1B41C", mildmay: "#437EC1", suffragette: "#39B97A", weaver: "#972861", windrush: "#EF4D5E", dlr: "#00AFAD", tram: "#84B817", "london-cable-car": "#E21836", rb1: "#0019A8", rb4: "#0019A8", rb6: "#0019A8", thameslink: "#C27AA0", "national-rail": "#D4202A" };   // Thameslink (v4.23): the Tube map's dusty rose, a white dash down the middle (drawLines)
   const mixHex = (a, b, t) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), A = p(a), B = p(b); return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, "0")).join(""); };
   // v3.74: how each Artistic style draws what the page draws over its tiles (lines, stations, labels, zones, trains). One entry per style; Geographic has none.
   const POSTER = { paper: "#EFE3C4", ink: "#2A2624", red: "#B5442F" };
@@ -126,7 +126,7 @@
   const BOUNDS = { x0: 503000, y0: 155000, x1: 562000, y1: 201000 };   // Greater London (boroughs), from geo/boroughs.json
   const PAD = 4000;                      // the centre may drift this far past the edge
   const LS_CTL = "uc-fm-controls";
-  const LINE_NAMES = { bakerloo: "Bakerloo", central: "Central", circle: "Circle", district: "District", "hammersmith-city": "Hammersmith & City", jubilee: "Jubilee", metropolitan: "Metropolitan", northern: "Northern", piccadilly: "Piccadilly", victoria: "Victoria", "waterloo-city": "Waterloo & City", elizabeth: "Elizabeth", liberty: "Liberty", lioness: "Lioness", mildmay: "Mildmay", suffragette: "Suffragette", weaver: "Weaver", windrush: "Windrush", dlr: "DLR", tram: "Tram" };
+  const LINE_NAMES = { "national-rail": "National Rail", bakerloo: "Bakerloo", central: "Central", circle: "Circle", district: "District", "hammersmith-city": "Hammersmith & City", jubilee: "Jubilee", metropolitan: "Metropolitan", northern: "Northern", piccadilly: "Piccadilly", victoria: "Victoria", "waterloo-city": "Waterloo & City", elizabeth: "Elizabeth", liberty: "Liberty", lioness: "Lioness", mildmay: "Mildmay", suffragette: "Suffragette", weaver: "Weaver", windrush: "Windrush", dlr: "DLR", tram: "Tram" };
 
   function mount(MAP, scope, ctx) {
     const { svg, panelsApi } = ctx;
@@ -215,7 +215,7 @@
     /* ---------- What is shown (v3.59 filters; v3.60: Layers pop-up with icon, line and label switches) ---------- */
     const on = { fare: false, cc: false, ulez: false, boroughs: false };      // zones and boundaries: off to start with
     const TYPES = [["bridge", "Bridges"], ["worship", "Places of worship"], ["palace", "Palaces and castles"], ["monument", "Monuments"], ["tower", "Towers"], ["museum", "Museums"], ["theatre", "Theatres and halls"], ["civic", "Civic buildings"], ["stadium", "Stadiums"], ["attraction", "Attractions"], ["airport", "Airports"]];
-    const show = { tube: true, overground: true, hybrid: true, boats: true, cable: true, labels: true, icons: true, cut: false, train: "dest", types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
+    const show = { tube: true, overground: true, hybrid: true, national: true, boats: true, cable: true, labels: true, icons: true, cut: false, train: "dest", types: Object.fromEntries(TYPES.map(([k]) => [k, true])) };
     let style = "geographic";
     try { const v = localStorage.getItem(LS_STYLE); if (STYLES.some(t => t.id === v)) style = v; show.cut = localStorage.getItem(LS_CUT) === "1"; } catch (e) {}
     const T = t => cols && cols.upper ? t.toUpperCase() : t;
@@ -226,12 +226,12 @@
     const typeOn = k => show.icons && show.types[k];
     // v4.27: the line switches in Layers. Underground; Overground (with the DLR and Trams); Hybrid Rail (Elizabeth line and Thameslink); river boats; the cable car.
     // The choice is remembered on the device. A line that is off is not drawn, its trains are hidden, and a station that none of its lines serve any more is drawn small, like a National Rail station.
-    const GROUPS = ["tube", "overground", "hybrid", "boats", "cable"], LS_RAIL = "uc-fm-rail";
+    const GROUPS = ["tube", "overground", "hybrid", "national", "boats", "cable"], LS_RAIL = "uc-fm-rail";
     try { const v = JSON.parse(localStorage.getItem(LS_RAIL) || "null"); if (v) for (const k of GROUPS) if (typeof v[k] === "boolean") show[k] = v[k]; } catch (e) {}
-    const groupOf = lid => /^rb|ferry/.test(lid) ? "boats" : /cable/.test(lid) ? "cable" : lid === "elizabeth" || lid === "thameslink" ? "hybrid" : /^(dlr|tram|liberty|lioness|mildmay|suffragette|weaver|windrush)$/.test(lid) ? "overground" : "tube";
+    const groupOf = lid => lid === "national-rail" ? "national" : /^rb|ferry/.test(lid) ? "boats" : /cable/.test(lid) ? "cable" : lid === "elizabeth" || lid === "thameslink" ? "hybrid" : /^(dlr|tram|liberty|lioness|mildmay|suffragette|weaver|windrush)$/.test(lid) ? "overground" : "tube";
     const lineOn = lid => show[groupOf(lid)];
     const anyLines = () => GROUPS.some(k => show[k]);
-    let F = null, fLoading = false, LM = null, RG = null, edgeHits = [], tapHits = [], LIVE = null, liveRunning = false, liveLast = 0;
+    let F = null, fLoading = false, LM = null, OUT = null, stationsAll = null, RG = null, edgeHits = [], tapHits = [], LIVE = null, liveRunning = false, liveLast = 0;
     // v4.05: the airport arrow pills fade out after PILL_IDLE ms with no touch, key or mouse activity, and come straight back on the next one
     const PILL_IDLE = 10000, PILL_OUT = 900, PILL_IN = 250;
     let lastAct = performance.now(), pillFrom = 1, pillTo = 1, pillT0 = 0, pillMs = 0;
@@ -509,7 +509,7 @@
       const c = ctx2, g = ctx2, labels = [], cand = [], dots = [];
       let shown = 0;
       // v4.06: every station icon is one size, the widest the lines call for: three stripe lanes side by side (1.5 stripe widths either side of the centre) as at Liverpool Street
-      const lw = lineW(), stripeW = stripeOf(lw), pad = lvl === 0 ? 1.5 : 2.5, bigR = lw / 2 + stripeW * 1.5 + pad;
+      const lw = lineW(), stripeW = lvl === 0 ? 0 : stripeOf(lw), pad = lvl === 0 ? 1.5 : 2.5, bigR = lw / 2 + stripeW * 1.5 + pad;      // zoomed right out the icon stays small (it is not widened for the lanes)
       const isPier = st => st.modes.includes("river-bus") || st.modes.includes("ferry");
       const houses = art() && look().house && s >= 0.25;               // v4.11 Cosy Village: tiny houses at the closer zooms (drawn with the map, once per view)
       const dot = (st, x, y, r, live) => {
@@ -526,7 +526,7 @@
         const x = toScreenX(st.x), y = toScreenY(st.y);
         if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
         const r0 = lvl === 0 ? 2 : lvl === 1 ? (live ? 3.2 : 2.4) : (live ? 5 : 3.6), r = live && !isPier(st) && anyLines() && RG ? Math.max(r0, bigR) : r0;
-        const drawn = !(lvl === 0 && (!hub || st.modes.includes("river-bus") && st.modes.length === 1)) && !(lvl === 1 && !live && s < 0.12);
+        const drawn = !(lvl === 0 && !live) && !(lvl === 1 && !live && s < 0.12);      // v4.29 (local): zoomed out every station of a shown line stays, as the small icon (it used to keep only the interchanges)
         if (wide && live && !(st.modes.includes("river-bus") && st.modes.length === 1)) cand.push([st, x, y, r, drawn]);
         if (!drawn) continue;
         shown++; dot(st, x, y, r, live);
@@ -604,9 +604,93 @@
       c.fillStyle = br; c.fillRect(x - 1.2 * k, y + 2 * k, 2.4 * k, 4 * k);
     }
 
+    /* ---------- The fixed edge (v4.29): Greater London, and nothing outside it ---------- */
+    // geo/outline.js (tools/geo/make_outline.py): "gl" is the outline of Greater London (the Thames filled in to mid-river), "keep" is that grown by 500 m. Outside "gl" the map is blank paper
+    // and a thin line marks the edge. Lines, stations, landmarks and trains are kept inside "keep" (a station within 500 m of the edge stays, with its line), and a line that leaves the map is
+    // labelled with where it goes ("to Epping"). Done by clipping when drawing, so the data underneath is whole and the live layer needs no changes.
+    function pip(ring, x, y) { let ins = false; for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) { const xi = ring[i], yi = ring[i + 1], xj = ring[j], yj = ring[j + 1]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) ins = !ins; } return ins; }
+    const inKeep = (x, y) => !OUT || pip(OUT.keep[0], x, y);
+    function applyOutline() {                      // the station list and the landmarks inside the keep zone (run again when either arrives)
+      if (OUT && stationsAll) stations = stationsAll.filter(q => inKeep(q.x, q.y));
+      if (OUT && LM && !LM.trimmed) { LM.landmarks = LM.landmarks.filter(l => inKeep(l.x, l.y)); LM.trimmed = true; }
+      dirty();
+    }
+    function ringTo(c, ring) { for (let i = 0; i < ring.length; i += 2) { const x = toScreenX(ring[i]), y = toScreenY(ring[i + 1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); } c.closePath(); }
+    function paintOutside() {                      // paper over everything outside Greater London (tiles included)
+      if (!OUT) return; const c = ctx2;
+      c.beginPath(); c.rect(-2, -2, W + 4, H + 4); ringTo(c, OUT.gl[0]); c.fillStyle = cols.bg; c.fill("evenodd");
+    }
+    function edgeLine() {
+      if (!OUT) return; const c = ctx2, pa = art();
+      c.beginPath(); ringTo(c, OUT.gl[0]); c.lineJoin = "round"; c.lineWidth = Math.max(1, Math.min(1.5, view.s * 1500)); c.strokeStyle = pa ? (cols.muted || cols.ink || "#333") : theme === "dark" ? "rgba(230,234,237,.4)" : "rgba(35,39,43,.5)"; c.globalAlpha = pa ? (style === "night" ? 0.4 : 0.9) : 0.8; c.stroke(); c.globalAlpha = 1;
+    }
+    function clipKeep(c) { if (!OUT) return; c.beginPath(); ringTo(c, OUT.keep[0]); c.clip(); }
+    function exitBox(e) {                          // the world box of an exit's track, worked out once
+      if (!e._b) { let x0 = e.x, y0 = e.y, x1 = e.x, y1 = e.y; const P = e.path.concat([e.ex, e.ey]); for (let k = 0; k < P.length; k += 2) { if (P[k] < x0) x0 = P[k]; if (P[k] > x1) x1 = P[k]; if (P[k + 1] < y0) y0 = P[k + 1]; if (P[k + 1] > y1) y1 = P[k + 1]; } e._b = [x0, y0, x1, y1]; }
+      return e._b;
+    }
+    function exitOnScreen(e, pad) { const b = exitBox(e); return toScreenX(b[2]) > -pad && toScreenX(b[0]) < W + pad && toScreenY(b[1]) > -pad && toScreenY(b[3]) < H + pad; }       // any part of the track, not just its end
+    function drawExitTracks() {                    // where a line leaves the map: its track carries on past the edge to an arrowhead. Drawn with the lines, so station icons sit on top of it
+      if (!OUT || !anyLines()) return;
+      const c = ctx2, lw = lineW(), pa = art(), cas = pa && look().casing, hl = lw * 2.2 + 3, hw = lw * 1.35 + 1.8;
+      c.lineJoin = "round"; c.lineCap = "round";
+      for (const e of OUT.exits) {
+        const on = e.lines.filter(lineOn); if (!on.length || !exitOnScreen(e, hl + 20)) continue;
+        const x = toScreenX(e.ex), y = toScreenY(e.ey), ax = e.dx, ay = -e.dy, nx = -ay, ny = ax, P = e.path;
+        const dash = (e.lines.includes("thameslink") && lw >= 3.2);
+        on.forEach((l, i) => {
+          const nrl = l === "national-rail", NP = nrl ? nrPal(pa) : null;
+          const o = (i - (on.length - 1) / 2) * lw * 0.95, col = nrl ? NP.col(NP.k0) : lineColour(l);                  // lines leaving together run side by side
+          const pts = []; for (let k = 0; k < P.length; k += 2) pts.push([toScreenX(P[k]) + nx * o, toScreenY(P[k + 1]) + ny * o]);
+          const tip = [x + nx * o + ax * hl, y + ny * o + ay * hl], b = [x + nx * o, y + ny * o];
+          if (nrl && NP.dark && (NP.k0 === "black" || NP.k1 === "black")) {                  // a grey edge so black shows on a dark map, as on the track itself
+            c.globalAlpha = 1; c.strokeStyle = c.fillStyle = "#69737C";
+            if (pts.length > 1) { c.lineWidth = lw + 2; c.beginPath(); smoothTo(c, pts); c.stroke(); }
+            c.beginPath(); c.moveTo(tip[0] + ax * 1.2, tip[1] + ay * 1.2); c.lineTo(b[0] + nx * (hw + 1.2), b[1] + ny * (hw + 1.2)); c.lineTo(b[0] - nx * (hw + 1.2), b[1] - ny * (hw + 1.2)); c.closePath(); c.fill();
+          }
+          for (const pass of cas ? [0, 1] : [1]) {
+            const wide = pass === 0 ? casingW(lw) - lw : 0;
+            c.strokeStyle = pass === 0 ? look().casing : col; c.fillStyle = c.strokeStyle; c.globalAlpha = pass === 1 && look() && look().lineAlpha || 1;
+            if (pts.length > 1) { c.lineWidth = lw + wide; c.beginPath(); smoothTo(c, pts); c.stroke(); }
+            c.beginPath(); c.moveTo(tip[0] + ax * wide * 0.6, tip[1] + ay * wide * 0.6); c.lineTo(b[0] + nx * (hw + wide * 0.6), b[1] + ny * (hw + wide * 0.6)); c.lineTo(b[0] - nx * (hw + wide * 0.6), b[1] - ny * (hw + wide * 0.6)); c.closePath(); c.fill();
+          }
+          if (nrl && pts.length > 1) {                                                              // National Rail's blocks across the line, as on the rest of it (the arrowhead stays solid)
+            const d = lw * 1.9; c.globalAlpha = NP.LK && NP.LK.lineAlpha || 1; c.strokeStyle = NP.col(NP.k1); c.lineWidth = lw; c.lineCap = "butt"; c.setLineDash([d, d]); c.beginPath(); smoothTo(c, pts); c.stroke(); c.setLineDash([]); c.lineCap = "round";
+          }
+          if (l === "thameslink" && lw >= 3.2 && pts.length > 1) {                                 // Thameslink's white dash down the middle, as on the rest of the line
+            c.globalAlpha = look() && look().lineAlpha || 1; c.strokeStyle = cas ? look().casing : "#FFFFFF"; c.lineWidth = Math.max(1, lw * 0.34); c.setLineDash([lw * 2.4, lw * 1.7]); c.lineCap = "butt"; c.beginPath(); smoothTo(c, pts); c.stroke(); c.setLineDash([]); c.lineCap = "round";
+          }
+          c.globalAlpha = 1;
+        });
+      }
+    }
+    function drawExitLabels(placed) {              // and where it goes, written beyond the arrowhead (after the station names, so it can keep clear of them)
+      if (!OUT || !anyLines() || !show.labels) return;
+      const c = ctx2, drawnExits = [], lw = lineW(), hl = lw * 2.2 + 3;
+      c.font = `${cols.wt} ${fz(10.5)}px ${cols.sans}`; c.textBaseline = "middle"; c.lineJoin = "round";
+      for (const e of OUT.exits) {
+        const on = e.lines.filter(lineOn); if (!on.length) continue;
+        const x = toScreenX(e.ex), y = toScreenY(e.ey); if (x < -120 || x > W + 120 || y < -40 || y > H + 40) continue;
+        const ax = e.dx, ay = -e.dy;
+        const text = T("to " + e.t), side = Math.abs(ax) < 0.45 ? "center" : ax > 0 ? "left" : "right", gap = hl + 6 + (on.length - 1) * lw * 0.5;
+        const px = x + ax * gap + (side === "left" ? 2 : side === "right" ? -2 : 0), py = y + ay * gap + (side === "center" ? ay * 7 : 0);
+        const tw = c.measureText(text).width; let sd = side, qx = px, qy = Math.max(10, Math.min(H - 10, py));
+        if (sd === "right" && qx - tw < 4) { sd = "left"; qx = x + hl + 8; } else if (sd === "left" && qx + tw > W - 4) { sd = "right"; qx = x - hl - 8; }       // not off the edge of the screen
+        if (sd === "center") qx = Math.max(tw / 2 + 4, Math.min(W - tw / 2 - 4, qx));
+        const bx = sd === "center" ? qx - tw / 2 : sd === "left" ? qx : qx - tw;
+        const hit = yy => drawnExits.some(r => bx < r[2] + 4 && bx + tw + 4 > r[0] && yy - 7 < r[3] && yy + 7 > r[1]) || (placed || []).some(r => bx < r[0] + r[2] + 3 && bx + tw + 3 > r[0] && yy - 7 < r[1] + (r[3] || 14) && yy + 7 > r[1]);
+        let free = false; if (!e.q) for (const dy of [0, -14, 14, -28, 28]) if (!hit(qy + dy)) { qy += dy; free = true; break; }       // clear of the station names and of the other labels, or not written
+        if (!free) continue;
+        drawnExits.push([bx, qy - 7, bx + tw, qy + 7]); c.textAlign = sd;
+        if (!cols.noHalo) { c.lineWidth = 3.5; c.strokeStyle = cols.haloC || cols.bg; c.globalAlpha = 0.9; c.strokeText(text, qx, qy); c.globalAlpha = 1; }
+        c.fillStyle = cols.lbl || cols.ink; c.fillText(text, qx, qy);
+      }
+      c.textAlign = "left";
+    }
+
     /* ---------- Rail lines (v3.60): drawn here, not in the tiles, so they can be thick, smooth, side by side on shared track, and switched off ---------- */
     function prepRG(d) {
-      const ids = Object.keys(d.lines).filter(l => LINE_COL[l]).sort((a, b) => (a === "thameslink") - (b === "thameslink") || (a === "circle" || a === "hammersmith-city") - (b === "circle" || b === "hammersmith-city"));   // Thameslink is drawn last: no Tube line hides it where they cross or run together
+      const ids = Object.keys(d.lines).filter(l => LINE_COL[l]).sort((a, b) => (b === "national-rail") - (a === "national-rail") || (a === "thameslink") - (b === "thameslink") || (a === "circle" || a === "hammersmith-city") - (b === "circle" || b === "hammersmith-city"));   // Thameslink is drawn last: no Tube line hides it where they cross or run together
       for (const lid of ids) {
         const ends = {};
         for (const sg of d.lines[lid].segments) {
@@ -641,7 +725,7 @@
       c.lineTo(Q[Q.length - 1][0], Q[Q.length - 1][1]);
     }
     const lineW = () => Math.max(2, Math.min(6.5, 24 * view.s));
-    const stripeOf = lw => view.s < 0.05 ? 0 : lw * 0.92;
+    const stripeOf = lw => lw * 0.92;      // v4.29 (local): lanes at every zoom, so a line on shared track (the National Rail beside the Metropolitan, say) no longer sinks under the one drawn after it when zoomed out
     const casingW = lw => { const L = look(); return L ? L.casingW(lw) : lw; };        // Artistic: the casing round each line (Parchment brown ink, Poster cream)
     function traceLine(c, L, stripe, bx) {        // one line's track, smoothed, moved onto its stripe lane on shared track
       const [x0, y0, x1, y1] = bx;
@@ -655,10 +739,28 @@
         if (d > 0.3 && d < 150 && pts[i][0] > x0 && pts[i][0] < x1 && pts[i][1] > y0 && pts[i][1] < y1) { c.moveTo(toScreenX(pts[i][0]), toScreenY(pts[i][1])); c.lineTo(toScreenX(pts[j][0]), toScreenY(pts[j][1])); }
       }
     }
+    // National Rail: one line style for every operator, drawn under the other lines. Four looks were compared (?nr=a to d); Ryan chose d (22 Nov): a red with black dashes, b black with red dashes, c red with white dashes,
+    // d black with white dashes. The dashes are blocks across the whole line (not a centre stripe, which is Thameslink's look).
+    const NR_LOOKS = { a: ["red", "black"], b: ["black", "red"], c: ["red", "white"], d: ["black", "white"] };
+    let nrLook = "d"; try { const m = /[?&]nr=([a-d])\b/.exec(location.search); if (m) nrLook = m[1]; } catch (e) {}
+    function nrPal(pa) {                                            // the chosen National Rail look, shared by the track and the stubs that run on past the edge of the map
+      const [k0, k1] = NR_LOOKS[nrLook], dark = theme === "dark" && !pa, LK = look();
+      const col = k => k === "black" ? (dark ? "#0B0B0B" : "#141414") : k === "white" ? (pa && LK.casing ? LK.casing : "#FFFFFF") : (LK ? LK.lineColour("national-rail") : LINE_COL["national-rail"]);
+      return { k0, k1, dark, LK, col };
+    }
+    function drawNR(c, L, stripe, bx, lw, pa) {
+      const { k0, k1, dark, LK, col } = nrPal(pa);
+      const alpha = LK && LK.lineAlpha || 1; c.lineCap = "round";
+      if (LK && LK.lineGlow) { c.globalAlpha = 0.17; c.strokeStyle = col("red"); c.lineWidth = lw * 2.7 + 3; c.beginPath(); traceLine(c, L, stripe, bx); c.stroke(); }
+      if (dark && (k0 === "black" || k1 === "black")) { c.globalAlpha = 1; c.strokeStyle = "#69737C"; c.lineWidth = lw + 2; c.beginPath(); traceLine(c, L, stripe, bx); c.stroke(); }      // a grey edge so black shows on a dark map
+      c.globalAlpha = alpha; c.strokeStyle = col(k0); c.lineWidth = lw; c.beginPath(); traceLine(c, L, stripe, bx); c.stroke();
+      const d = lw * 1.9; c.strokeStyle = col(k1); c.lineCap = "butt"; c.setLineDash([d, d]); c.beginPath(); traceLine(c, L, stripe, bx); c.stroke(); c.setLineDash([]); c.lineCap = "round"; c.globalAlpha = 1;
+    }
     function lineBox() { const s = view.s, pad = 60 / s; return [view.cx - W / 2 / s - pad, view.cy - H / 2 / s - pad, view.cx + W / 2 / s + pad, view.cy + H / 2 / s + pad]; }
     function drawLines() {
       if (!RG || !anyLines()) return;
       const c = ctx2, s = view.s, lw = lineW(), stripe = stripeOf(lw), bx = lineBox(), pa = art();
+      c.save(); clipKeep(c); try {
       c.lineCap = "round"; c.lineJoin = "round";
       if (pa && look().casing) {                   // all the casings first, so side-by-side stripes keep their colours
         c.strokeStyle = look().casing; c.lineWidth = casingW(lw); c.beginPath();
@@ -668,6 +770,7 @@
       for (const lid of RG.ids) {
         if (!lineOn(lid)) continue;
         const L = RG.d.lines[lid];
+        if (lid === "national-rail") { drawNR(c, L, stripe, bx, lw, pa); continue; }
         for (const pass of (theme === "dark" && !pa && lid === "northern") ? [0, 1] : [1]) {
           const boat = /^rb/.test(lid);
           if (look() && look().lineGlow && !boat) { c.globalAlpha = 0.17; c.strokeStyle = lineColour(lid); c.lineWidth = lw * 2.7 + 3; c.beginPath(); traceLine(c, L, stripe, bx); c.stroke(); }      // a soft glow in the line's own colour
@@ -680,6 +783,7 @@
           }
         }
       }
+      } finally { c.restore(); }
     }
     // "Cut roads at lines": the road tiles are drawn onto their own canvas and erased along every drawn line (not the boats, which pass under the bridges),
     // so the lines sit clear of the roads like an overpass. Only redrawn with the map (pan, zoom, style, switches), never per train frame.
@@ -710,7 +814,7 @@
       if (now - liveLast >= 30) {
         liveLast = now;
         ctxL.setTransform(1, 0, 0, 1, 0, 0); ctxL.clearRect(0, 0, liveCanvas.width, liveCanvas.height); ctxL.setTransform(dpr, 0, 0, dpr, 0, 0);
-        LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", look() ? look().trainOutline : theme === "dark" ? "#E6EAED" : "#FFFFFF", look() ? look().trainFont : cols ? cols.sans : "Outfit", look() ? look().glow : null, look() ? look().train : null);
+        ctxL.save(); clipKeep(ctxL); LIVE.draw(ctxL, toScreenX, toScreenY, viewRect(), view.s, Date.now(), cols ? cols.bg : "#F1F2EF", look() ? look().trainOutline : theme === "dark" ? "#E6EAED" : "#FFFFFF", look() ? look().trainFont : cols ? cols.sans : "Outfit", look() ? look().glow : null, look() ? look().train : null); ctxL.restore();
       }
       scope.frame(liveFrame);
     }
@@ -763,6 +867,15 @@
       if (document.fonts && document.fonts.load) Promise.all(look().fonts.map(f => document.fonts.load(f))).then(() => { if (!scope.dead) { cols = null; dirty(); } }, () => {});
       if (!LB && !lbLoading) { lbLoading = true; loadJS("geo/labels.js", "UC_LABELS", d => { LB = d; dirty(); }, () => { lbLoading = false; }); }
     }
+    // Review mode (?review): design comments pinned to the map. The module is fullmap-review.js, loaded only with ?review (index.html), so the live file stays lean.
+    if (window.UndercurrentReview) window.UndercurrentReview.attach({
+      box, scope, version: ctx.VERSION, toScreenX, toScreenY, setStyle, centreOn, isDark, lineWidth: () => lineW(), lineCols: () => LINE_COL, lineNames: () => LINE_NAMES,
+      view: () => ({ cx: view.cx, cy: view.cy, s: view.s, W, H }), scale: () => view.s,
+      screenToWorld: (px, py) => [view.cx + (px - W / 2) / view.s, view.cy - (py - H / 2) / view.s],
+      styleInfo: () => { const t = STYLES.find(q => q.id === style) || STYLES[0]; return { id: t.id, name: t.name }; },
+      nearest: (px, py) => { let best = null, bd = 28; for (const st of stations) { const d = Math.hypot(toScreenX(st.x) - px, toScreenY(st.y) - py); if (d < bd) { bd = d; best = st.name; } } return best; },
+      layers: () => { const o = []; for (const k of ["fare", "cc", "ulez", "boroughs"]) if (on[k]) o.push(k === "cc" ? "Congestion Charge" : k === "fare" ? "Fare zones" : k === "ulez" ? "ULEZ" : "Boroughs"); if (show.cut) o.push("Roads cut at lines"); for (const k of GROUPS) if (!show[k]) o.push(k + " off"); if (!show.labels) o.push("names off"); if (!show.icons) o.push("icons off"); return o.join(", "); }
+    });
     if (ctx.debug) window.__fm = { get style() { return style; }, get cut() { return show.cut; }, setStyle, setCut(v) { show.cut = !!v; dirty(); }, get view() { return view; }, redraw() { draw(); }, get labels() { return Object.assign({}, labelStats); }, get pills() { return { alpha: pillAlpha(performance.now()), to: pillTo, idleMs: performance.now() - lastAct }; }, poke: () => poke(), setIdle(ms) { lastAct = performance.now() - ms; }, clockTick, drawMs(n) { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, get roadsLook() { return look() && look().roads; }, get rail() { return RG; }, get stationList() { return stations; }, get lineCols() { return RG ? Object.fromEntries(RG.ids.map(id => [id, lineColour(id)])) : null; }, get clockText() { return nclockT.textContent; }, cardTick() { cardKey = ""; cardTick(); }, get card() { return { text: vcardT.textContent, sky: vcard.dataset.sky || "" }; } };
 
     /* ---------- Layers pop-up (left panel button) ---------- */
@@ -779,7 +892,7 @@
         <p class="sub-label">Zones and boundaries</p><div class="fm-sws">${sw("f", "fare", "Fare zones", "#4E6576")}${sw("f", "cc", "Congestion Charge", "#D52B1E")}${sw("f", "ulez", "ULEZ zone", "#1E9E5A")}${sw("f", "boroughs", "Boroughs", "#97AEBC")}</div>
         <p class="sub-label">Icons</p><div class="fm-sws">${sw("s", "icons", "All icons")}</div>
         <div class="fm-chips">${TYPES.map(([k, n]) => `<button type="button" class="fm-chip" aria-pressed="true" data-t="${k}"><svg width="20" height="20" viewBox="0 0 24 24" fill="${k === "airport" ? "currentColor" : "none"}" stroke="${k === "airport" ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${k === "airport" ? PLANE : GLYPH[k]}"/></svg>${n}</button>`).join("")}</div>
-        <p class="sub-label">Lines</p><div class="fm-sws">${sw("s", "tube", "Underground", "#E32017")}${sw("s", "overground", "Overground, DLR and Trams", "#EE7C0E")}${sw("s", "hybrid", "Hybrid Rail (Elizabeth and Thameslink)", "#6950A1")}${sw("s", "boats", "River boats", "#0098D4")}${sw("s", "cable", "Cable car", "#E21836")}</div>
+        <p class="sub-label">Lines</p><div class="fm-sws">${sw("s", "tube", "Underground", "#E32017")}${sw("s", "overground", "Overground, DLR and Trams", "#EE7C0E")}${sw("s", "hybrid", "Hybrid Rail (Elizabeth and Thameslink)", "#6950A1")}${sw("s", "national", "National Rail", "#D4202A")}${sw("s", "boats", "River boats", "#0098D4")}${sw("s", "cable", "Cable car", "#E21836")}</div>
         <p class="sub-label">Names and roads</p><div class="fm-sws">${sw("s", "labels", "Station names")}${sw("s", "cut", "Cut roads at lines")}</div>
         <p class="sub-label">Train labels</p><div class="seg seg3" role="radiogroup" aria-label="Train labels"><input type="radio" name="fm-tl" id="fm-tl-dest" value="dest"><label for="fm-tl-dest">Destination</label><input type="radio" name="fm-tl" id="fm-tl-vid" value="vid"><label for="fm-tl-vid">Vehicle ID</label><input type="radio" name="fm-tl" id="fm-tl-off" value="off"><label for="fm-tl-off">Off</label></div></div>`;
       document.body.appendChild(sheet);
@@ -807,7 +920,7 @@
       scope.on(sheet, "click", e => {
         const b = e.target.closest("button"); if (!b || b.disabled) return;
         if (b.dataset.f) { const k = b.dataset.f; on[k] = !on[k]; if (on[k] && !F && !fLoading) { fLoading = true; loadJS("geo/filters.js", "UC_FILTERS", d => { F = prepFilters(d); dirty(); }, () => { fLoading = false; }); } }
-        else if (b.dataset.s) { show[b.dataset.s] = !show[b.dataset.s]; if (b.dataset.s === "cut") { try { localStorage.setItem(LS_CUT, show.cut ? "1" : "0"); } catch (x) {} } else if (GROUPS.includes(b.dataset.s)) { try { localStorage.setItem(LS_RAIL, JSON.stringify(Object.fromEntries(GROUPS.map(k => [k, show[k]])))); } catch (x) {} livePanel(); } }
+        else if (b.dataset.s) { show[b.dataset.s] = !show[b.dataset.s]; if (b.dataset.s === "cut") { try { localStorage.setItem(LS_CUT, show.cut ? "1" : "0"); } catch (x) {} } else if (GROUPS.includes(b.dataset.s)) { if (b.dataset.s === "national") ensureNR(); try { localStorage.setItem(LS_RAIL, JSON.stringify(Object.fromEntries(GROUPS.map(k => [k, show[k]])))); } catch (x) {} livePanel(); } }
         else if (b.dataset.t) show.types[b.dataset.t] = !show.types[b.dataset.t];
         else return;
         paint(); dirty();
@@ -1027,13 +1140,17 @@
       if (missing) for (const lv of lvs.slice(0, -1)) { const [i0, i1, j0, j1] = span(lv); const q = []; for (const layer of ["base", ...roadLayers()]) for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (exists(layer, lv, i, j)) { const e = cache.get(keyOf(layer, lv, i, j)); if (e && e.state === "queued") q.push(e); } wanted = q.concat(wanted); }
       pump(); evict();
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintOutside();
       drawFilters();
+      edgeLine();
       drawLines();
+      drawExitTracks();
       const placed = []; tapHits = [];           // v4.09: every station icon, landmark and airport badge drawn this frame, for tap-to-centre
       const lmItems = layoutLandmarks(placed);
       if (stations.length) drawStations(dpr, placed);
       drawAreaLabels(placed);
       drawLandmarks(lmItems);
+      drawExitLabels(placed);
       // panel read-outs
       const km = W / view.s / 1000;
       statW.textContent = km >= 10 ? Math.round(km) + " km" : km.toFixed(1) + " km";
@@ -1178,7 +1295,8 @@
       resize(); dirty();
     }, () => { upEl.textContent = "The map tiles could not be loaded"; upEl.dataset.error = "1"; });
     loadJS("geo/codes.js", "UC_CODES", () => {});
-    loadJS("geo/landmarks.js", "UC_LANDMARKS", d => { LM = d; dirty(); });
+    loadJS("geo/landmarks.js", "UC_LANDMARKS", d => { LM = d; applyOutline(); dirty(); });
+    loadJS("geo/outline.js", "UC_OUTLINE", d => { OUT = d; applyOutline(); }, () => {});          // v4.29: no outline file: the map is drawn as before
     // v4.27: every line goes through its station's icon. A station is one icon, but each line's own platform can be some way off it (at Green Park the Piccadilly line is 61 m
     // from the icon, the Victoria line 41 m), so the lines used to miss it. For each line and station, the point of the line nearest the icon is found and the track round it
     // (the pieces that meet at the station) is moved so that it passes through the icon, in a smooth taper of at most 250 m (less if the next station is nearer), so it reads as a
@@ -1218,20 +1336,34 @@
         }
       }
     }
+    // National Rail layer (v4.30 in progress): the track qualifying trains use, as one more line in the rail_graph format (geo/nr_graph.js, made by tools/geo/make_nr_graph.py).
+    // It loads when the switch is on, is added to the line table without touching the other lines, and stations on it get the "national-rail" line so they are drawn like any station.
+    let nrD = null, nrLoading = false;
+    function injectNR() {
+      if (!nrD || !railD || !stnD || railD.lines["national-rail"]) return false;
+      const key = new Set(nrD.line.stations.map(q => q.x + "," + q.y));       // before snapping: snapping nudges the line's own station positions
+      railD.lines["national-rail"] = nrD.line; snapLinesToStations({ lines: { "national-rail": nrD.line } }, stnD);
+      for (const st of stationsAll || []) if (key.has(st.x + "," + st.y) && !st.lines.includes("national-rail")) st.lines.push("national-rail");
+      return true;
+    }
+    function ensureNR() {
+      if (!show.national || nrD || nrLoading) return; nrLoading = true;
+      loadJS("geo/nr_graph.js", "UC_NRGRAPH", d => { nrLoading = false; nrD = d; if (RG && injectNR()) { RG = prepRG(railD); } dirty(); }, () => { nrLoading = false; });
+    }
     let railD = null, stnD = null;
     function railReady() {                                   // both the rail graph and the stations are here
       if (!railD || !stnD || RG) return;
-      snapLinesToStations(railD, stnD);
+      snapLinesToStations(railD, stnD); injectNR();
       const d = railD;
       RG = prepRG(d);
       if (window.UndercurrentFullMapLive) { LIVE = window.UndercurrentFullMapLive.create({ scope, graph: d, apiUrl, colour: lineColour, onChange: livePanel, lineShown: lineOn }); try { const c = document.querySelector('input[name="lbl"]:checked'); if (c && c.value === "num") show.train = "vid"; } catch (x) {} LIVE.setLabels(show.train); }
       dirty();
     }
-    loadJS("geo/rail_graph.js", "UC_RAILGRAPH", d => { railD = d; railReady(); });
+    loadJS("geo/rail_graph.js", "UC_RAILGRAPH", d => { railD = d; railReady(); }); ensureNR();
     setupLayers(); prepStyle();
     loadJS("geo/stations.js", "UC_STATIONS", d => {
-      stations = d.stations.map(s => { const lines = s.lines || [];      // rank: annual entries and exits (millions), more for each extra line; stations with no figure rank by their lines
-        return { name: s.name, x: s.x, y: s.y, lines, modes: s.modes || [], rank: (s.u || 0) * (1 + 0.15 * Math.max(0, lines.length - 1)) + lines.length * 0.5 }; }); dirty();
+      stationsAll = d.stations.map(s => { const lines = s.lines || [];      // rank: annual entries and exits (millions), more for each extra line; stations with no figure rank by their lines
+        return { name: s.name, x: s.x, y: s.y, lines, modes: s.modes || [], rank: (s.u || 0) * (1 + 0.15 * Math.max(0, lines.length - 1)) + lines.length * 0.5 }; }); stations = stationsAll; applyOutline();
       stnD = d; railReady();
 }, () => { stnD = { stations: [] }; railReady(); });   // no station file: the lines are drawn as they are
 

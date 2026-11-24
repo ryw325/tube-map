@@ -1,4 +1,5 @@
 /* Project Undercurrent: live Tube map engine (shared by every line). Line data comes from lines/<id>.js.
+   v4.30: Full Map: the fixed edge (outline and exits), the National Rail layer (one style for every operator), National Rail tracks run on past the edge of Greater London to an arrowhead and destination, and gaps in the National Rail lines closed
    v4.28: Light display mode: a Full | Light setting in Prefs (and ?light); Light caps the animation loops at 30 fps and switches off transitions (the reduced-motion path); the Full Map's pan and zoom drawing is not capped; the performance report, overlay and recorder summary say which mode
    v4.27: design log items L4 to L10 and F5 to F8, and 16-bit Pixel removed. Elizabeth's panel says Westbound and Eastbound (L4); the Thames fades out at the edges of the map instead of running on as long straight stretches (L5); the Line view has no river (L6); Line view branches sit on their geographic side, north above and south below, and the Circle ring is the right way up (L7, Elizabeth names its spine route with lvSpine); zoomed in, icons, trains, labels and the track shrink in steps, trains riding closer to the track (L8); one label size at each zoom in the True view (L9); Thameslink's white dash is drawn once per track piece, so it is dashed everywhere (L10); Full Map: a train drawn later covers the label of one under it (F5), landmark and airport badges are rounded squares (F6), Layers has five line switches (Underground, Overground with DLR and Trams, Hybrid Rail, River boats, Cable car), remembered, hiding lines and trains, and stations with no line left shrink (F8), and every line is bent gently to pass through its station icon (F7). 16-bit Pixel is gone (127 MB of tiles moved out of geo/tiles).
    v4.26: The Maps of all 21 lines are now the generated geo-schematic layouts, each with the one angular master Thames (45 and 90 degree turns only; every station on its real bank). Also publishes the performance meter and Display load (v4.24, v4.25).
@@ -150,7 +151,7 @@
   const CARRIAGE_SKIP = "M-18,-7H10L17,0L10,7H-18L-11,0Z";
   document.querySelectorAll(".legend-train").forEach(p => p.setAttribute("d", CARRIAGE));
 
-  const VERSION = "4.28";
+  const VERSION = "4.30";
   /* ---------- Performance settings (v4.24): every number the performance meter uses, in one place ----------
      THE THRESHOLDS ARE PROVISIONAL: they are first guesses until they have been tested on real hardware (a TV stick, a low-power tablet).
      mode "warn" is the only mode built: the meter measures and shows a note, and never changes polling, data freshness or anything in trains-core.js.
